@@ -1,5 +1,7 @@
 # Humble Baker Studio
 
+<p align="center"><img src="docs/icon.png" width="180" alt="Humble Baker Studio icon"></p>
+
 A local, offline audio studio for Windows: piano roll, synths, drums, sample tracks, a patch graph, automation painting, mastering, and AI-assisted composition. No account, no cloud dependency — generated audio and project data stay on the machine. Built with deepseek v4 flash and qwen. 
 
 ## Run
@@ -78,6 +80,17 @@ No installer is required: the build is portable. FFmpeg and SuperCollider are di
 | `AudioStudioImplementation.ps1` | Canonical studio implementation |
 | `Humble Baker Studio.standalone.ps1` | Single-file standalone build |
 | `docs/` | Manual and full parameter references |
+| `LICENSE` | MIT license for the software |
+| `NOTICE.md` | Copyright, content/brand terms and third-party attributions |
+
+## License
+
+The software and documentation are released under the **MIT License**; see
+[LICENSE](LICENSE).
+
+The Humble Baker name, cupcake icon/logo and other brand assets are reserved,
+and third-party tools/models keep their own licenses. See [NOTICE.md](NOTICE.md)
+for the full terms, attributions and redistribution checklist.
 
 ## Notes
 

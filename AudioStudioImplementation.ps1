@@ -1,4 +1,6 @@
 # Audio Studio: piano roll, tracks, SuperCollider bridge and AI production tools for the Audio tab.
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 David Burr (Daiviey)
 # Dot-sourced by Humble Baker.ps1. Entry point: Show-AudioStudio. Works standalone too (see the bottom of this file).
 
 if (-not ('HbStudio.KnobPanel' -as [type])) {
@@ -348,6 +350,31 @@ public class Fx {
         HarmTremMix = 0; HarmTremRate = 4; HarmTremDepth = 0.5;
         GlitchMix = 0; GlitchDensity = 0.3; GlitchSeed = 1;
         SweepMix = 0; SweepRate = 0.5; SweepDepth = 0.6; SweepQ = 0.5; SweepCenter = 1200;
+        OptoMix = 0; OptoThresh = -18; OptoRatio = 3; OptoRelease = 250;
+        FetMix = 0; FetThresh = -20; FetRatio = 4; FetAttack = 2;
+        VcaMix = 0; VcaThresh = -16; VcaRatio = 2; VcaRelease = 200;
+        ExpMix = 0; ExpThresh = -40; ExpRatio = 2; ExpRange = 24;
+        DynEqMix = 0; DynEqFreq = 2500; DynEqThresh = -24; DynEqAmount = 0.5;
+        PultecLow = 0; PultecHigh = 0; PultecAtten = 0;
+        OverdriveDrive = 0.5; OverdriveTone = 0.5; OverdriveMix = 0;
+        MetalDrive = 0.6; MetalMid = 0.3; MetalMix = 0;
+        CabDrive = 0.4; CabTone = 0.4; CabMix = 0;
+        FlutterMix = 0; FlutterRate = 0.7; FlutterDepth = 0.5;
+        VocoderMix = 0; VocoderBands = 8; VocoderRelease = 80; VocoderCarrier = 0;
+        DimMix = 0; DimRate = 0.4; DimDepth = 0.6;
+        EnvPhaserMix = 0; EnvPhaserThresh = -30; EnvPhaserDepth = 0.7; EnvPhaserRate = 0.5;
+        EnvFlangeMix = 0; EnvFlangeThresh = -30; EnvFlangeDepth = 0.7; EnvFlangeFb = 0.4;
+        ChopMix = 0; ChopRate = 8; ChopDepth = 1; ChopShape = 0.5;
+        HalfSpeedMix = 0; HalfSpeedAmount = 1;
+        RevDelayMix = 0; RevDelayTime = 300; RevDelayFb = 0;
+        EchoVerbMix = 0; EchoVerbTime = 320; EchoVerbFb = 0.4; EchoVerbSize = 0.6;
+        BloomMix = 0; BloomSize = 0.8; BloomThresh = -40; BloomAttack = 0.15;
+        FreezeMix = 0; FreezeThreshold = -50; FreezeDecay = 0.8;
+        PitchEchoMix = 0; PitchEchoTime = 350; PitchEchoFb = 0.4; PitchEchoSemi = 12;
+        BarberMix = 0; BarberRate = 0.3; BarberDepth = 0.8; BarberStages = 4;
+        NonLinVerbMix = 0; NonLinVerbSize = 0.7; NonLinVerbDrive = 0.6; NonLinVerbGate = 0.3;
+        MSCompMix = 0; MSCompThresh = -20; MSCompRatio = 3; MSCompRelease = 120;
+        MBDistMix = 0; MBDistLow = 0.3; MBDistMid = 0.6; MBDistHigh = 0.4;
     }
     [Category("1 Filter"), Description("Filter type: off, lowpass, highpass, bandpass.")] public FilterMode Filter { get; set; }
     [Category("1 Filter"), Description("Cutoff in Hz."), Rng(30, 16000)] public double Cutoff { get; set; }
@@ -554,6 +581,96 @@ public class Fx {
     [Category("22 Modulation"), Description("Sweep filter depth."), Rng(0, 1)] public double SweepDepth { get; set; }
     [Category("22 Modulation"), Description("Sweep filter resonance."), Rng(0, 0.95)] public double SweepQ { get; set; }
     [Category("22 Modulation"), Description("Sweep filter center in Hz."), Rng(80, 8000)] public double SweepCenter { get; set; }
+    [Category("25 Dynamics"), Description("Optical compressor mix (0 = off)."), Rng(0, 1)] public double OptoMix { get; set; }
+    [Category("25 Dynamics"), Description("Optical compressor threshold in dB."), Rng(-60, 0)] public double OptoThresh { get; set; }
+    [Category("25 Dynamics"), Description("Optical compressor ratio."), Rng(1, 20)] public double OptoRatio { get; set; }
+    [Category("25 Dynamics"), Description("Optical compressor release in ms."), Rng(20, 1000)] public double OptoRelease { get; set; }
+    [Category("25 Dynamics"), Description("FET compressor mix (0 = off)."), Rng(0, 1)] public double FetMix { get; set; }
+    [Category("25 Dynamics"), Description("FET compressor threshold in dB."), Rng(-60, 0)] public double FetThresh { get; set; }
+    [Category("25 Dynamics"), Description("FET compressor ratio."), Rng(1, 20)] public double FetRatio { get; set; }
+    [Category("25 Dynamics"), Description("FET compressor attack in ms."), Rng(0.1, 50)] public double FetAttack { get; set; }
+    [Category("25 Dynamics"), Description("VCA bus compressor mix (0 = off)."), Rng(0, 1)] public double VcaMix { get; set; }
+    [Category("25 Dynamics"), Description("VCA compressor threshold in dB."), Rng(-60, 0)] public double VcaThresh { get; set; }
+    [Category("25 Dynamics"), Description("VCA compressor ratio."), Rng(1, 20)] public double VcaRatio { get; set; }
+    [Category("25 Dynamics"), Description("VCA compressor release in ms."), Rng(20, 1000)] public double VcaRelease { get; set; }
+    [Category("25 Dynamics"), Description("Downward expander mix (0 = off)."), Rng(0, 1)] public double ExpMix { get; set; }
+    [Category("25 Dynamics"), Description("Expander threshold in dB."), Rng(-70, -10)] public double ExpThresh { get; set; }
+    [Category("25 Dynamics"), Description("Expander ratio."), Rng(1, 8)] public double ExpRatio { get; set; }
+    [Category("25 Dynamics"), Description("Expander maximum range in dB."), Rng(3, 48)] public double ExpRange { get; set; }
+    [Category("25 Dynamics"), Description("Mid/side compressor mix (0 = off)."), Rng(0, 1)] public double MSCompMix { get; set; }
+    [Category("25 Dynamics"), Description("Mid/side compressor threshold in dB."), Rng(-60, 0)] public double MSCompThresh { get; set; }
+    [Category("25 Dynamics"), Description("Mid/side compressor ratio."), Rng(1, 20)] public double MSCompRatio { get; set; }
+    [Category("25 Dynamics"), Description("Mid/side compressor release in ms."), Rng(20, 1000)] public double MSCompRelease { get; set; }
+    [Category("26 EQ / Filter"), Description("Dynamic EQ mix (0 = off)."), Rng(0, 1)] public double DynEqMix { get; set; }
+    [Category("26 EQ / Filter"), Description("Dynamic EQ frequency in Hz."), Rng(80, 12000)] public double DynEqFreq { get; set; }
+    [Category("26 EQ / Filter"), Description("Dynamic EQ threshold in dB."), Rng(-60, 0)] public double DynEqThresh { get; set; }
+    [Category("26 EQ / Filter"), Description("Dynamic EQ gain reduction amount."), Rng(0, 1)] public double DynEqAmount { get; set; }
+    [Category("26 EQ / Filter"), Description("Pultec low boost in dB."), Rng(0, 12)] public double PultecLow { get; set; }
+    [Category("26 EQ / Filter"), Description("Pultec high boost in dB."), Rng(0, 12)] public double PultecHigh { get; set; }
+    [Category("26 EQ / Filter"), Description("Pultec high attenuation in dB (boost and cut together for the classic curve)."), Rng(0, 12)] public double PultecAtten { get; set; }
+    [Category("27 Drive / Amp"), Description("Overdrive mix (0 = off)."), Rng(0, 1)] public double OverdriveMix { get; set; }
+    [Category("27 Drive / Amp"), Description("Overdrive drive."), Rng(0, 1)] public double OverdriveDrive { get; set; }
+    [Category("27 Drive / Amp"), Description("Overdrive tone (0 dark, 1 bright)."), Rng(0, 1)] public double OverdriveTone { get; set; }
+    [Category("27 Drive / Amp"), Description("Metal distortion mix (0 = off)."), Rng(0, 1)] public double MetalMix { get; set; }
+    [Category("27 Drive / Amp"), Description("Metal distortion drive."), Rng(0, 1)] public double MetalDrive { get; set; }
+    [Category("27 Drive / Amp"), Description("Metal distortion mid scoop (0 = flat, 1 = scooped)."), Rng(0, 1)] public double MetalMid { get; set; }
+    [Category("27 Drive / Amp"), Description("Speaker simulator mix (0 = off)."), Rng(0, 1)] public double CabMix { get; set; }
+    [Category("27 Drive / Amp"), Description("Speaker simulator drive."), Rng(0, 1)] public double CabDrive { get; set; }
+    [Category("27 Drive / Amp"), Description("Speaker simulator tone."), Rng(0, 1)] public double CabTone { get; set; }
+    [Category("27 Drive / Amp"), Description("Multiband distortion mix (0 = off)."), Rng(0, 1)] public double MBDistMix { get; set; }
+    [Category("27 Drive / Amp"), Description("Multiband distortion low drive."), Rng(0, 1)] public double MBDistLow { get; set; }
+    [Category("27 Drive / Amp"), Description("Multiband distortion mid drive."), Rng(0, 1)] public double MBDistMid { get; set; }
+    [Category("27 Drive / Amp"), Description("Multiband distortion high drive."), Rng(0, 1)] public double MBDistHigh { get; set; }
+    [Category("28 Modulation"), Description("Tape flutter mix (0 = off)."), Rng(0, 1)] public double FlutterMix { get; set; }
+    [Category("28 Modulation"), Description("Tape flutter rate in Hz."), Rng(0.05, 8)] public double FlutterRate { get; set; }
+    [Category("28 Modulation"), Description("Tape flutter depth."), Rng(0, 1)] public double FlutterDepth { get; set; }
+    [Category("28 Modulation"), Description("Dimension stereo chorus mix (0 = off)."), Rng(0, 1)] public double DimMix { get; set; }
+    [Category("28 Modulation"), Description("Dimension rate in Hz."), Rng(0.05, 5)] public double DimRate { get; set; }
+    [Category("28 Modulation"), Description("Dimension depth."), Rng(0, 1)] public double DimDepth { get; set; }
+    [Category("28 Modulation"), Description("Envelope phaser mix (0 = off)."), Rng(0, 1)] public double EnvPhaserMix { get; set; }
+    [Category("28 Modulation"), Description("Envelope phaser threshold in dB."), Rng(-60, 0)] public double EnvPhaserThresh { get; set; }
+    [Category("28 Modulation"), Description("Envelope phaser depth."), Rng(0, 1)] public double EnvPhaserDepth { get; set; }
+    [Category("28 Modulation"), Description("Envelope phaser LFO rate in Hz."), Rng(0, 8)] public double EnvPhaserRate { get; set; }
+    [Category("28 Modulation"), Description("Envelope flanger mix (0 = off)."), Rng(0, 1)] public double EnvFlangeMix { get; set; }
+    [Category("28 Modulation"), Description("Envelope flanger threshold in dB."), Rng(-60, 0)] public double EnvFlangeThresh { get; set; }
+    [Category("28 Modulation"), Description("Envelope flanger depth."), Rng(0, 1)] public double EnvFlangeDepth { get; set; }
+    [Category("28 Modulation"), Description("Envelope flanger feedback."), Rng(0, 0.95)] public double EnvFlangeFb { get; set; }
+    [Category("28 Modulation"), Description("Chopper mix (0 = off)."), Rng(0, 1)] public double ChopMix { get; set; }
+    [Category("28 Modulation"), Description("Chopper rate in Hz."), Rng(0.5, 30)] public double ChopRate { get; set; }
+    [Category("28 Modulation"), Description("Chopper depth."), Rng(0, 1)] public double ChopDepth { get; set; }
+    [Category("28 Modulation"), Description("Chopper shape (0 sine, 1 square)."), Rng(0, 1)] public double ChopShape { get; set; }
+    [Category("28 Modulation"), Description("Barber-pole phaser mix (0 = off)."), Rng(0, 1)] public double BarberMix { get; set; }
+    [Category("28 Modulation"), Description("Barber-pole rate in Hz."), Rng(0.05, 5)] public double BarberRate { get; set; }
+    [Category("28 Modulation"), Description("Barber-pole depth."), Rng(0, 1)] public double BarberDepth { get; set; }
+    [Category("28 Modulation"), Description("Barber-pole allpass stages."), Rng(2, 8)] public double BarberStages { get; set; }
+    [Category("29 Pitch / Time"), Description("Half-speed mix (0 = off)."), Rng(0, 1)] public double HalfSpeedMix { get; set; }
+    [Category("29 Pitch / Time"), Description("Half-speed amount (1 = half speed)."), Rng(0, 1)] public double HalfSpeedAmount { get; set; }
+    [Category("29 Pitch / Time"), Description("Pitch echo mix (0 = off)."), Rng(0, 1)] public double PitchEchoMix { get; set; }
+    [Category("29 Pitch / Time"), Description("Pitch echo time in ms."), Rng(40, 1200)] public double PitchEchoTime { get; set; }
+    [Category("29 Pitch / Time"), Description("Pitch echo feedback."), Rng(0, 0.9)] public double PitchEchoFb { get; set; }
+    [Category("29 Pitch / Time"), Description("Pitch echo interval in semitones."), Rng(-12, 12)] public double PitchEchoSemi { get; set; }
+    [Category("29 Pitch / Time"), Description("Spectral freeze mix (0 = off)."), Rng(0, 1)] public double FreezeMix { get; set; }
+    [Category("29 Pitch / Time"), Description("Freeze trigger threshold in dB."), Rng(-60, 0)] public double FreezeThreshold { get; set; }
+    [Category("29 Pitch / Time"), Description("Freeze decay."), Rng(0, 1)] public double FreezeDecay { get; set; }
+    [Category("30 Space"), Description("Reverse delay mix (0 = off)."), Rng(0, 1)] public double RevDelayMix { get; set; }
+    [Category("30 Space"), Description("Reverse delay block time in ms."), Rng(60, 1200)] public double RevDelayTime { get; set; }
+    [Category("30 Space"), Description("Reverse delay feedback."), Rng(0, 0.9)] public double RevDelayFb { get; set; }
+    [Category("30 Space"), Description("Echo-verb mix (0 = off)."), Rng(0, 1)] public double EchoVerbMix { get; set; }
+    [Category("30 Space"), Description("Echo-verb delay time in ms."), Rng(40, 900)] public double EchoVerbTime { get; set; }
+    [Category("30 Space"), Description("Echo-verb feedback."), Rng(0, 0.9)] public double EchoVerbFb { get; set; }
+    [Category("30 Space"), Description("Echo-verb reverb size."), Rng(0, 1)] public double EchoVerbSize { get; set; }
+    [Category("30 Space"), Description("Bloom reverb mix (0 = off)."), Rng(0, 1)] public double BloomMix { get; set; }
+    [Category("30 Space"), Description("Bloom reverb size."), Rng(0, 1)] public double BloomSize { get; set; }
+    [Category("30 Space"), Description("Bloom trigger threshold in dB."), Rng(-60, 0)] public double BloomThresh { get; set; }
+    [Category("30 Space"), Description("Bloom attack in seconds."), Rng(0.01, 1)] public double BloomAttack { get; set; }
+    [Category("30 Space"), Description("Non-linear reverb mix (0 = off)."), Rng(0, 1)] public double NonLinVerbMix { get; set; }
+    [Category("30 Space"), Description("Non-linear reverb size."), Rng(0, 1)] public double NonLinVerbSize { get; set; }
+    [Category("30 Space"), Description("Non-linear reverb drive."), Rng(0, 1)] public double NonLinVerbDrive { get; set; }
+    [Category("30 Space"), Description("Non-linear reverb gate."), Rng(0, 1)] public double NonLinVerbGate { get; set; }
+    [Category("31 Vocoder"), Description("Vocoder mix (0 = off)."), Rng(0, 1)] public double VocoderMix { get; set; }
+    [Category("31 Vocoder"), Description("Vocoder band count."), Rng(4, 12)] public double VocoderBands { get; set; }
+    [Category("31 Vocoder"), Description("Vocoder envelope release in ms."), Rng(10, 500)] public double VocoderRelease { get; set; }
+    [Category("31 Vocoder"), Description("Vocoder carrier (0 = noise, 1 = saw)."), Rng(0, 1)] public double VocoderCarrier { get; set; }
     [Category("23 Dynamics"), Description("Ducker mix (0 = off)."), Rng(0, 1)] public double DuckerMix { get; set; }
     [Category("23 Dynamics"), Description("Ducker threshold in dB."), Rng(-60, 0)] public double DuckerThreshold { get; set; }
     [Category("23 Dynamics"), Description("Ducker depth."), Rng(0, 1)] public double DuckerDepth { get; set; }
@@ -590,7 +707,13 @@ public class Fx {
                 || BeatRepeatMix > 0 || GrainMix > 0 || PingPongMix > 0 || DubMix > 0
                 || CathedralMix > 0 || RoomMix > 0 || AmbienceMix > 0 || WahPedalMix > 0 || TalkMix > 0
                 || DuckerMix > 0 || RiderAmount > 0 || Math.Abs(StereoWidth - 1) > 0.001 || BassMonoFreq > 0
-                || HarmTremMix > 0 || GlitchMix > 0 || SweepMix > 0;
+                || HarmTremMix > 0 || GlitchMix > 0 || SweepMix > 0
+                || OptoMix > 0 || FetMix > 0 || VcaMix > 0 || ExpMix > 0 || MSCompMix > 0
+                || DynEqMix > 0 || PultecLow > 0 || PultecHigh > 0 || PultecAtten > 0
+                || OverdriveMix > 0 || MetalMix > 0 || CabMix > 0 || MBDistMix > 0
+                || FlutterMix > 0 || DimMix > 0 || EnvPhaserMix > 0 || EnvFlangeMix > 0
+                || ChopMix > 0 || BarberMix > 0 || HalfSpeedMix > 0 || PitchEchoMix > 0 || FreezeMix > 0
+                || RevDelayMix > 0 || EchoVerbMix > 0 || BloomMix > 0 || NonLinVerbMix > 0 || VocoderMix > 0;
         }
     }
 }
@@ -1616,6 +1739,31 @@ public static class KnobPanel {
             else if (m == "grain") { s.Add("GrainMix"); s.Add("GrainSize"); s.Add("GrainDensity"); }
             else if (m == "glitchgate") { s.Add("GlitchMix"); s.Add("GlitchDensity"); s.Add("GlitchSeed"); }
             else if (m == "sweep") { s.Add("SweepMix"); s.Add("SweepRate"); s.Add("SweepDepth"); s.Add("SweepQ"); s.Add("SweepCenter"); }
+            else if (m == "optocomp") { s.Add("OptoMix"); s.Add("OptoThresh"); s.Add("OptoRatio"); s.Add("OptoRelease"); }
+            else if (m == "fetcomp") { s.Add("FetMix"); s.Add("FetThresh"); s.Add("FetRatio"); s.Add("FetAttack"); }
+            else if (m == "vcacomp") { s.Add("VcaMix"); s.Add("VcaThresh"); s.Add("VcaRatio"); s.Add("VcaRelease"); }
+            else if (m == "expander") { s.Add("ExpMix"); s.Add("ExpThresh"); s.Add("ExpRatio"); s.Add("ExpRange"); }
+            else if (m == "mscomp") { s.Add("MSCompMix"); s.Add("MSCompThresh"); s.Add("MSCompRatio"); s.Add("MSCompRelease"); }
+            else if (m == "dyneq") { s.Add("DynEqMix"); s.Add("DynEqFreq"); s.Add("DynEqThresh"); s.Add("DynEqAmount"); }
+            else if (m == "pulteceq") { s.Add("PultecLow"); s.Add("PultecHigh"); s.Add("PultecAtten"); }
+            else if (m == "overdrive") { s.Add("OverdriveDrive"); s.Add("OverdriveTone"); s.Add("OverdriveMix"); }
+            else if (m == "metaldrive") { s.Add("MetalDrive"); s.Add("MetalMid"); s.Add("MetalMix"); }
+            else if (m == "cabsim") { s.Add("CabDrive"); s.Add("CabTone"); s.Add("CabMix"); }
+            else if (m == "mbdist") { s.Add("MBDistMix"); s.Add("MBDistLow"); s.Add("MBDistMid"); s.Add("MBDistHigh"); }
+            else if (m == "tapeflutter") { s.Add("FlutterMix"); s.Add("FlutterRate"); s.Add("FlutterDepth"); }
+            else if (m == "dimension") { s.Add("DimMix"); s.Add("DimRate"); s.Add("DimDepth"); }
+            else if (m == "envphaser") { s.Add("EnvPhaserMix"); s.Add("EnvPhaserThresh"); s.Add("EnvPhaserDepth"); s.Add("EnvPhaserRate"); }
+            else if (m == "envflanger") { s.Add("EnvFlangeMix"); s.Add("EnvFlangeThresh"); s.Add("EnvFlangeDepth"); s.Add("EnvFlangeFb"); }
+            else if (m == "chopper") { s.Add("ChopMix"); s.Add("ChopRate"); s.Add("ChopDepth"); s.Add("ChopShape"); }
+            else if (m == "barberpole") { s.Add("BarberMix"); s.Add("BarberRate"); s.Add("BarberDepth"); s.Add("BarberStages"); }
+            else if (m == "halfspeed") { s.Add("HalfSpeedMix"); s.Add("HalfSpeedAmount"); }
+            else if (m == "pitchecho") { s.Add("PitchEchoMix"); s.Add("PitchEchoTime"); s.Add("PitchEchoFb"); s.Add("PitchEchoSemi"); }
+            else if (m == "spectralfreeze") { s.Add("FreezeMix"); s.Add("FreezeThreshold"); s.Add("FreezeDecay"); }
+            else if (m == "revdelay") { s.Add("RevDelayMix"); s.Add("RevDelayTime"); s.Add("RevDelayFb"); }
+            else if (m == "echoverb") { s.Add("EchoVerbMix"); s.Add("EchoVerbTime"); s.Add("EchoVerbFb"); s.Add("EchoVerbSize"); }
+            else if (m == "bloomverb") { s.Add("BloomMix"); s.Add("BloomSize"); s.Add("BloomThresh"); s.Add("BloomAttack"); }
+            else if (m == "nonlinverb") { s.Add("NonLinVerbMix"); s.Add("NonLinVerbSize"); s.Add("NonLinVerbDrive"); s.Add("NonLinVerbGate"); }
+            else if (m == "vocoder") { s.Add("VocoderMix"); s.Add("VocoderBands"); s.Add("VocoderRelease"); s.Add("VocoderCarrier"); }
             s.Add("Gain");
         }
         return s;
@@ -2427,7 +2575,14 @@ public class PatchGraphControl : Control {
         new[] { "Dub delay", "dubdelay" }, new[] { "Cathedral reverb", "cathedral" }, new[] { "Room reverb", "roomverb" }, new[] { "Ambience", "ambience" },
         new[] { "Wah pedal", "wahpedal" }, new[] { "Talk box", "talkbox" }, new[] { "Ducker", "ducker" }, new[] { "Level rider", "rider" },
         new[] { "Harmonic tremolo", "harmtrem" }, new[] { "Beat repeat", "beatrepeat" }, new[] { "Granular cloud", "grain" }, new[] { "Glitch gate", "glitchgate" },
-        new[] { "Sweep filter", "sweep" }
+        new[] { "Sweep filter", "sweep" },
+        new[] { "Opto compressor", "optocomp" }, new[] { "FET compressor", "fetcomp" }, new[] { "VCA compressor", "vcacomp" }, new[] { "Expander", "expander" },
+        new[] { "Mid/Side comp", "mscomp" }, new[] { "Dynamic EQ", "dyneq" }, new[] { "Pultec EQ", "pulteceq" }, new[] { "Overdrive", "overdrive" },
+        new[] { "Metal drive", "metaldrive" }, new[] { "Speaker cab", "cabsim" }, new[] { "Multiband drive", "mbdist" }, new[] { "Tape flutter", "tapeflutter" },
+        new[] { "Dimension", "dimension" }, new[] { "Envelope phaser", "envphaser" }, new[] { "Envelope flanger", "envflanger" }, new[] { "Chopper", "chopper" },
+        new[] { "Barber-pole", "barberpole" }, new[] { "Half speed", "halfspeed" }, new[] { "Pitch echo", "pitchecho" }, new[] { "Spectral freeze", "spectralfreeze" },
+        new[] { "Reverse delay", "revdelay" }, new[] { "Echo-verb", "echoverb" }, new[] { "Bloom reverb", "bloomverb" }, new[] { "Non-linear verb", "nonlinverb" },
+        new[] { "Vocoder", "vocoder" }
     };
     public static PatchNode NewFxNode(string type, int x, int y) {
         PatchNode n = new PatchNode(); n.Kind = "fx"; n.Type = type; n.Label = type.ToUpperInvariant(); n.X = x; n.Y = y;
@@ -2506,6 +2661,31 @@ public class PatchGraphControl : Control {
             case "grain": fx.GrainMix = 0.5; fx.GrainSize = 80; fx.GrainDensity = 20; break;
             case "glitchgate": fx.GlitchMix = 0.5; fx.GlitchDensity = 0.3; fx.GlitchSeed = 1; break;
             case "sweep": fx.SweepMix = 0.6; fx.SweepRate = 0.5; fx.SweepDepth = 0.6; fx.SweepQ = 0.5; fx.SweepCenter = 1200; break;
+            case "optocomp": fx.OptoMix = 0.6; fx.OptoThresh = -18; fx.OptoRatio = 3; fx.OptoRelease = 250; break;
+            case "fetcomp": fx.FetMix = 0.6; fx.FetThresh = -20; fx.FetRatio = 4; fx.FetAttack = 2; break;
+            case "vcacomp": fx.VcaMix = 0.6; fx.VcaThresh = -16; fx.VcaRatio = 2; fx.VcaRelease = 200; break;
+            case "expander": fx.ExpMix = 0.6; fx.ExpThresh = -40; fx.ExpRatio = 2; fx.ExpRange = 24; break;
+            case "mscomp": fx.MSCompMix = 0.6; fx.MSCompThresh = -20; fx.MSCompRatio = 3; fx.MSCompRelease = 120; break;
+            case "dyneq": fx.DynEqMix = 0.6; fx.DynEqFreq = 2500; fx.DynEqThresh = -24; fx.DynEqAmount = 0.5; break;
+            case "pulteceq": fx.PultecLow = 3; fx.PultecHigh = 4; fx.PultecAtten = 2; break;
+            case "overdrive": fx.OverdriveMix = 0.6; fx.OverdriveDrive = 0.5; fx.OverdriveTone = 0.5; break;
+            case "metaldrive": fx.MetalMix = 0.6; fx.MetalDrive = 0.6; fx.MetalMid = 0.3; break;
+            case "cabsim": fx.CabMix = 0.6; fx.CabDrive = 0.4; fx.CabTone = 0.4; break;
+            case "mbdist": fx.MBDistMix = 0.6; fx.MBDistLow = 0.3; fx.MBDistMid = 0.6; fx.MBDistHigh = 0.4; break;
+            case "tapeflutter": fx.FlutterMix = 0.6; fx.FlutterRate = 0.7; fx.FlutterDepth = 0.5; break;
+            case "dimension": fx.DimMix = 0.6; fx.DimRate = 0.4; fx.DimDepth = 0.6; break;
+            case "envphaser": fx.EnvPhaserMix = 0.6; fx.EnvPhaserThresh = -30; fx.EnvPhaserDepth = 0.7; fx.EnvPhaserRate = 0.5; break;
+            case "envflanger": fx.EnvFlangeMix = 0.6; fx.EnvFlangeThresh = -30; fx.EnvFlangeDepth = 0.7; fx.EnvFlangeFb = 0.4; break;
+            case "chopper": fx.ChopMix = 0.7; fx.ChopRate = 8; fx.ChopDepth = 1; fx.ChopShape = 0.5; break;
+            case "barberpole": fx.BarberMix = 0.6; fx.BarberRate = 0.3; fx.BarberDepth = 0.8; fx.BarberStages = 4; break;
+            case "halfspeed": fx.HalfSpeedMix = 0.6; fx.HalfSpeedAmount = 1; break;
+            case "pitchecho": fx.PitchEchoMix = 0.4; fx.PitchEchoTime = 350; fx.PitchEchoFb = 0.4; fx.PitchEchoSemi = 12; break;
+            case "spectralfreeze": fx.FreezeMix = 0.6; fx.FreezeThreshold = -50; fx.FreezeDecay = 0.8; break;
+            case "revdelay": fx.RevDelayMix = 0.4; fx.RevDelayTime = 300; fx.RevDelayFb = 0; break;
+            case "echoverb": fx.EchoVerbMix = 0.4; fx.EchoVerbTime = 320; fx.EchoVerbFb = 0.4; fx.EchoVerbSize = 0.6; break;
+            case "bloomverb": fx.BloomMix = 0.5; fx.BloomSize = 0.8; fx.BloomThresh = -40; fx.BloomAttack = 0.15; break;
+            case "nonlinverb": fx.NonLinVerbMix = 0.4; fx.NonLinVerbSize = 0.7; fx.NonLinVerbDrive = 0.6; fx.NonLinVerbGate = 0.3; break;
+            case "vocoder": fx.VocoderMix = 0.6; fx.VocoderBands = 8; fx.VocoderRelease = 80; fx.VocoderCarrier = 0; break;
         }
         return n;
     }
@@ -3747,6 +3927,31 @@ public static class FxProc {
         if (fx.HarmTremMix > 0) HarmTremFx(fx, a, b);
         if (fx.GlitchMix > 0) GlitchGateFx(fx, a, b);
         if (fx.SweepMix > 0) SweepFx(fx, a, b);
+        if (fx.OptoMix > 0) OptoCompFx(fx, a, b);
+        if (fx.FetMix > 0) FetCompFx(fx, a, b);
+        if (fx.VcaMix > 0) VcaCompFx(fx, a, b);
+        if (fx.ExpMix > 0) ExpanderFx(fx, a, b);
+        if (fx.MSCompMix > 0) MSCompFx(fx, a, b);
+        if (fx.DynEqMix > 0) DynEqFx(fx, a, b);
+        if (fx.PultecLow > 0 || fx.PultecHigh > 0 || fx.PultecAtten > 0) PultecFx(fx, a, b);
+        if (fx.OverdriveMix > 0) OverdriveFx(fx, a, b);
+        if (fx.MetalMix > 0) MetalDriveFx(fx, a, b);
+        if (fx.CabMix > 0) CabSimFx(fx, a, b);
+        if (fx.MBDistMix > 0) MultibandDriveFx(fx, a, b);
+        if (fx.FlutterMix > 0) TapeFlutterFx(fx, a, b);
+        if (fx.DimMix > 0) DimensionFx(fx, a, b);
+        if (fx.EnvPhaserMix > 0) EnvPhaserFx(fx, a, b);
+        if (fx.EnvFlangeMix > 0) EnvFlangerFx(fx, a, b);
+        if (fx.ChopMix > 0) ChopperFx(fx, a, b);
+        if (fx.BarberMix > 0) BarberPoleFx(fx, a, b);
+        if (fx.HalfSpeedMix > 0) HalfSpeedFx(fx, a, b);
+        if (fx.PitchEchoMix > 0) PitchEchoFx(fx, a, b);
+        if (fx.FreezeMix > 0) SpectralFreezeFx(fx, a, b);
+        if (fx.RevDelayMix > 0) ReverseDelayFx(fx, a, b);
+        if (fx.EchoVerbMix > 0) EchoVerbFx(fx, a, b);
+        if (fx.BloomMix > 0) BloomVerbFx(fx, a, b);
+        if (fx.NonLinVerbMix > 0) NonLinVerbFx(fx, a, b);
+        if (fx.VocoderMix > 0) VocoderFx(fx, a, b);
         if (fx.PitchShift != 0) PitchShift(fx, a, b);
         if (fx.TapeWow > 0) Wow(fx, a, b);
         if (fx.TapeStop > 0) TapeStopFx(fx, a, b, spb);
@@ -4309,6 +4514,329 @@ public static class FxProc {
             double hiA = xa - loA - damp * bdA; bdA += ff * hiA; loA += ff * bdA;
             double hiB = xb - loB - damp * bdB; bdB += ff * hiB; loB += ff * bdB;
             a[i] = (float)(xa * (1 - mix) + bdA * mix * 1.4); b[i] = (float)(xb * (1 - mix) + bdB * mix * 1.4);
+        }
+    }
+    static void OptoCompFx(Fx fx, float[] a, float[] b) {
+        double mix = Math.Max(0, Math.Min(1, fx.OptoMix)), thr = Math.Pow(10, fx.OptoThresh / 20.0), ratio = Math.Max(1, fx.OptoRatio);
+        double atk = 1 - Math.Exp(-1.0 / (0.01 * SR)), rel = 1 - Math.Exp(-1.0 / (Math.Max(20, fx.OptoRelease) * 0.001 * SR));
+        double env = 0, gain = 1;
+        for (int i = 0; i < a.Length; i++) {
+            double x = Math.Max(Math.Abs(a[i]), Math.Abs(b[i])); env += (x > env ? atk : rel) * (x - env);
+            double target = env > thr ? Math.Pow(env / thr, 1.0 / ratio - 1.0) : 1;
+            gain += (target - gain) * (target < gain ? atk : rel);
+            double g = 1 - mix + mix * gain; a[i] = (float)(a[i] * g); b[i] = (float)(b[i] * g);
+        }
+    }
+    static void FetCompFx(Fx fx, float[] a, float[] b) {
+        double mix = Math.Max(0, Math.Min(1, fx.FetMix)), thr = Math.Pow(10, fx.FetThresh / 20.0), ratio = Math.Max(1, fx.FetRatio);
+        double atk = 1 - Math.Exp(-1.0 / (Math.Max(0.1, fx.FetAttack) * 0.001 * SR)), rel = 1 - Math.Exp(-1.0 / (0.08 * SR));
+        double env = 0, gain = 1;
+        for (int i = 0; i < a.Length; i++) {
+            double x = Math.Max(Math.Abs(a[i]), Math.Abs(b[i])); env += (x > env ? atk : rel) * (x - env);
+            double target = env > thr ? Math.Pow(env / thr, 1.0 / ratio - 1.0) : 1;
+            gain += (target - gain) * (target < gain ? atk : rel);
+            double g = 1 - mix + mix * gain; a[i] = (float)(a[i] * g); b[i] = (float)(b[i] * g);
+        }
+    }
+    static void VcaCompFx(Fx fx, float[] a, float[] b) {
+        double mix = Math.Max(0, Math.Min(1, fx.VcaMix)), thr = Math.Pow(10, fx.VcaThresh / 20.0), ratio = Math.Max(1, fx.VcaRatio);
+        double atk = 1 - Math.Exp(-1.0 / (0.02 * SR)), rel = 1 - Math.Exp(-1.0 / (Math.Max(20, fx.VcaRelease) * 0.001 * SR));
+        double env = 0, gain = 1;
+        for (int i = 0; i < a.Length; i++) {
+            double x = Math.Max(Math.Abs(a[i]), Math.Abs(b[i])); env += (x > env ? atk : rel) * (x - env);
+            double target = env > thr ? Math.Pow(env / thr, 1.0 / ratio - 1.0) : 1;
+            gain += (target - gain) * (target < gain ? atk : rel);
+            double g = 1 - mix + mix * gain; a[i] = (float)(a[i] * g); b[i] = (float)(b[i] * g);
+        }
+    }
+    static void ExpanderFx(Fx fx, float[] a, float[] b) {
+        double mix = Math.Max(0, Math.Min(1, fx.ExpMix)), thr = Math.Pow(10, fx.ExpThresh / 20.0), ratio = Math.Max(1, fx.ExpRatio);
+        double floorGain = Math.Pow(10, -Math.Max(3, fx.ExpRange) / 20.0), atk = 1 - Math.Exp(-1.0 / (0.005 * SR)), rel = 1 - Math.Exp(-1.0 / (0.15 * SR));
+        double env = 0, gain = 1;
+        for (int i = 0; i < a.Length; i++) {
+            double x = Math.Max(Math.Abs(a[i]), Math.Abs(b[i])); env += (x > env ? atk : rel) * (x - env);
+            double target = env < thr ? Math.Max(floorGain, Math.Pow(Math.Max(1e-6, env) / thr, ratio - 1)) : 1;
+            gain += (target - gain) * (target < gain ? atk : rel);
+            double g = 1 - mix + mix * gain; a[i] = (float)(a[i] * g); b[i] = (float)(b[i] * g);
+        }
+    }
+    static void MSCompFx(Fx fx, float[] a, float[] b) {
+        double mix = Math.Max(0, Math.Min(1, fx.MSCompMix)), thr = Math.Pow(10, fx.MSCompThresh / 20.0), ratio = Math.Max(1, fx.MSCompRatio);
+        double atk = 1 - Math.Exp(-1.0 / (0.01 * SR)), rel = 1 - Math.Exp(-1.0 / (Math.Max(20, fx.MSCompRelease) * 0.001 * SR));
+        double em = 0, es = 0, gm = 1, gs = 1;
+        for (int i = 0; i < a.Length; i++) {
+            double xa = a[i], xb = b[i], mid = (xa + xb) * 0.5, side = (xa - xb) * 0.5;
+            em += (Math.Abs(mid) > em ? atk : rel) * (Math.Abs(mid) - em);
+            es += (Math.Abs(side) > es ? atk : rel) * (Math.Abs(side) - es);
+            double tm = em > thr ? Math.Pow(em / thr, 1.0 / ratio - 1.0) : 1;
+            double ts = es > thr ? Math.Pow(es / thr, 1.0 / ratio - 1.0) : 1;
+            gm += (tm - gm) * (tm < gm ? atk : rel); gs += (ts - gs) * (ts < gs ? atk : rel);
+            double om = mid * (1 - mix + mix * gm), os = side * (1 - mix + mix * gs);
+            a[i] = (float)(om + os); b[i] = (float)(om - os);
+        }
+    }
+    static void DynEqFx(Fx fx, float[] a, float[] b) {
+        double mix = Math.Max(0, Math.Min(1, fx.DynEqMix)), fc = Math.Max(80, Math.Min(12000, fx.DynEqFreq));
+        double thr = Math.Pow(10, fx.DynEqThresh / 20.0), amt = Math.Max(0, Math.Min(1, fx.DynEqAmount)), ff = 2 * Math.Sin(Math.PI * fc / SR), damp = 0.4;
+        double loA = 0, bdA = 0, loB = 0, bdB = 0, env = 0, atk = 1 - Math.Exp(-1.0 / (0.005 * SR)), rel = 1 - Math.Exp(-1.0 / (0.1 * SR));
+        for (int i = 0; i < a.Length; i++) {
+            double hiA = a[i] - loA - damp * bdA; bdA += ff * hiA; loA += ff * bdA;
+            double hiB = b[i] - loB - damp * bdB; bdB += ff * hiB; loB += ff * bdB;
+            double bandA = bdA, bandB = bdB, x = Math.Max(Math.Abs(bandA), Math.Abs(bandB));
+            env += (x > env ? atk : rel) * (x - env);
+            double g = env > thr ? Math.Pow(env / thr, -amt * 2) : 1;
+            a[i] = (float)(a[i] * (1 - mix) + (a[i] - bandA + bandA * g) * mix);
+            b[i] = (float)(b[i] * (1 - mix) + (b[i] - bandB + bandB * g) * mix);
+        }
+    }
+    static void PultecFx(Fx fx, float[] a, float[] b) {
+        double lowGain = Math.Pow(10, fx.PultecLow / 20.0) - 1, highGain = Math.Pow(10, fx.PultecHigh / 20.0) - 1, atten = 1 - Math.Pow(10, -fx.PultecAtten / 20.0);
+        double cl = Math.Exp(-2 * Math.PI * 100 / SR), ch = Math.Exp(-2 * Math.PI * 10000 / SR);
+        double lA = 0, lB = 0, hA = 0, hB = 0;
+        for (int i = 0; i < a.Length; i++) {
+            lA = (1 - cl) * a[i] + cl * lA; lB = (1 - cl) * b[i] + cl * lB;
+            hA = (1 - ch) * a[i] + ch * hA; hB = (1 - ch) * b[i] + ch * hB;
+            double hiA = a[i] - hA, hiB = b[i] - hB;
+            a[i] = (float)(a[i] + lA * lowGain + hiA * highGain - hiA * atten);
+            b[i] = (float)(b[i] + lB * lowGain + hiB * highGain - hiB * atten);
+        }
+    }
+    static void OverdriveFx(Fx fx, float[] a, float[] b) {
+        double mix = Math.Max(0, Math.Min(1, fx.OverdriveMix)), g = 1 + fx.OverdriveDrive * 20, tone = Math.Max(0, Math.Min(1, fx.OverdriveTone));
+        double c = Math.Exp(-2 * Math.PI * (800 + tone * 8000) / SR), lpA = 0, lpB = 0;
+        for (int i = 0; i < a.Length; i++) {
+            double xa = a[i], xb = b[i], ya = Math.Tanh(xa * g + 0.15) - Math.Tanh(0.15), yb = Math.Tanh(xb * g + 0.15) - Math.Tanh(0.15);
+            lpA = (1 - c) * ya + c * lpA; lpB = (1 - c) * yb + c * lpB;
+            a[i] = (float)(xa * (1 - mix) + (ya * (1 - 0.5 * tone) + lpA * 0.5 * tone) * mix * 0.8);
+            b[i] = (float)(xb * (1 - mix) + (yb * (1 - 0.5 * tone) + lpB * 0.5 * tone) * mix * 0.8);
+        }
+    }
+    static void MetalDriveFx(Fx fx, float[] a, float[] b) {
+        double mix = Math.Max(0, Math.Min(1, fx.MetalMix)), g = 1 + fx.MetalDrive * 40, scoop = Math.Max(0, Math.Min(1, fx.MetalMid));
+        double chp = Math.Exp(-2 * Math.PI * 120 / SR), cmid = Math.Exp(-2 * Math.PI * 850 / SR), ct = Math.Exp(-2 * Math.PI * 6500 / SR);
+        double hpA = 0, hpB = 0, mA = 0, mB = 0, tA = 0, tB = 0;
+        for (int i = 0; i < a.Length; i++) {
+            hpA = (1 - chp) * a[i] + chp * hpA; hpB = (1 - chp) * b[i] + chp * hpB;
+            double yA = Math.Tanh((a[i] - hpA) * g) * 0.55, yB = Math.Tanh((b[i] - hpB) * g) * 0.55;
+            mA = (1 - cmid) * yA + cmid * mA; mB = (1 - cmid) * yB + cmid * mB;
+            yA -= mA * scoop * 1.5; yB -= mB * scoop * 1.5;
+            tA = (1 - ct) * yA + ct * tA; tB = (1 - ct) * yB + ct * tB;
+            a[i] = (float)(a[i] * (1 - mix) + tA * mix); b[i] = (float)(b[i] * (1 - mix) + tB * mix);
+        }
+    }
+    static void CabSimFx(Fx fx, float[] a, float[] b) {
+        double mix = Math.Max(0, Math.Min(1, fx.CabMix)), g = 1 + fx.CabDrive * 10, tone = Math.Max(0, Math.Min(1, fx.CabTone));
+        double c = Math.Exp(-2 * Math.PI * (1500 + tone * 4500) / SR), cb = Math.Exp(-2 * Math.PI * 110 / SR);
+        double lpA = 0, lpB = 0, bA = 0, bB = 0;
+        for (int i = 0; i < a.Length; i++) {
+            double ya = Math.Tanh(a[i] * g) * 0.6, yb = Math.Tanh(b[i] * g) * 0.6;
+            lpA = (1 - c) * ya + c * lpA; lpB = (1 - c) * yb + c * lpB;
+            bA = (1 - cb) * ya + cb * bA; bB = (1 - cb) * yb + cb * bB;
+            a[i] = (float)(a[i] * (1 - mix) + (lpA + bA * 0.3) * mix);
+            b[i] = (float)(b[i] * (1 - mix) + (lpB + bB * 0.3) * mix);
+        }
+    }
+    static void MultibandDriveFx(Fx fx, float[] a, float[] b) {
+        double mix = Math.Max(0, Math.Min(1, fx.MBDistMix)), dl = Math.Max(0, Math.Min(1, fx.MBDistLow)), dm = Math.Max(0, Math.Min(1, fx.MBDistMid)), dh = Math.Max(0, Math.Min(1, fx.MBDistHigh));
+        double c1 = Math.Exp(-2 * Math.PI * 220 / SR), c2 = Math.Exp(-2 * Math.PI * 2200 / SR);
+        double l1a = 0, l1b = 0, l2a = 0, l2b = 0;
+        for (int i = 0; i < a.Length; i++) {
+            l1a = (1 - c1) * a[i] + c1 * l1a; l1b = (1 - c1) * b[i] + c1 * l1b;
+            l2a = (1 - c2) * a[i] + c2 * l2a; l2b = (1 - c2) * b[i] + c2 * l2b;
+            double loA = l1a, loB = l1b, midA = l2a - l1a, midB = l2b - l1b, hiA = a[i] - l2a, hiB = b[i] - l2b;
+            double yA = Math.Tanh(loA * (1 + dl * 6)) + Math.Tanh(midA * (1 + dm * 10)) + Math.Tanh(hiA * (1 + dh * 14));
+            double yB = Math.Tanh(loB * (1 + dl * 6)) + Math.Tanh(midB * (1 + dm * 10)) + Math.Tanh(hiB * (1 + dh * 14));
+            a[i] = (float)(a[i] * (1 - mix) + yA * 0.5 * mix); b[i] = (float)(b[i] * (1 - mix) + yB * 0.5 * mix);
+        }
+    }
+    static void TapeFlutterFx(Fx fx, float[] a, float[] b) {
+        int len = Math.Max(64, (int)(SR * 0.05)); float[] dl = new float[len], dr = new float[len]; int pos = 0;
+        double mix = Math.Max(0, Math.Min(1, fx.FlutterMix)), rate = Math.Max(0.05, fx.FlutterRate), depth = Math.Max(0, Math.Min(1, fx.FlutterDepth));
+        for (int i = 0; i < a.Length; i++) {
+            double lfo = 0.5 + 0.5 * Math.Sin(2 * Math.PI * rate * i / SR) + 0.25 * Math.Sin(2 * Math.PI * rate * 3.1 * i / SR);
+            double dt = (0.003 + 0.006 * depth * lfo) * SR; int di = Math.Max(1, Math.Min(len - 1, (int)dt));
+            int rp = pos - di; if (rp < 0) rp += len;
+            double ya = dl[rp], yb = dr[rp];
+            dl[pos] = a[i]; dr[pos] = b[i]; pos++; if (pos >= len) pos = 0;
+            a[i] = (float)(a[i] * (1 - mix) + ya * mix); b[i] = (float)(b[i] * (1 - mix) + yb * mix);
+        }
+    }
+    static void DimensionFx(Fx fx, float[] a, float[] b) {
+        int len = Math.Max(64, (int)(SR * 0.04)); float[] dl = new float[len], dr = new float[len]; int pos = 0;
+        double mix = Math.Max(0, Math.Min(1, fx.DimMix)), rate = Math.Max(0.05, fx.DimRate), depth = Math.Max(0, Math.Min(1, fx.DimDepth));
+        for (int i = 0; i < a.Length; i++) {
+            double ph = 2 * Math.PI * rate * i / SR;
+            int d1 = Math.Max(1, (int)((0.008 + 0.006 * depth * (0.5 + 0.5 * Math.Sin(ph))) * SR));
+            int d2 = Math.Max(1, (int)((0.008 + 0.006 * depth * (0.5 + 0.5 * Math.Sin(ph + Math.PI)))) % len);
+            int r1 = pos - d1; if (r1 < 0) r1 += len; int r2 = pos - d2; if (r2 < 0) r2 += len;
+            double ya = dl[r1], yb = dr[r2]; dl[pos] = a[i]; dr[pos] = b[i]; pos++; if (pos >= len) pos = 0;
+            a[i] = (float)(a[i] * (1 - mix) + (a[i] * 0.5 + ya * 0.5) * mix);
+            b[i] = (float)(b[i] * (1 - mix) + (b[i] * 0.5 + yb * 0.5) * mix);
+        }
+    }
+    static void EnvPhaserFx(Fx fx, float[] a, float[] b) {
+        int stages = 4; double mix = Math.Max(0, Math.Min(1, fx.EnvPhaserMix)), thr = Math.Pow(10, fx.EnvPhaserThresh / 20.0);
+        double depth = Math.Max(0, Math.Min(1, fx.EnvPhaserDepth)), rate = Math.Max(0, fx.EnvPhaserRate);
+        double[] za = new double[stages], zb = new double[stages]; double env = 0, atk = 1 - Math.Exp(-1.0 / (0.003 * SR)), rel = 1 - Math.Exp(-1.0 / (0.1 * SR));
+        for (int i = 0; i < a.Length; i++) {
+            double x = Math.Max(Math.Abs(a[i]), Math.Abs(b[i])); env += (x > env ? atk : rel) * (x - env);
+            double drive = env > thr ? Math.Min(1, (env - thr) / Math.Max(1e-6, thr * 4)) : 0;
+            double lfo = rate > 0 ? Math.Sin(2 * Math.PI * rate * i / SR) : 0;
+            double fc = Math.Max(120, Math.Min(12000, 300 + depth * (drive * 2800 + lfo * 700)));
+            double t = Math.Tan(Math.PI * fc / SR), c = (t - 1) / (t + 1), xa = a[i], xb = b[i];
+            for (int s = 0; s < stages; s++) {
+                double xa2 = xa, xb2 = xb; xa = c * xa2 + za[s]; za[s] = xa2 - c * xa; xb = c * xb2 + zb[s]; zb[s] = xb2 - c * xb;
+            }
+            a[i] = (float)(a[i] * (1 - mix) + (a[i] + xa) * 0.5 * mix); b[i] = (float)(b[i] * (1 - mix) + (b[i] + xb) * 0.5 * mix);
+        }
+    }
+    static void EnvFlangerFx(Fx fx, float[] a, float[] b) {
+        int len = Math.Max(64, (int)(SR * 0.03)); float[] dl = new float[len], dr = new float[len]; int pos = 0;
+        double mix = Math.Max(0, Math.Min(1, fx.EnvFlangeMix)), thr = Math.Pow(10, fx.EnvFlangeThresh / 20.0), depth = Math.Max(0, Math.Min(1, fx.EnvFlangeDepth)), fb = Math.Max(0, Math.Min(0.95, fx.EnvFlangeFb));
+        double env = 0, atk = 1 - Math.Exp(-1.0 / (0.003 * SR)), rel = 1 - Math.Exp(-1.0 / (0.12 * SR));
+        for (int i = 0; i < a.Length; i++) {
+            double x = Math.Max(Math.Abs(a[i]), Math.Abs(b[i])); env += (x > env ? atk : rel) * (x - env);
+            double drive = env > thr ? Math.Min(1, (env - thr) / Math.Max(1e-6, thr * 4)) : 0;
+            int di = Math.Max(1, Math.Min(len - 1, (int)((0.001 + depth * drive * 0.012) * SR)));
+            int r1 = pos - di; if (r1 < 0) r1 += len; int r2 = pos - di; if (r2 < 0) r2 += len;
+            double ya = dl[r1], yb = dr[r2];
+            dl[pos] = (float)(a[i] + yb * fb); dr[pos] = (float)(b[i] + ya * fb); pos++; if (pos >= len) pos = 0;
+            a[i] = (float)(a[i] * (1 - mix) + ya * mix); b[i] = (float)(b[i] * (1 - mix) + yb * mix);
+        }
+    }
+    static void ChopperFx(Fx fx, float[] a, float[] b) {
+        double mix = Math.Max(0, Math.Min(1, fx.ChopMix)), rate = Math.Max(0.5, fx.ChopRate), depth = Math.Max(0, Math.Min(1, fx.ChopDepth)), shape = Math.Max(0, Math.Min(1, fx.ChopShape));
+        for (int i = 0; i < a.Length; i++) {
+            double s = 0.5 + 0.5 * Math.Sin(2 * Math.PI * rate * i / SR);
+            double gate = (1 - shape) * s + shape * (s > 0.5 ? 1 : 0);
+            double g = 1 - depth * (1 - gate);
+            a[i] = (float)(a[i] * g); b[i] = (float)(b[i] * g);
+        }
+    }
+    static void BarberPoleFx(Fx fx, float[] a, float[] b) {
+        int stages = Math.Max(2, Math.Min(8, (int)Math.Round(fx.BarberStages)));
+        double mix = Math.Max(0, Math.Min(1, fx.BarberMix)), rate = Math.Max(0.05, fx.BarberRate), depth = Math.Max(0, Math.Min(1, fx.BarberDepth));
+        double[] za = new double[stages], zb = new double[stages];
+        for (int i = 0; i < a.Length; i++) {
+            double xa = a[i], xb = b[i];
+            for (int s = 0; s < stages; s++) {
+                double ph = (i * rate / SR + (double)s / stages) % 1.0;
+                double fc = Math.Max(120, Math.Min(14000, 200 * Math.Pow(2, ph * 5 * depth)));
+                double t = Math.Tan(Math.PI * fc / SR), c = (t - 1) / (t + 1);
+                double xa2 = xa, xb2 = xb; xa = c * xa2 + za[s]; za[s] = xa2 - c * xa; xb = c * xb2 + zb[s]; zb[s] = xb2 - c * xb;
+            }
+            a[i] = (float)(a[i] * (1 - mix) + (a[i] + xa) * 0.5 * mix); b[i] = (float)(b[i] * (1 - mix) + (b[i] + xb) * 0.5 * mix);
+        }
+    }
+    static void HalfSpeedFx(Fx fx, float[] a, float[] b) {
+        double mix = Math.Max(0, Math.Min(1, fx.HalfSpeedMix)), amt = Math.Max(0, Math.Min(1, fx.HalfSpeedAmount));
+        double ratio = 1.0 / (1.0 + amt); float[] sa = (float[])a.Clone(), sb = (float[])b.Clone(); int n = a.Length;
+        for (int i = 0; i < n; i++) {
+            double src = i * ratio; int j = (int)src; double fr = src - j;
+            if (j + 1 < n) {
+                double ya = sa[j] * (1 - fr) + sa[j + 1] * fr, yb = sb[j] * (1 - fr) + sb[j + 1] * fr;
+                a[i] = (float)(sa[i] * (1 - mix) + ya * mix); b[i] = (float)(sb[i] * (1 - mix) + yb * mix);
+            }
+        }
+    }
+    static void PitchEchoFx(Fx fx, float[] a, float[] b) {
+        int n = a.Length, d = Math.Max(2, (int)(fx.PitchEchoTime * 0.001 * SR)); if (d >= n) return;
+        float[] dl = new float[d], dr = new float[d], wa = new float[n], wb = new float[n]; int pos = 0;
+        double fb = Math.Max(0, Math.Min(0.9, fx.PitchEchoFb)), mix = Math.Max(0, Math.Min(1, fx.PitchEchoMix));
+        for (int i = 0; i < n; i++) {
+            double yl = dl[pos], yr = dr[pos]; wa[i] = (float)yl; wb[i] = (float)yr;
+            dl[pos] = (float)(a[i] + yl * fb); dr[pos] = (float)(b[i] + yr * fb); pos++; if (pos >= d) pos = 0;
+        }
+        double ratio = Math.Pow(2, Math.Max(-12, Math.Min(12, fx.PitchEchoSemi)) / 12.0);
+        for (int i = 0; i < n; i++) {
+            double src = i * ratio; int j = (int)src; double fr = src - j;
+            double ya = (j + 1 < n) ? wa[j] * (1 - fr) + wa[j + 1] * fr : 0, yb = (j + 1 < n) ? wb[j] * (1 - fr) + wb[j + 1] * fr : 0;
+            a[i] = (float)(a[i] * (1 - mix) + ya * mix); b[i] = (float)(b[i] * (1 - mix) + yb * mix);
+        }
+    }
+    static void SpectralFreezeFx(Fx fx, float[] a, float[] b) {
+        int len = Math.Max(1024, (int)(SR * 0.5)); float[] fa = new float[len], fb2 = new float[len]; int w = 0, rp = 0;
+        double mix = Math.Max(0, Math.Min(1, fx.FreezeMix)), thr = Math.Pow(10, fx.FreezeThreshold / 20.0);
+        double dec = Math.Exp(-1.0 / (Math.Max(0.05, fx.FreezeDecay * 2.0) * SR)), gain = 1, env = 0;
+        double atk = 1 - Math.Exp(-1.0 / (0.002 * SR)), rel = 1 - Math.Exp(-1.0 / (0.05 * SR)); bool frozen = false;
+        for (int i = 0; i < a.Length; i++) {
+            double x = Math.Max(Math.Abs(a[i]), Math.Abs(b[i])); env += (x > env ? atk : rel) * (x - env);
+            if (env >= thr) {
+                frozen = false; gain = 1; fa[w] = a[i]; fb2[w] = b[i]; w++; if (w >= len) w = 0;
+                a[i] = (float)(a[i]); b[i] = (float)(b[i]);
+            } else {
+                if (!frozen) { frozen = true; rp = w; }
+                double ya = fa[rp], yb = fb2[rp]; rp++; if (rp >= len) rp = 0; gain *= dec;
+                a[i] = (float)(a[i] * (1 - mix) + ya * gain * mix); b[i] = (float)(b[i] * (1 - mix) + yb * gain * mix);
+            }
+        }
+    }
+    static void ReverseDelayFx(Fx fx, float[] a, float[] b) {
+        int n = a.Length, d = Math.Max(64, (int)(fx.RevDelayTime * 0.001 * SR)); if (d >= n) return;
+        float[] sa = (float[])a.Clone(), sb = (float[])b.Clone();
+        float[] wa = new float[n], wb = new float[n];
+        for (int s = 0; s + d <= n; s += d) {
+            for (int j = 0; j < d && s + d + j < n; j++) { wa[s + d + j] = sa[s + d - 1 - j]; wb[s + d + j] = sb[s + d - 1 - j]; }
+        }
+        double fb = Math.Max(0, Math.Min(0.9, fx.RevDelayFb));
+        for (int i = d; i < n; i++) { wa[i] += (float)(wa[i - d] * fb * 0.5); wb[i] += (float)(wb[i - d] * fb * 0.5); }
+        double mix = Math.Max(0, Math.Min(1, fx.RevDelayMix));
+        for (int i = 0; i < n; i++) { a[i] = (float)(sa[i] * (1 - mix) + wa[i] * mix); b[i] = (float)(sb[i] * (1 - mix) + wb[i] * mix); }
+    }
+    static void EchoVerbFx(Fx fx, float[] a, float[] b) {
+        int n = a.Length, d = Math.Max(2, (int)(fx.EchoVerbTime * 0.001 * SR)); if (d >= n) return;
+        float[] dl = new float[d], dr = new float[d], wa = (float[])a.Clone(), wb = (float[])b.Clone(); int pos = 0;
+        double fb = Math.Max(0, Math.Min(0.9, fx.EchoVerbFb));
+        for (int i = 0; i < n; i++) {
+            double yl = dl[pos], yr = dr[pos];
+            dl[pos] = (float)(wa[i] + yl * fb); dr[pos] = (float)(wb[i] + yr * fb); pos++; if (pos >= d) pos = 0;
+            wa[i] = (float)yl; wb[i] = (float)yr;
+        }
+        VerbCore(fx, wa, wb, 1.0, fx.EchoVerbSize, 0.5, 1.0);
+        double mix = Math.Max(0, Math.Min(1, fx.EchoVerbMix));
+        for (int i = 0; i < n; i++) { a[i] = (float)(a[i] * (1 - mix) + wa[i] * mix); b[i] = (float)(b[i] * (1 - mix) + wb[i] * mix); }
+    }
+    static void BloomVerbFx(Fx fx, float[] a, float[] b) {
+        int n = a.Length; float[] wa = (float[])a.Clone(), wb = (float[])b.Clone();
+        VerbCore(fx, wa, wb, 1.0, fx.BloomSize, 0.5, 1.3);
+        double mix = Math.Max(0, Math.Min(1, fx.BloomMix)), thr = Math.Pow(10, fx.BloomThresh / 20.0);
+        double atk = 1 - Math.Exp(-1.0 / (Math.Max(0.01, fx.BloomAttack) * SR)), rel = 1 - Math.Exp(-1.0 / (0.3 * SR));
+        double env = 0, gate = 0, lvl = 0, lvlAtk = 1 - Math.Exp(-1.0 / (0.002 * SR));
+        for (int i = 0; i < n; i++) {
+            double x = Math.Max(Math.Abs(a[i]), Math.Abs(b[i])); lvl += (x - lvl) * lvlAtk;
+            double target = lvl > thr ? 1 : 0; env += (target - env) * (target > env ? atk : rel); gate = env;
+            a[i] = (float)(a[i] * (1 - mix) + wa[i] * gate * mix); b[i] = (float)(b[i] * (1 - mix) + wb[i] * gate * mix);
+        }
+    }
+    static void NonLinVerbFx(Fx fx, float[] a, float[] b) {
+        int n = a.Length; float[] wa = (float[])a.Clone(), wb = (float[])b.Clone();
+        VerbCore(fx, wa, wb, 1.0, fx.NonLinVerbSize, 0.4, 1.0);
+        double mix = Math.Max(0, Math.Min(1, fx.NonLinVerbMix)), drive = 1 + fx.NonLinVerbDrive * 8, gate = Math.Max(0, Math.Min(1, fx.NonLinVerbGate));
+        for (int i = 0; i < n; i++) {
+            double ya = Math.Tanh(wa[i] * drive) * (1 - gate) + wa[i] * gate, yb = Math.Tanh(wb[i] * drive) * (1 - gate) + wb[i] * gate;
+            a[i] = (float)(a[i] * (1 - mix) + ya * 0.7 * mix); b[i] = (float)(b[i] * (1 - mix) + yb * 0.7 * mix);
+        }
+    }
+    static void VocoderFx(Fx fx, float[] a, float[] b) {
+        int bands = Math.Max(4, Math.Min(12, (int)Math.Round(fx.VocoderBands)));
+        double mix = Math.Max(0, Math.Min(1, fx.VocoderMix)), rel = 1 - Math.Exp(-1.0 / (Math.Max(10, fx.VocoderRelease) * 0.001 * SR));
+        double[] la = new double[bands], ba = new double[bands], lc = new double[bands], bc = new double[bands], env = new double[bands];
+        Random rnd = new Random(5150); double phase = 0;
+        for (int i = 0; i < a.Length; i++) {
+            double mono = (a[i] + b[i]) * 0.5, carrier;
+            if (fx.VocoderCarrier >= 0.5) { phase += 110.0 / SR; if (phase >= 1) phase -= 1; carrier = (phase * 2 - 1) * 0.6; }
+            else carrier = rnd.NextDouble() * 2 - 1;
+            double wet = 0, damp = 0.35;
+            for (int k = 0; k < bands; k++) {
+                double t = bands > 1 ? (double)k / (bands - 1) : 0.5;
+                double fc = Math.Max(120, Math.Min(SR / 5.0, 200 * Math.Pow(40, t))), ff = 2 * Math.Sin(Math.PI * fc / SR);
+                double hiA = mono - la[k] - damp * ba[k]; ba[k] += ff * hiA; la[k] += ff * ba[k];
+                double hiC = carrier - lc[k] - damp * bc[k]; bc[k] += ff * hiC; lc[k] += ff * bc[k];
+                env[k] += rel * (Math.Abs(ba[k]) - env[k]);
+                wet += bc[k] * env[k];
+            }
+            wet *= 1.5;
+            a[i] = (float)(a[i] * (1 - mix) + wet * mix); b[i] = (float)(b[i] * (1 - mix) + wet * mix);
         }
     }
     static void GateFx(Fx fx, float[] a, float[] b) {
@@ -7052,14 +7580,14 @@ Built-in synths per track: acid (303 bass/lead), saw, square, tri, sine, pad, fm
 
 SOUND LAB (per-track sound design):
 - Synth patch: 3 oscillators (saw/square/pulse/tri/sine/noise), sub, noise, unison (1-7 voices), FM, filter (lowpass/highpass/bandpass) with envelope, amp ADSR, pitch envelope, LFO to pitch/filter/volume, wavefold, drive, bitcrush. About 40 bounded parameters.
-- Effects chain per track: stutter, filter with LFO, fold, drive, bitcrush/downsample, ring mod, chorus, delay, reverb.
+- Effects are **98 Patch-graph nodes** (right-click the graph > Add FX module). The EFFECT LIBRARY section below lists every module, its controls and its mixing use. A track's FX node, a bus and a group each hold their own chain; effects are added only in the graph.
 - Pitch of a sound matters: bass = low cutoff, sub, short filter envelope; pad = slow attack, long release, unison, reverb; pluck = zero sustain, short decay; lead = resonant filter, vibrato, delay.
 SPECTRAL: paint a spectrogram (time across, pitch up, brightness = loudness) and it is resynthesised additively into a sample. Shapes: sweeps, curves, harmonic stacks, blobs, noise bands. Settings snap the partials to a scale, add brightness/noise, reverse, flip. Good for evolving textures, whale-like calls, risers, vocal-ish formants, drones.
 META SYNTH: four patches on the corners of a square; a morph pad blends them. Either use the blend at one point as a normal playable patch, or render an evolving sound (tour, pingpong, circle, wander paths, optional stacked chords) to a sample track. Good for pads and textures that change over time.
 INSTRUMENT LIBRARY: any patch, morph, spectral canvas or sample can be saved as an instrument. Saved instruments carry a profile (what they sound like and how to write for them). The melody writer, track AI and agent can pick them by name and write notes that suit their attack, decay, register and polyphony.
 DRUMS AND MELODY AI: describe a beat or melody; the AI writes notes. A creative direction (genre, mood, structure, chords, sounds) guides everything. Drums can also be synthesised: each drum lane becomes its own AI-designed sampler voice (kick, snare, hats...).
 SONG: patterns (scenes) and an arrangement. Building a song from the direction assigns tracks and drum layers per section by energy and can add risers and texture layers.
-MIX AND MASTER: mix rules (sidechain, EQ, filters, width, saturation, mono bass), track volume/pan, and a mastering chain with loudness targets.
+MIX AND MASTER: mix rules (sidechain, EQ, filters, width, saturation, mono bass), track volume/pan, and a mastering chain with loudness targets. To add colour, space or movement, use the graph effects; the EFFECT LIBRARY explains which module solves which mixing problem.
 EDIT TOOLS (they work on the selected notes or the whole track): up1 (+1 semitone), dn1, up12 (+octave), dn12, quant (snap to grid), scale (snap to key), rev (reverse), dbl (double time), half (half time), legato, stacc (staccato), velup, veldn, velrnd, accent (accent off-beats), inv (invert pitches), nudge (later), nudgeb (earlier), thin (remove some notes), octl (add octave layer), clear, hum (humanize timing and velocity), mut (mutate pitches and rhythm), chop (shuffle slices like a breakcore edit), ratch (ratchet rolls).
 GENERATORS: euc (Euclidean rhythm: hits, steps, rotate, note), walk (random-walk melody in scale), poly (7-against-4 hats).
 COMPOSER: chord progressions are written as roman numerals relative to the key (i VI III VII) or chord names (Cm Ab Bb G); "|" separates bars and two chords in a bar share it. The chord engine voices them with smooth voice-leading, writes comping (sustain, half, offbeat, pulse8, synco, stab), bass lines (root, rootfifth, driving8, octave, synco, offbeat, sub, walking, acid16) and arpeggios (up, updown, broken, trance), harmonises a melody to the chords (strong beats move to chord tones) and reads chords back out of notes. "Compose full song" turns a description into a creative direction with harmony per section, then writes melody, drums (optionally a synthesised kit), chords, bass, arps, textures and risers, designs sounds, builds one pattern per section with its own chords and energy, and mixes and masters the result.
@@ -7069,7 +7597,7 @@ RECIPES: dreamy arpeggio = pluck/bell patch + arpeggio role + long delay and rev
 '@
 
 function Get-StudioToolManual([bool]$WithParameters = $false) {
-    $t = $script:StudioToolManual
+    $t = $script:StudioToolManual + "`n`n" + $script:StudioEffectKnowledge
     if ($WithParameters) {
         $t += "`n`nSYNTH PATCH PARAMETERS:`n" + [HbStudio.PropIO]::Describe([HbStudio.Patch])
         $t += "`n`nEFFECT PARAMETERS:`n" + [HbStudio.PropIO]::Describe([HbStudio.Fx])
@@ -7095,6 +7623,128 @@ EXPRESSION AND DEVELOPMENT: make voices feel played, not static. Use Variation 0
 FIT IN THE MIX: give every voice its own register and timbre. Bass owns 40-200 Hz (sine or filtered saw, little unison), chords and pads own 200-1000 Hz with a gentle tilt, leads and hooks own 1-4 kHz and can be brighter, arps and bells sit above 2 kHz and should be short or sparse, textures sit behind with low level and noise. If one voice is already bright and busy, make the next darker or slower. Avoid using the same oscillator recipe for two voices; vary methods (for example bass subtractive, chords FM keys, pad vowel or additive, arp pluck or bell, lead sync or PWM).
 '@
 
+$script:StudioEffectKnowledge = @'
+EFFECT LIBRARY AND MIXING KNOWLEDGE (98 graph effects)
+Effects are Patch-graph nodes. Add a module by its type key in the graph, then set its parameters (the EFFECT PARAMETERS list gives every name, range and description). A module is off when its *Mix control is 0 or its *On switch is false. Wet/dry controls are 0-1 unless stated. Signal order is the wire order: each node processes what is connected into it. A normal chain is 4-8 nodes: tone/corrective first, dynamics, saturation/colour, modulation, delay/reverb, then limiter. Use parallel paths for heavy processing instead of stacking ten effects on one wire.
+CORE:
+filter [filter]: multimode filter with LFO movement. Filter, Cutoff, Resonance, FilterLfoRate, FilterLfoDepth. Corrective low/high-pass, wobble, auto-wah, resonance.
+drive [drive]: tanh saturation. Drive. Gentle warmth or hard drive.
+crush [crush]: bit depth and sample-rate reduction. Bits, Downsample. Lo-fi, digital grit, aliasing.
+fold [fold]: wavefolder. Fold. Adds odd harmonics; good on bass and leads.
+ring [ring]: ring modulator. RingMix, RingFreq. Clangs, robots, metallic percussion.
+stutter [stutter]: rhythmic stutter. StutterBeats, StutterDiv, StutterChance. Glitch and breakcore edits.
+chorus [chorus]: modulated delay chorus. Chorus, ChorusRate, ChorusDepth. Width and movement on pads, guitars, keys.
+delay [delay]: tempo-synced delay. DelayMix, DelayBeats, DelayFeedback. Echo and space.
+reverb [reverb]: algorithmic room reverb. ReverbMix, ReverbSize, ReverbDamping. General space.
+phaser [phaser]: swept allpass phaser. PhaserMix, PhaserRate, PhaserDepth, PhaserStages. Sweeping motion.
+flanger [flanger]: short modulated delay. FlangerMix, FlangerRate, FlangerDepth, FlangerFb. Jet and comb sweeps.
+tapestop [tapestop]: tape stop. TapeStop, TapeStopRate. Transitions.
+tapedelay [tapedelay]: warm delay with wow. TapeDelayMix, TapeDelayTime, TapeDelayFb, TapeDelayWow. Dub and lo-fi echo.
+plate [plate]: bright plate reverb. PlateMix, PlateSize, PlateDamping. Drums, vocals, bright space.
+vinyl [vinyl]: crackle and hiss. VinylCrackle, TapeHiss, TapeWow. Lo-fi texture.
+comp [comp]: compressor. CompThresh, CompRatio, CompAttack, CompRelease, CompMakeup. Level control and punch.
+eq [eq]: low shelf, high shelf, mid peak, width, pitch. LowShelf, HighShelf, MidPeak, Width, PitchShift. Broad tone shaping.
+width [width]: stereo width. Width, PitchShift. Narrow or widen.
+saturator [saturator]: saturation with bias and tone. Saturator, SatBias, SatTone, SatMix. Harmonic colour.
+exciter [exciter]: high-frequency harmonic exciter. Exciter, ExciterFreq, ExciterMix. Air and presence.
+rectify [rectify]: rectifier distortion. RectifyMix, RectifyHalf, RectifyDrive. Aggressive octave-like grit.
+gate [gate]: noise gate. GateAmount, GateThreshold, GateAttack, GateRelease. Remove bleed and tails.
+transient [transient]: transient shaper. TransientAttack, TransientSustain, TransientSensitivity. Punch or softness.
+tremolo [tremolo]: amplitude tremolo. TremoloMix, TremoloRate, TremoloDepth. Pulse and rhythm.
+autopan [autopan]: automatic panning. AutoPanMix, AutoPanRate, AutoPanDepth. Stereo movement.
+vibrato [vibrato]: pitch vibrato. VibratoMix, VibratoRate, VibratoDepth. Expression.
+autowah [autowah]: envelope wah. AutoWahMix, AutoWahRate, AutoWahDepth, AutoWahResonance. Funk and talking motion.
+comb [comb]: tuned comb resonator. CombMix, CombFreq, CombFeedback. Pipe/string resonance; key-track it for pitched use.
+spring [spring]: spring reverb. SpringMix, SpringDecay, SpringTone. Surf and dub character.
+shimmer [shimmer]: octave-up reverb. ShimmerMix, ShimmerPitch, ShimmerDecay. Ambient sparkle.
+haas [haas]: Haas stereo delay. HaasMix, HaasDelay. Wide but mono-compatible-ish image.
+limiter [limiter]: brickwall limiter. LimiterOn, LimiterThreshold, LimiterRelease, LimiterCeiling. Final safety.
+SOUND-DESIGN PACK:
+ensemble [ensemble]: lush multi-voice chorus. EnsembleMix, EnsembleRate, EnsembleDepth. Strings, pads, width.
+rotary [rotary]: rotary speaker. RotaryMix, RotaryRate, RotaryDepth. Organ and movement.
+octaver [octaver]: sub-octave. OctaverMix. Weight under bass and leads.
+harmonizer [harmonizer]: fixed-interval pitch shift. HarmonizerMix, HarmonizerSemi. Harmony and width.
+resonator [resonator]: tuned resonant bank. ResonatorMix, ResonatorFreq, ResonatorFeedback. Pitched resonance and metallic tails.
+tilteq [tilteq]: tilt EQ. TiltGain. Positive brightens, negative darkens. Fast tonal balance.
+midside [midside]: mid/side EQ. MidGain, SideGain. Widen sides or tighten centre.
+deesser [deesser]: sibilance control. DeEsserAmount, DeEsserFreq. Tame 5-8 kHz harshness and vocals.
+mbcomp [mbcomp]: multiband compressor. MBOn, MBLowThresh, MBMidThresh, MBHighThresh, MBRatio, MBMakeup. Band-by-band control.
+clipper [clipper]: soft clipper. ClipperAmount, ClipperDrive. Loudness and peak control before the limiter.
+autofilter [autofilter]: envelope filter. AutoFilterMix, AutoFilterSensitivity, AutoFilterResonance. Reactive movement.
+gatedverb [gatedverb]: gated reverb. GateVerbMix, GateVerbDecay, GateVerbHold. 80s drums and staccato space.
+reverseverb [reverseverb]: reverse reverb. ReverseVerbMix, ReverseVerbDecay. Pre-hit swells.
+multitap [multitap]: multi-tap delay. MultiTapMix, MultiTapTime, MultiTapFb. Rhythmic echoes.
+doubler [doubler]: short double. DoublerMix, DoublerDelay. Thicken vocals and leads.
+formant [formant]: formant filter. FormantMix, FormantVowel, FormantShift. Vocal colour and vowel movement.
+PERFORMANCE PACK:
+ladder [ladder]: 4-pole ladder low-pass with drive. LadderMix, LadderCutoff, LadderReso, LadderDrive. Warm analog filtering and acid.
+tube [tube]: tube preamp. TubeDrive, TubeBias, TubeMix. Warm asymmetric drive.
+tapesat [tapesat]: tape saturation. TapeSatDrive, TapeSatTone, TapeSatMix. Smooth glue and harmonics.
+diode [diode]: diode distortion. DiodeDrive, DiodeTone, DiodeMix. Edgy, asymmetric drive.
+fuzz [fuzz]: fuzz with gate. FuzzAmount, FuzzGate, FuzzMix. Aggressive sustained grit.
+chiptune [chiptune]: chip-tune decimator. ChipMix, ChipBits, ChipRate. Retro digital crunch.
+subbass [subbass]: sub oscillator. SubBassMix, SubBassFreq, SubBassDrive. Add weight below bass.
+bassenh [bassenh]: bass harmonic enhancer. BassEnhMix, BassEnhFreq, BassEnhAmount. Make small speakers hear the bass.
+freqshift [freqshift]: frequency shifter. FreqShiftMix, FreqShiftHz. Inharmonic metal and motion.
+airband [airband]: air shelf/exciter. AirMix, AirFreq, AirGain. Open the top end.
+stereoimage [stereoimage]: width plus bass mono. StereoWidth, BassMonoFreq. Widen highs while keeping lows centred.
+pingpong [pingpong]: ping-pong delay. PingPongMix, PingPongTime, PingPongFb. Wide rhythmic echo.
+dubdelay [dubdelay]: filtered dub delay. DubMix, DubTime, DubFb, DubTone. Dark repeats and dub throws.
+cathedral [cathedral]: very long reverb. CathedralMix, CathedralSize, CathedralDamp. Huge ambient space.
+roomverb [roomverb]: small room reverb. RoomMix, RoomSize, RoomDamp. Natural short space.
+ambience [ambience]: short low ambience. AmbienceMix, AmbienceSize, AmbienceDamp. Subtle depth.
+wahpedal [wahpedal]: LFO wah. WahPedalMix, WahPedalRate, WahPedalDepth, WahPedalQ. Rhythmic wah.
+talkbox [talkbox]: vowel cycling filter. TalkMix, TalkRate, TalkVowel. Talking leads and vocal textures.
+ducker [ducker]: self-ducking. DuckerMix, DuckerThreshold, DuckerDepth, DuckerRelease. Pump without a sidechain source.
+rider [rider]: level rider. RiderAmount, RiderTarget, RiderSpeed. Even out levels over time.
+harmtrem [harmtrem]: harmonic tremolo. HarmTremMix, HarmTremRate, HarmTremDepth. Lush stereo pulse.
+beatrepeat [beatrepeat]: beat repeat. BeatRepeatMix, BeatRepeatDiv, BeatRepeatChance. Rhythmic stutter/repeat.
+grain [grain]: granular cloud. GrainMix, GrainSize, GrainDensity. Textures and glitch clouds.
+glitchgate [glitchgate]: random gate. GlitchMix, GlitchDensity, GlitchSeed. Broken rhythmic gating.
+sweep [sweep]: LFO band-pass sweep. SweepMix, SweepRate, SweepDepth, SweepQ, SweepCenter. Filter sweeps and motion.
+DYNAMICS AND SPACE PACK:
+optocomp [optocomp]: optical compressor. OptoMix, OptoThresh, OptoRatio, OptoRelease. Slow, transparent level control; good on bass and bus.
+fetcomp [fetcomp]: FET compressor. FetMix, FetThresh, FetRatio, FetAttack. Fast, aggressive punch on drums and vocals.
+vcacomp [vcacomp]: VCA bus compressor. VcaMix, VcaThresh, VcaRatio, VcaRelease. Glue and density on the mix bus.
+expander [expander]: downward expander. ExpMix, ExpThresh, ExpRatio, ExpRange. Reduce noise and bleed.
+mscomp [mscomp]: mid/side compressor. MSCompMix, MSCompThresh, MSCompRatio, MSCompRelease. Control centre vs sides.
+dyneq [dyneq]: dynamic EQ. DynEqMix, DynEqFreq, DynEqThresh, DynEqAmount. Frequency-selective control (mud, harshness).
+pulteceq [pulteceq]: Pultec-style EQ. PultecLow, PultecHigh, PultecAtten. Musical low/high boost with the classic boost-and-cut curve.
+overdrive [overdrive]: overdrive. OverdriveDrive, OverdriveTone, OverdriveMix. Guitar-style drive and grit.
+metaldrive [metaldrive]: scooped high-gain distortion. MetalDrive, MetalMid, MetalMix. Metal and industrial.
+cabsim [cabsim]: speaker cabinet. CabDrive, CabTone, CabMix. Guitar/bass cabinet colour.
+mbdist [mbdist]: multiband distortion. MBDistMix, MBDistLow, MBDistMid, MBDistHigh. Drive bands independently.
+tapeflutter [tapeflutter]: tape wow/flutter. FlutterMix, FlutterRate, FlutterDepth. Unstable tape pitch.
+dimension [dimension]: dimension stereo chorus. DimMix, DimRate, DimDepth. Wide, lush 80s chorus.
+envphaser [envphaser]: envelope phaser. EnvPhaserMix, EnvPhaserThresh, EnvPhaserDepth, EnvPhaserRate. Playing dynamics move the sweep.
+envflanger [envflanger]: envelope flanger. EnvFlangeMix, EnvFlangeThresh, EnvFlangeDepth, EnvFlangeFb. Dynamic jet sweeps.
+chopper [chopper]: amplitude chopper. ChopMix, ChopRate, ChopDepth, ChopShape. Rhythmic gating.
+barberpole [barberpole]: barber-pole phaser. BarberMix, BarberRate, BarberDepth, BarberStages. Endless rising/falling sweep.
+halfspeed [halfspeed]: half-speed playback. HalfSpeedMix, HalfSpeedAmount. Slowed tape effect; use on a parallel copy.
+pitchecho [pitchecho]: pitch-shifted delay. PitchEchoMix, PitchEchoTime, PitchEchoFb, PitchEchoSemi. Shimmer echoes and octave repeats.
+spectralfreeze [spectralfreeze]: freeze/sustain the last audio. FreezeMix, FreezeThreshold, FreezeDecay. Holds a tail when the input stops.
+revdelay [revdelay]: reverse delay. RevDelayMix, RevDelayTime, RevDelayFb. Backwards echoes and swells.
+echoverb [echoverb]: delay into reverb. EchoVerbMix, EchoVerbTime, EchoVerbFb, EchoVerbSize. Dub/ambient hybrid.
+bloomverb [bloomverb]: swelling reverb. BloomMix, BloomSize, BloomThresh, BloomAttack. Reverb that blooms on transients.
+nonlinverb [nonlinverb]: non-linear reverb. NonLinVerbMix, NonLinVerbSize, NonLinVerbDrive, NonLinVerbGate. Dense, gated, distorted space.
+vocoder [vocoder]: noise/saw-carrier vocoder. VocoderMix, VocoderBands, VocoderRelease, VocoderCarrier. Robot vocals and talking textures.
+MIXING STRATEGY:
+1. Gain stage first: track peaks around -6 dB, then master. Effects that add harmonics (drive, saturator, clipper) raise level, so trim their output or the next node.
+2. Separate frequency bands: high-pass non-bass tracks at 80-200 Hz; cut mud at 250-400 Hz with eq, dyneq or pultec; tame 2.5-8 kHz harshness with deesser, dyneq or mbcomp; add air at 8 kHz+ with airband or exciter. Keep sub and kick mono (stereoimage BassMonoFreq, or mono bass rule).
+3. Solve, don't decorate: noise -> gate/expander; uneven level -> optocomp/vcacomp/rider; weak transients -> transient/clipper/fetcomp; too dynamic -> comp/mbcomp/limiter; dull -> airband/exciter/tilteq; too wide -> width/midside; too narrow -> dimension/stereoimage/haas/doubler.
+4. Punch and pump: for sidechain, create a shared bus/group FX node, set Sidechain Mix above 0, wire the kick to its bottom-most input, and put optocomp/fetcomp/vcacomp after it. For a quick duck without routing, ducker is a one-node option. Keep release 120-250 ms for house/techno, shorter for trap/IDM.
+5. Space: use one short room (roomverb/ambience) for depth and one long space (plate/cathedral/bloomverb) for the feature; do not put long reverb on kick or sub. Delay before reverb for depth. Gated or reverse reverb for 80s drums.
+6. Saturation: one colour stage only on the master (tube/tapesat), parallel for drums/bass, heavier per-track drive for character. Clipper before limiter, never after.
+7. Width: dimension/ensemble for movement, stereoimage for static width, haas/doubler for short sources, midside to widen the sides without the centre. Collapse below 120 Hz.
+8. Modulation: chorus/ensemble/dimension for width, flanger/envflanger for jet, phaser/envphaser/barberpole for sweep, tremolo/harmtrem/autopan for pulse, vibrato for pitch expression, wahpedal/autowah for funk. One modulation type per source unless the style is psychedelic.
+9. Delays: pingpong/delay/tapedelay/multitap for rhythm, dubdelay for dark dub, echoverb for hybrid space, pitchecho for shimmer, revdelay for backwards. Filter the low end of delays.
+10. Reverb: roomverb/ambience for depth, plate for sheen, spring for character, cathedral/bloomverb for ambient, gatedverb for 80s, reverseverb for transitions, nonlinverb for dense texture. Prefer a bus over per-track long reverbs.
+11. Dynamic processing order: gate/expander -> EQ/dyneq -> compressor -> saturation -> modulation -> delay/reverb -> clipper -> limiter. Corrective EQ before compression; creative EQ after.
+12. Keep headroom: no more than one limiter, one clipper and one heavy saturation in a chain. If the master is loud already, fix the mix rather than adding another limiter.
+13. Automate mix controls (mix, cutoff, feedback, width) to keep effects moving through sections instead of static.
+14. Reference bands: sub 20-60, bass 60-250, low-mid 250-500, mid 500-2k, high-mid 2-6k, air 6k+.
+'@
+
 function Get-StudioRoleSoundHint([string]$Role) {
     switch -Regex ($Role.ToLower()) {
         'bass' { return 'a bass voice: strong low end (sub or low cutoff), short filter envelope, mono feel (low unison), no long reverb. Methods that work: filtered saw (reese, acid), sine sub with pitch envelope (808), FM growl with feedback, upright pluck model, wobble with LfoFilter' }
@@ -7110,7 +7760,7 @@ function Get-StudioRoleSoundHint([string]$Role) {
 function Invoke-StudioVoiceDesign([string]$Model, [string]$Ask, [string]$Role, [string]$Brief, [int]$Depth = 6, [string]$Context = '') {
     $pdoc = [HbStudio.PropIO]::Describe([HbStudio.Patch]); $fdoc = [HbStudio.PropIO]::Describe([HbStudio.Fx])
     $min = 6 + 2 * $Depth
-    $sys = "You are a synthesizer sound designer and sound engineer with deep knowledge of acoustic instruments, classic synthesis and modern sound design. Design ONE complete instrument voice for the part described. Reply with ONE JSON object and nothing else (no markdown): {`"name`":`"short instrument name`",`"method`":`"the synthesis method you chose, in a few words`",`"patch`":{synth parameters},`"fx`":{effect parameters},`"development`":{`"intro`":{...},`"verse`":{...},`"build`":{...},`"drop`":{...},`"breakdown`":{...},`"outro`":{...}}}. Use only the listed parameter names with numeric values inside their ranges and enum names as strings. Set at least $min patch parameters. development is optional: for each section type give only the 2-5 NUMERIC patch parameters that should differ there (for example Cutoff, FmAmount, Morph, Unison, Drive, NoiseLevel, LfoFilter, SyncRatio, Resonance), so the sound stays recognisable but evolves through the song: restrained in the intro and verse, opening up in the build, biggest in the drop, stripped in the breakdown.`n$(Get-StudioDepthGuide $Depth)`nThis voice is for $(Get-StudioRoleSoundHint $Role).`n$script:StudioSoundKnowledge`nSynth parameters:`n$pdoc`n$script:LabPatchEx`nEffect parameters:`n$fdoc`n$script:LabFxEx"
+    $sys = "You are a synthesizer sound designer and sound engineer with deep knowledge of acoustic instruments, classic synthesis and modern sound design. Design ONE complete instrument voice for the part described. Reply with ONE JSON object and nothing else (no markdown): {`"name`":`"short instrument name`",`"method`":`"the synthesis method you chose, in a few words`",`"patch`":{synth parameters},`"fx`":{effect parameters},`"development`":{`"intro`":{...},`"verse`":{...},`"build`":{...},`"drop`":{...},`"breakdown`":{...},`"outro`":{...}}}. Use only the listed parameter names with numeric values inside their ranges and enum names as strings. Set at least $min patch parameters. development is optional: for each section type give only the 2-5 NUMERIC patch parameters that should differ there (for example Cutoff, FmAmount, Morph, Unison, Drive, NoiseLevel, LfoFilter, SyncRatio, Resonance), so the sound stays recognisable but evolves through the song: restrained in the intro and verse, opening up in the build, biggest in the drop, stripped in the breakdown.`n$(Get-StudioDepthGuide $Depth)`nThis voice is for $(Get-StudioRoleSoundHint $Role).`n$script:StudioSoundKnowledge`nEffect selection guide:`n$script:StudioEffectKnowledge`nSynth parameters:`n$pdoc`n$script:LabPatchEx`nEffect parameters:`n$fdoc`n$script:LabFxEx"
     $user = "Sound wanted: $Ask"
     if ($Brief) { $user += "`nProducer creative direction (match its genre, mood and sound ideas):`n$Brief" }
     if ($Context) { $user += "`nContext of the song so far (design this voice to complement it):`n$Context" }
@@ -7128,7 +7778,7 @@ function Invoke-StudioVoiceDesign([string]$Model, [string]$Ask, [string]$Role, [
 # One drum voice (kick, snare, hat...) synthesised from scratch and rendered to a sample at the drum's own pitch.
 function Invoke-StudioDrumVoiceDesign([string]$Model, [string]$Lane, [int]$Pitch, [string]$Ask, [string]$Brief, [int]$Depth = 6) {
     $pdoc = [HbStudio.PropIO]::Describe([HbStudio.Patch]); $fdoc = [HbStudio.PropIO]::Describe([HbStudio.Fx])
-    $sys = "You are a drum synthesis expert. Design one $Lane drum sound from scratch with a synthesizer. Reply with ONE JSON object and nothing else (no markdown): {`"seconds`":<length 0.05-3>,`"patch`":{synth parameters},`"fx`":{effect parameters}}. Use only the listed parameter names with numeric values inside their ranges and enum names as strings. Drum recipes: kick = sine with a large fast pitch envelope (PitchEnv 24-48, PitchDecay 0.03-0.08), no sustain, short decay, a little Drive; snare = tri or sine body plus NoiseLevel, bandpass or highpass filter, decay 0.1-0.3, no sustain; clap/rim = noise, bandpass, very short decay (rim adds a high pitched sine); closed hat = noise highpass at 6000+ Hz, decay 0.03-0.07; open hat = same with decay 0.2-0.5; tom = sine with a medium pitch envelope; crash/ride = noise plus inharmonic FM (FmRatio non-integer), long decay; shaker or perc = a short band-passed noise tick or shake, never a pure tonal blip, bleep or woodblock; pitched hat = a bright metallic noise hat (inharmonic square cluster or FM noise, highpassed) that stays short so it can be pitch-shifted up and down; pitched tom = a tuned tom with a pitch envelope and a short noise click. The sound is played at MIDI pitch $Pitch.`n$(Get-StudioDepthGuide $Depth) For drums, higher complexity means more layers (click, body and tail), saturation, and shaping effects, but keep it tight and punchy.`nSynth parameters:`n$pdoc`nEffect parameters:`n$fdoc`n$script:LabFxEx"
+    $sys = "You are a drum synthesis expert. Design one $Lane drum sound from scratch with a synthesizer. Reply with ONE JSON object and nothing else (no markdown): {`"seconds`":<length 0.05-3>,`"patch`":{synth parameters},`"fx`":{effect parameters}}. Use only the listed parameter names with numeric values inside their ranges and enum names as strings. Drum recipes: kick = sine with a large fast pitch envelope (PitchEnv 24-48, PitchDecay 0.03-0.08), no sustain, short decay, a little Drive; snare = tri or sine body plus NoiseLevel, bandpass or highpass filter, decay 0.1-0.3, no sustain; clap/rim = noise, bandpass, very short decay (rim adds a high pitched sine); closed hat = noise highpass at 6000+ Hz, decay 0.03-0.07; open hat = same with decay 0.2-0.5; tom = sine with a medium pitch envelope; crash/ride = noise plus inharmonic FM (FmRatio non-integer), long decay; shaker or perc = a short band-passed noise tick or shake, never a pure tonal blip, bleep or woodblock; pitched hat = a bright metallic noise hat (inharmonic square cluster or FM noise, highpassed) that stays short so it can be pitch-shifted up and down; pitched tom = a tuned tom with a pitch envelope and a short noise click. The sound is played at MIDI pitch $Pitch.`n$(Get-StudioDepthGuide $Depth) For drums, higher complexity means more layers (click, body and tail), saturation, and shaping effects, but keep it tight and punchy.`nEffect selection guide:`n$script:StudioEffectKnowledge`nSynth parameters:`n$pdoc`nEffect parameters:`n$fdoc`n$script:LabFxEx"
     $user = "Drum: $Lane. Style wanted: $Ask"
     if ($Brief) { $user += "`nProducer creative direction:`n$Brief" }
     $res = Invoke-StudioJsonModel $Model $sys $user 3000 ({ param($x) $o = Find-StudioJsonObject $x ''; if (-not ($o.patch -is [pscustomobject]) -and -not $o.Osc1) { throw 'The JSON needs a "patch" object.' }; $o })
@@ -8690,10 +9340,26 @@ function Show-AudioStudio {
             } catch { }
         }) | Out-Null
     } catch { }
+    function Get-StudioAppIcon {
+        try {
+            if ($script:StudioEmbeddedIconBase64) {
+                $ib = [Convert]::FromBase64String([string]$script:StudioEmbeddedIconBase64)
+                return (New-Object System.Drawing.Icon((New-Object System.IO.MemoryStream(, $ib))))
+            }
+        } catch { }
+        $cand = New-Object 'System.Collections.Generic.List[string]'
+        try { if ($PSScriptRoot) { $cand.Add((Join-Path $PSScriptRoot 'Humble Baker Studio.ico')) } } catch { }
+        try { $cand.Add((Join-Path ([IO.Path]::GetDirectoryName([Diagnostics.Process]::GetCurrentProcess().MainModule.FileName)) 'Humble Baker Studio.ico')) } catch { }
+        try { $cand.Add((Join-Path (Get-StudioDir) 'Humble Baker Studio.ico')) } catch { }
+        foreach ($p in $cand) { try { if (Test-Path -LiteralPath $p) { return (New-Object System.Drawing.Icon($p)) } } catch { } }
+        try { return [System.Drawing.Icon]::ExtractAssociatedIcon([System.Windows.Forms.Application]::ExecutablePath) } catch { }
+        return $null
+    }
     $f = New-Object Windows.Forms.Form
     $f.Text = 'Audio Studio - piano roll, SuperCollider and AI'; $f.Size = New-Object Drawing.Size(1500, 1010); $f.StartPosition = 'CenterScreen'
     $f.MinimumSize = New-Object Drawing.Size(900, 650); $f.WindowState = 'Normal'
     $f.BackColor = $dk.Bg; $f.ForeColor = $dk.Text; $f.Font = New-Object Drawing.Font('Segoe UI', 9); $f.KeyPreview = $true
+    try { $script:StudioAppIcon = Get-StudioAppIcon; if ($script:StudioAppIcon) { $f.Icon = $script:StudioAppIcon } } catch { }
     $script:ResizerIdle = [Drawing.Color]::FromArgb(70, 76, 94)
     $script:ResizerHot = [Drawing.Color]::FromArgb(40, 200, 170)
     function Make-Resizer($target, [string]$edge, [int]$minSize, [int]$maxSize) {
@@ -10358,7 +11024,7 @@ Examples:
                     Set-LabStatus "Applied $c synth parameters to '$($t.Name)'. Press Audition or Play."
                 }
                 { $_ -in 'fx', 'refinefx' } {
-                    $sys = "You are an audio effects designer for electronic music. $rules`nEffect chain order: stutter, filter, fold, drive, bitcrush/downsample, ring mod, chorus, delay, reverb, gain. Parameters:`n$fdoc`n$script:LabFxEx"
+                    $sys = "You are an audio effects designer for electronic music with the full 98-module library below. $rules`n$script:StudioEffectKnowledge`nAdd/keep modules by setting their mix/on controls above 0 and configuring the parameters named there. Prefer a short purposeful chain over stacking every module. Parameters:`n$fdoc`n$script:LabFxEx"
                     $user = "Effect wanted: $ask"
                     if ($Kind -eq 'refinefx') { $user = "Current effects: $((ConvertTo-StudioMap $t.Fx) | ConvertTo-Json -Compress)`nChange them as asked, return only the parameters that change. Change: $ask" }
                     $res = Invoke-StudioJsonModel $model $sys $user 2000 ({ param($x) Find-StudioJsonObject $x 'fx' }); $reply = $res.Reply; $j = $res.Value
@@ -11868,7 +12534,7 @@ Steps you can use:
 {"do":"compose","request":"..."}  AI writes notes (in beats) into the selected track.
 {"do":"design_sound","kind":"synth|morph|spectral","description":"...","role":"lead|bass|arpeggio|pad|counter|hook|texture","new_track":true}  synthesise a new voice with the sound-design AI (applies to the selected track, or a new track).
 {"do":"refine_patch","description":"darker and more aggressive"}  tweak the selected track's synth patch.
-{"do":"design_fx","description":"..."}  design the selected track's effects chain.
+{"do":"design_fx","description":"..."}  design or change the selected track's effects chain using any of the 98 graph effects; set mix/on controls above 0 and configure the parameters.
 {"do":"design_sample","description":"..."}  one-shot sample (hit, riser, bass note) on a new sampler track.
 {"do":"design_kit","description":"..."}  turn the selected drum track into a synthesised kit.
 {"do":"texture","description":"..."}  add an evolving spectral (and morph) texture bed on new tracks.
@@ -11878,7 +12544,7 @@ Steps you can use:
 {"do":"select_track","track":"<name>"}
 {"do":"edit","tool":"<edit tool id>","times":1,"amount":0.06,"chance":30,"rolls":3}  an edit tool on the selected track.
 {"do":"generate","id":"euc|walk|poly","hits":5,"steps":16,"rotate":0,"note":36}  replaces the selected track's notes.
-{"do":"mix","request":"sidechain the bass to the kick, darker and wider"}  mix rules, track levels and the master chain.
+{"do":"mix","request":"sidechain the bass to the kick, darker and wider"}  mix rules, track levels and the master chain. For new colour, space or movement, use design_fx instead.
 {"do":"set_project","bpm":140,"swing":10,"key":"C","scale":"minor"}
 {"do":"build_song"}  turn the direction's structure into song patterns, with risers and texture layers if enabled.
 {"do":"compose_song","request":"optional description","style":"optional style name","use_song_model":false}  the full composer: direction with harmony per section, melody, drums (and a synthesised kit if enabled), chords, bass, arps, designed sounds, one pattern per section with its own chords and energy, mix rules and auto master. Use it for whole-song goals instead of many small steps.
@@ -12142,7 +12808,7 @@ Rules: prefer the user's saved instruments when one fits the goal. Use design_so
                 $S.AgentOut.Text = $plan
             } else {
                 $ctx = Get-AgentContext
-                $res = Invoke-StudioJsonModel (Get-AiModel) ($script:StudioToolManual + "`n`n" + (Get-StudioMusicKnowledge) + "`n`n" + $script:StudioAgentActions) ($ctx + "`n`nGoal: $goal") 3000 ({ param($x) $o = Find-StudioJsonObject $x ''; if (@($o.steps).Count -lt 1) { throw 'The JSON needs a "steps" array.' }; $o })
+                $res = Invoke-StudioJsonModel (Get-AiModel) ((Get-StudioToolManual $false) + "`n`n" + (Get-StudioMusicKnowledge) + "`n`n" + $script:StudioAgentActions) ($ctx + "`n`nGoal: $goal") 3000 ({ param($x) $o = Find-StudioJsonObject $x ''; if (@($o.steps).Count -lt 1) { throw 'The JSON needs a "steps" array.' }; $o })
                 $steps = @($res.Value.steps | Select-Object -First 8)
                 $plan = 'PLAN: ' + [string]$res.Value.plan + "`r`n" + ((1..$steps.Count | ForEach-Object { "$_. " + ($steps[$_ - 1] | ConvertTo-Json -Compress) }) -join "`r`n")
                 $S.AgentOut.Text = $plan
@@ -13092,6 +13758,7 @@ Rules: prefer the user's saved instruments when one fits the goal. Use design_so
         if (-not $s) { $s = @{ Song = $false; Loops = 1; Tempo = 0; Click = $false; Master = $true; Normalize = $false; NormDb = -1.0; FadeIn = 0; FadeOut = 0; Format = 'WAV 16-bit'; SampleRate = 44100; Mono = $false } }
         $f = New-Object Windows.Forms.Form
         $f.Text = 'Export audio'; $f.StartPosition = 'CenterParent'; $f.FormBorderStyle = 'FixedDialog'
+        try { if ($script:StudioAppIcon) { $f.Icon = $script:StudioAppIcon } } catch { }
         $f.MaximizeBox = $false; $f.MinimizeBox = $false; $f.ClientSize = New-Object Drawing.Size(520, 380)
         $f.BackColor = $dk.Panel; $f.ForeColor = $dk.Text
         $add = { param($c) $f.Controls.Add($c) }

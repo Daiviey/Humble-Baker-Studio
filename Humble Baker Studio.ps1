@@ -1,4 +1,6 @@
 #requires -Version 5.1
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 David Burr (Daiviey)
 <#
   Humble Baker Studio - standalone Windows GUI build of the Audio Studio implementation.
 
@@ -7,8 +9,20 @@
 #>
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
-$script:StudioRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+$script:StudioRoot = $PSScriptRoot
+if (-not $script:StudioRoot) { try { $script:StudioRoot = Split-Path -Parent $MyInvocation.MyCommand.Path } catch { } }
+if (-not $script:StudioRoot) { try { $script:StudioRoot = Split-Path -Parent ([Diagnostics.Process]::GetCurrentProcess().MainModule.FileName) } catch { } }
+if (-not $script:StudioRoot) { $script:StudioRoot = (Get-Location).Path }
 $studioImplementation = Join-Path $script:StudioRoot 'AudioStudioImplementation.ps1'
+if (-not (Test-Path -LiteralPath $studioImplementation -PathType Leaf)) {
+    $alt = Join-Path ([IO.Path]::GetDirectoryName([Diagnostics.Process]::GetCurrentProcess().MainModule.FileName)) 'AudioStudioImplementation.ps1'
+    if (Test-Path -LiteralPath $alt -PathType Leaf) { $studioImplementation = $alt }
+}
 if (-not (Test-Path -LiteralPath $studioImplementation -PathType Leaf)) { throw "Required studio implementation not found: $studioImplementation" }
 . $studioImplementation
-try { Show-AudioStudio } catch { Write-Output ("STUDIO CRASH: " + $_.Exception.ToString()); exit 1 }
+try { Show-AudioStudio } catch {
+    $crash = "STUDIO CRASH: " + $_.Exception.ToString() + "`r`n" + $_.ScriptStackTrace
+    try { [IO.File]::WriteAllText((Join-Path $env:TEMP 'hb-studio-crash.log'), $crash) } catch { }
+    Write-Output $crash
+    exit 1
+}

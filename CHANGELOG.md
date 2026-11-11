@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.13 — 2026-11-10
+
+- Added the full multi-resolution **Humble Baker Studio icon** (16, 24, 32, 48, 64, 128 and 256 px) and embedded it in the Studio exe, the window/title bar and the standalone build.
+- Added an **MIT license** and a `NOTICE.md` covering original artwork/branding, content attribution and third-party software/model licenses.
+- The **Studio agent now knows all 98 effects** with their use cases and a detailed mixing strategy; this knowledge is provided when it plans steps and when it designs effects.
+- Added icon preview assets under `docs/`.
+- Fixed the packaged exe locating its embedded studio implementation when launched from any folder.
+
 ## 1.0.12 — 2026-11-10
 
 - Added full documentation: [Manual](docs/MANUAL.md), [Effect Reference](docs/EFFECTS.md) with all 98 effects and every control, [Synth Patch Reference](docs/SYNTH.md) with all 89 parameters, and [Settings Reference](docs/SETTINGS.md) for mastering, mix rules, spectral and meta settings.
