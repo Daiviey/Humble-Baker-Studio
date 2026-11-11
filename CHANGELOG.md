@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.9 — 2026-11-10
+
+- All 48 effects are now graph nodes; effects are added only from the Patch graph (right-click → Add/Insert FX module).
+- Removed the FX Rack button, track/bus quick-add buttons and the Sound Lab FX chain editor.
+- New tracks no longer start with a hidden compressor; track FX is off by default.
+- Each graph effect node shows only its own parameters, with ranges and descriptions.
+
 ## 1.0.8 — 2026-11-10
 
 - Expanded the FX Rack to **48 effect modules**.

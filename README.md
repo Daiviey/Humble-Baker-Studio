@@ -42,7 +42,7 @@ No installer is required: the build is portable. FFmpeg and SuperCollider are di
 - **Piano roll** with scales, snap, velocity, note lengths, and per-track drums/melody parts.
 - **Synth engine**: subtractive, FM, additive, wavetable, vowel, Karplus-Strong pluck, modal bells, noise, filters, drive, bitcrush.
 - **Drums** with multiple kits and per-kit character.
-- **Patch graph**: tracks, FX modules, buses, groups, master out; shared FX nodes process all tracks routed through them.
+- **Patch graph**: tracks, FX modules, buses, groups, master out; **all 48 effects are added as graph nodes**, and shared FX nodes process all tracks routed through them.
 - **Automation painting**:
   - paint a curve on the canvas; the horizontal axis spans the whole track/song
   - vertical position sets the value; brightness is a real **Z axis** (depth/value)

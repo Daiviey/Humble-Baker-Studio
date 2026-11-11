@@ -155,7 +155,7 @@ public class Fx {
         PhaserMix = 0; PhaserRate = 0.5; PhaserDepth = 0.6; PhaserStages = 4; FlangerMix = 0; FlangerRate = 0.8; FlangerDepth = 0.6; FlangerFb = 0.4;
         TapeStop = 0; TapeStopRate = 0.5; TapeDelayMix = 0; TapeDelayTime = 280; TapeDelayFb = 0.45; TapeDelayWow = 0.3;
         PlateMix = 0; PlateSize = 0.6; PlateDamping = 0.5; VinylCrackle = 0; TapeHiss = 0; TapeWow = 0;
-        CompThresh = -18; CompRatio = 3; CompAttack = 10; CompRelease = 120; LowShelf = 0; HighShelf = 0; MidPeak = 0; Width = 1; PitchShift = 0;
+        CompThresh = -18; CompRatio = 1; CompAttack = 10; CompRelease = 120; LowShelf = 0; HighShelf = 0; MidPeak = 0; Width = 1; PitchShift = 0;
         SidechainSource = ""; SidechainMix = 0; SidechainAttack = 3; SidechainRelease = 160; CompMakeup = 0;
         GateAmount = 0; GateThreshold = -45; GateAttack = 2; GateRelease = 90;
         TransientAttack = 0; TransientSustain = 0; TransientSensitivity = 0.5;
@@ -1312,6 +1312,38 @@ public static class KnobPanel {
             else if (m == "vinyl") { s.Add("VinylCrackle"); s.Add("TapeHiss"); s.Add("TapeWow"); }
             else if (m == "comp") { s.Add("CompThresh"); s.Add("CompRatio"); s.Add("CompAttack"); s.Add("CompRelease"); s.Add("CompMakeup"); s.Add("SidechainSource"); s.Add("SidechainMix"); s.Add("SidechainAttack"); s.Add("SidechainRelease"); }
             else if (m == "eq") { s.Add("LowShelf"); s.Add("HighShelf"); s.Add("MidPeak"); s.Add("Width"); s.Add("PitchShift"); }
+            else if (m == "fold") { s.Add("Fold"); }
+            else if (m == "width") { s.Add("Width"); s.Add("PitchShift"); }
+            else if (m == "saturator") { s.Add("Saturator"); s.Add("SatBias"); s.Add("SatTone"); s.Add("SatMix"); }
+            else if (m == "exciter") { s.Add("Exciter"); s.Add("ExciterFreq"); s.Add("ExciterMix"); }
+            else if (m == "rectify") { s.Add("RectifyMix"); s.Add("RectifyHalf"); s.Add("RectifyDrive"); }
+            else if (m == "gate") { s.Add("GateAmount"); s.Add("GateThreshold"); s.Add("GateAttack"); s.Add("GateRelease"); }
+            else if (m == "transient") { s.Add("TransientAttack"); s.Add("TransientSustain"); s.Add("TransientSensitivity"); }
+            else if (m == "tremolo") { s.Add("TremoloMix"); s.Add("TremoloRate"); s.Add("TremoloDepth"); }
+            else if (m == "autopan") { s.Add("AutoPanMix"); s.Add("AutoPanRate"); s.Add("AutoPanDepth"); }
+            else if (m == "vibrato") { s.Add("VibratoMix"); s.Add("VibratoRate"); s.Add("VibratoDepth"); }
+            else if (m == "autowah") { s.Add("AutoWahMix"); s.Add("AutoWahRate"); s.Add("AutoWahDepth"); s.Add("AutoWahResonance"); }
+            else if (m == "comb") { s.Add("CombMix"); s.Add("CombFreq"); s.Add("CombFeedback"); }
+            else if (m == "spring") { s.Add("SpringMix"); s.Add("SpringDecay"); s.Add("SpringTone"); }
+            else if (m == "shimmer") { s.Add("ShimmerMix"); s.Add("ShimmerPitch"); s.Add("ShimmerDecay"); }
+            else if (m == "haas") { s.Add("HaasMix"); s.Add("HaasDelay"); }
+            else if (m == "limiter") { s.Add("LimiterOn"); s.Add("LimiterThreshold"); s.Add("LimiterRelease"); s.Add("LimiterCeiling"); }
+            else if (m == "ensemble") { s.Add("EnsembleMix"); s.Add("EnsembleRate"); s.Add("EnsembleDepth"); }
+            else if (m == "rotary") { s.Add("RotaryMix"); s.Add("RotaryRate"); s.Add("RotaryDepth"); }
+            else if (m == "octaver") { s.Add("OctaverMix"); }
+            else if (m == "harmonizer") { s.Add("HarmonizerMix"); s.Add("HarmonizerSemi"); }
+            else if (m == "resonator") { s.Add("ResonatorMix"); s.Add("ResonatorFreq"); s.Add("ResonatorFeedback"); }
+            else if (m == "tilteq") { s.Add("TiltGain"); }
+            else if (m == "midside") { s.Add("MidGain"); s.Add("SideGain"); }
+            else if (m == "deesser") { s.Add("DeEsserAmount"); s.Add("DeEsserFreq"); }
+            else if (m == "mbcomp") { s.Add("MBOn"); s.Add("MBLowThresh"); s.Add("MBMidThresh"); s.Add("MBHighThresh"); s.Add("MBRatio"); s.Add("MBMakeup"); }
+            else if (m == "clipper") { s.Add("ClipperAmount"); s.Add("ClipperDrive"); }
+            else if (m == "autofilter") { s.Add("AutoFilterMix"); s.Add("AutoFilterSensitivity"); s.Add("AutoFilterResonance"); }
+            else if (m == "gatedverb") { s.Add("GateVerbMix"); s.Add("GateVerbDecay"); s.Add("GateVerbHold"); }
+            else if (m == "reverseverb") { s.Add("ReverseVerbMix"); s.Add("ReverseVerbDecay"); }
+            else if (m == "multitap") { s.Add("MultiTapMix"); s.Add("MultiTapTime"); s.Add("MultiTapFb"); }
+            else if (m == "doubler") { s.Add("DoublerMix"); s.Add("DoublerDelay"); }
+            else if (m == "formant") { s.Add("FormantMix"); s.Add("FormantVowel"); s.Add("FormantShift"); }
             s.Add("Gain");
         }
         return s;
@@ -2090,13 +2122,13 @@ public class PatchGraphControl : Control {
                 PatchNode fromNode = g.Find(overWire.From), toNode = g.Find(overWire.To);
                 Point mid = (fromNode != null && toNode != null) ? WireMid(fromNode, toNode) : new Point(world.X, world.Y);
                 ToolStripMenuItem ins = new ToolStripMenuItem("Insert FX module into this wire >");
-                foreach (string[] mod in new string[][] { new[] { "Filter", "filter" }, new[] { "Drive", "drive" }, new[] { "Crush", "crush" }, new[] { "Ring mod", "ring" }, new[] { "Stutter", "stutter" }, new[] { "Chorus", "chorus" }, new[] { "Delay", "delay" }, new[] { "Reverb", "reverb" }, new[] { "Phaser", "phaser" }, new[] { "Flanger", "flanger" }, new[] { "Tape stop", "tapestop" }, new[] { "Tape delay", "tapedelay" }, new[] { "Plate", "plate" }, new[] { "Vinyl", "vinyl" }, new[] { "Compressor", "comp" }, new[] { "EQ + width", "eq" } }) { string label = mod[0], type = mod[1]; ToolStripMenuItem mi = new ToolStripMenuItem(label); mi.Click += delegate { PatchNode n = NewFxNode(type, mid.X - NW / 2, mid.Y - FH / 2); g.Nodes.Add(n); if (SpliceNode(g, n, overWire)) { Changed(); PatchNode f = g.Find(overWire.From), t = g.Find(overWire.To); if (f != null && t != null) { LinkFired(f, n); LinkFired(n, t); } } }; ins.DropDownItems.Add(mi); }
+                foreach (string[] mod in FxCatalog) { string label = mod[0], type = mod[1]; ToolStripMenuItem mi = new ToolStripMenuItem(label); mi.Click += delegate { PatchNode n = NewFxNode(type, mid.X - NW / 2, mid.Y - FH / 2); g.Nodes.Add(n); if (SpliceNode(g, n, overWire)) { Changed(); PatchNode f = g.Find(overWire.From), t = g.Find(overWire.To); if (f != null && t != null) { LinkFired(f, n); LinkFired(n, t); } } }; ins.DropDownItems.Add(mi); }
                 menu.Items.Add(ins);
                 ToolStripMenuItem insBus = new ToolStripMenuItem("Insert Bus amp into this wire >"); insBus.Click += delegate { PatchNode n = new PatchNode { Kind = "bus", Label = "BUS " + (CountKind(g, "bus") + 1), X = mid.X - NW / 2, Y = mid.Y - BH / 2, Gain = 1, Pan = 0 }; g.Nodes.Add(n); if (SpliceNode(g, n, overWire)) { Changed(); PatchNode f = g.Find(overWire.From), t = g.Find(overWire.To); if (f != null && t != null) { LinkFired(f, n); LinkFired(n, t); } } }; menu.Items.Add(insBus);
                 if (fromNode != null && toNode != null) { ToolStripMenuItem disc = new ToolStripMenuItem("Disconnect this wire (" + NodeTitle(fromNode) + " -> " + NodeTitle(toNode) + " -> "); disc.Click += delegate { g.Links.Remove(overWire); Changed(); }; menu.Items.Add(disc); }
             }
             ToolStripMenuItem addFx = new ToolStripMenuItem("Add FX module"); 
-            foreach (string[] mod in new string[][] { new[] { "Filter", "filter" }, new[] { "Drive", "drive" }, new[] { "Crush", "crush" }, new[] { "Ring mod", "ring" }, new[] { "Stutter", "stutter" }, new[] { "Chorus", "chorus" }, new[] { "Delay", "delay" }, new[] { "Reverb", "reverb" }, new[] { "Phaser", "phaser" }, new[] { "Flanger", "flanger" }, new[] { "Tape stop", "tapestop" }, new[] { "Tape delay", "tapedelay" }, new[] { "Plate", "plate" }, new[] { "Vinyl", "vinyl" }, new[] { "Compressor", "comp" }, new[] { "EQ + width", "eq" } }) { string label = mod[0], type = mod[1]; ToolStripMenuItem mi = new ToolStripMenuItem(label); mi.Click += delegate { g.Nodes.Add(NewFxNode(type, world.X, world.Y)); Changed(); }; addFx.DropDownItems.Add(mi); }
+            foreach (string[] mod in FxCatalog) { string label = mod[0], type = mod[1]; ToolStripMenuItem mi = new ToolStripMenuItem(label); mi.Click += delegate { g.Nodes.Add(NewFxNode(type, world.X, world.Y)); Changed(); }; addFx.DropDownItems.Add(mi); }
             menu.Items.Add(addFx);
             ToolStripMenuItem addBus = new ToolStripMenuItem("Add Bus (gain + pan)"); addBus.Click += delegate { PatchNode n = new PatchNode { Kind = "bus", Label = "BUS " + (CountKind(g, "bus") + 1), X = world.X, Y = world.Y, Gain = 1, Pan = 0 }; g.Nodes.Add(n); Changed(); }; menu.Items.Add(addBus);
             ToolStripMenuItem addOut = new ToolStripMenuItem("Add Master Out"); addOut.Click += delegate { g.Nodes.Add(new PatchNode { Kind = "out", Label = "out", X = world.X, Y = world.Y }); Changed(); }; menu.Items.Add(addOut);
@@ -2104,6 +2136,20 @@ public class PatchGraphControl : Control {
         menu.Show(this, e.Location);
     }
     static int CountKind(PatchGraph g, string kind) { int c = 0; foreach (PatchNode n in g.Nodes) if (n.Kind == kind) c++; return c; }
+    public static readonly string[][] FxCatalog = new string[][] {
+        new[] { "Filter", "filter" }, new[] { "Drive", "drive" }, new[] { "Crush", "crush" }, new[] { "Fold", "fold" },
+        new[] { "Ring mod", "ring" }, new[] { "Stutter", "stutter" }, new[] { "Chorus", "chorus" }, new[] { "Delay", "delay" },
+        new[] { "Reverb", "reverb" }, new[] { "Phaser", "phaser" }, new[] { "Flanger", "flanger" }, new[] { "Tape stop", "tapestop" },
+        new[] { "Tape delay", "tapedelay" }, new[] { "Plate", "plate" }, new[] { "Vinyl", "vinyl" }, new[] { "Compressor", "comp" },
+        new[] { "EQ + width", "eq" }, new[] { "Width", "width" }, new[] { "Saturator", "saturator" }, new[] { "Exciter", "exciter" },
+        new[] { "Rectifier", "rectify" }, new[] { "Gate", "gate" }, new[] { "Transient", "transient" }, new[] { "Tremolo", "tremolo" },
+        new[] { "Auto-pan", "autopan" }, new[] { "Vibrato", "vibrato" }, new[] { "Auto-wah", "autowah" }, new[] { "Comb", "comb" },
+        new[] { "Spring reverb", "spring" }, new[] { "Shimmer", "shimmer" }, new[] { "Haas", "haas" }, new[] { "Limiter", "limiter" },
+        new[] { "Ensemble", "ensemble" }, new[] { "Rotary", "rotary" }, new[] { "Octaver", "octaver" }, new[] { "Harmonizer", "harmonizer" },
+        new[] { "Resonator", "resonator" }, new[] { "Tilt EQ", "tilteq" }, new[] { "Mid/Side EQ", "midside" }, new[] { "De-esser", "deesser" },
+        new[] { "Multiband comp", "mbcomp" }, new[] { "Clipper", "clipper" }, new[] { "Auto-filter", "autofilter" }, new[] { "Gated reverb", "gatedverb" },
+        new[] { "Reverse reverb", "reverseverb" }, new[] { "Multi-tap", "multitap" }, new[] { "Doubler", "doubler" }, new[] { "Formant", "formant" }
+    };
     public static PatchNode NewFxNode(string type, int x, int y) {
         PatchNode n = new PatchNode(); n.Kind = "fx"; n.Type = type; n.Label = type.ToUpperInvariant(); n.X = x; n.Y = y;
         Fx fx = n.Fx;
@@ -2124,6 +2170,38 @@ public class PatchGraphControl : Control {
             case "vinyl": fx.VinylCrackle = 0.4; fx.TapeHiss = 0.2; fx.TapeWow = 0.3; break;
             case "comp": fx.CompThresh = -18; fx.CompRatio = 3; fx.CompAttack = 10; fx.CompRelease = 120; fx.CompMakeup = 3; break;
             case "eq": fx.LowShelf = 2; fx.HighShelf = 2; fx.Width = 1.05; break;
+            case "fold": fx.Fold = 0.4; break;
+            case "width": fx.Width = 1.3; break;
+            case "saturator": fx.Saturator = 0.45; fx.SatMix = 0.5; break;
+            case "exciter": fx.Exciter = 0.4; fx.ExciterFreq = 4000; fx.ExciterMix = 0.5; break;
+            case "rectify": fx.RectifyMix = 0.5; fx.RectifyDrive = 0.2; break;
+            case "gate": fx.GateAmount = 0.8; fx.GateThreshold = -45; break;
+            case "transient": fx.TransientAttack = 0.4; fx.TransientSustain = -0.2; fx.TransientSensitivity = 0.5; break;
+            case "tremolo": fx.TremoloMix = 0.6; fx.TremoloRate = 5; fx.TremoloDepth = 0.5; break;
+            case "autopan": fx.AutoPanMix = 0.6; fx.AutoPanRate = 0.5; fx.AutoPanDepth = 0.7; break;
+            case "vibrato": fx.VibratoMix = 0.5; fx.VibratoRate = 5; fx.VibratoDepth = 0.3; break;
+            case "autowah": fx.AutoWahMix = 0.6; fx.AutoWahRate = 1.5; fx.AutoWahDepth = 0.6; fx.AutoWahResonance = 0.6; break;
+            case "comb": fx.CombMix = 0.5; fx.CombFreq = 220; fx.CombFeedback = 0.5; break;
+            case "spring": fx.SpringMix = 0.4; fx.SpringDecay = 0.6; break;
+            case "shimmer": fx.ShimmerMix = 0.4; fx.ShimmerPitch = 12; fx.ShimmerDecay = 0.7; break;
+            case "haas": fx.HaasMix = 0.5; fx.HaasDelay = 14; break;
+            case "limiter": fx.LimiterOn = true; fx.LimiterThreshold = -6; fx.LimiterCeiling = -1; break;
+            case "ensemble": fx.EnsembleMix = 0.5; fx.EnsembleRate = 0.6; fx.EnsembleDepth = 0.5; break;
+            case "rotary": fx.RotaryMix = 0.5; fx.RotaryRate = 0.8; fx.RotaryDepth = 0.7; break;
+            case "octaver": fx.OctaverMix = 0.45; break;
+            case "harmonizer": fx.HarmonizerMix = 0.4; fx.HarmonizerSemi = 7; break;
+            case "resonator": fx.ResonatorMix = 0.4; fx.ResonatorFreq = 220; fx.ResonatorFeedback = 0.6; break;
+            case "tilteq": fx.TiltGain = 3; break;
+            case "midside": fx.MidGain = 2; fx.SideGain = 2; break;
+            case "deesser": fx.DeEsserAmount = 0.5; break;
+            case "mbcomp": fx.MBOn = true; fx.MBLowThresh = -18; fx.MBMidThresh = -18; fx.MBHighThresh = -18; fx.MBRatio = 3; fx.MBMakeup = 2; break;
+            case "clipper": fx.ClipperAmount = 0.5; fx.ClipperDrive = 0.5; break;
+            case "autofilter": fx.AutoFilterMix = 0.5; fx.AutoFilterSensitivity = 0.6; fx.AutoFilterResonance = 0.5; break;
+            case "gatedverb": fx.GateVerbMix = 0.4; fx.GateVerbDecay = 0.6; fx.GateVerbHold = 0.25; break;
+            case "reverseverb": fx.ReverseVerbMix = 0.4; fx.ReverseVerbDecay = 0.6; break;
+            case "multitap": fx.MultiTapMix = 0.4; fx.MultiTapTime = 180; fx.MultiTapFb = 0.4; break;
+            case "doubler": fx.DoublerMix = 0.5; fx.DoublerDelay = 18; break;
+            case "formant": fx.FormantMix = 0.5; fx.FormantVowel = 0; fx.FormantShift = 1; break;
         }
         return n;
     }
@@ -8076,8 +8154,7 @@ function Show-AudioStudio {
     $S.BtnNew = Btn 'New' 8 46 56; $S.BtnOpen = Btn 'Open...' 70 46 64; $S.BtnSave = Btn 'Save...' 140 46 64
     $S.BtnWav = Btn 'Export...' 214 46 100; $S.BtnMidi = Btn 'Export MIDI' 320 46 94; $S.BtnScd = Btn 'Export .scd' 420 46 90
     $S.BtnSc = Btn 'Locate SuperCollider' 520 46 140; $S.BtnScGet = Btn 'Get SuperCollider' 666 46 124
-    $S.BtnFxRack = Btn 'FX Rack...' 790 46 100
-    $top.Controls.AddRange(@($S.BtnNew, $S.BtnOpen, $S.BtnSave, $S.BtnWav, $S.BtnMidi, $S.BtnScd, $S.BtnSc, $S.BtnScGet, $S.BtnFxRack))
+    $top.Controls.AddRange(@($S.BtnNew, $S.BtnOpen, $S.BtnSave, $S.BtnWav, $S.BtnMidi, $S.BtnScd, $S.BtnSc, $S.BtnScGet))
     $S.Click = New-Object Windows.Forms.CheckBox; $S.Click.Text = 'Click (metronome)'; $S.Click.SetBounds(900, 49, 150, 22); $S.Click.ForeColor = $dk.Text; $top.Controls.Add($S.Click)
     $S.ScLbl = New-Object Windows.Forms.Label; $S.ScLbl.SetBounds(1110, 50, 270, 18); $S.ScLbl.ForeColor = $dk.Muted
     $top.Controls.Add($S.ScLbl)
@@ -8145,12 +8222,12 @@ function Show-AudioStudio {
     $left.Controls.Add((Lbl 'Send selected track to' 8 356 234 16))
     $S.TBus = Combo @('Direct to master', 'Bus A', 'Bus B', 'Bus C', 'Bus D') 8 374 234
     $left.Controls.Add($S.TBus)
-    $left.Controls.Add((Lbl 'FX modules on this track' 8 402 234 16))
+    $left.Controls.Add((Lbl 'Add FX nodes in the Patch graph' 8 402 234 16))
     $S.ModBtns = @()
     $modDefs = @(@('Filter', 'Filter'), @('Drive', 'Drive'), @('Crush', 'Crush'), @('Ring', 'Ring'), @('Stutter', 'Stutter'), @('Chorus', 'Chorus'), @('Delay', 'Delay'), @('Reverb', 'Reverb'), @('Phaser', 'Phaser'), @('Flanger', 'Flanger'), @('TapeStop', 'TapeStop'), @('TapeDelay', 'TapeDelay'), @('Plate', 'Plate'), @('Vinyl', 'Vinyl'), @('Comp', 'Comp'), @('EQ', 'EQ'))
     $mx = 8; $my = 420
     foreach ($md in $modDefs) {
-        $b = Btn $md[0] $mx $my 54 22; $b.Tag = $md[1]; $b.Font = New-Object Drawing.Font('Segoe UI', 8); $S.ModBtns += $b; $left.Controls.Add($b)
+        $b = Btn $md[0] $mx $my 54 22; $b.Tag = $md[1]; $b.Font = New-Object Drawing.Font('Segoe UI', 8); $b.Visible = $false; $S.ModBtns += $b; $left.Controls.Add($b)
         $mx += 58; if ($mx -gt 200) { $mx = 8; $my += 26 }
     }
     $left.Controls.Add((Lbl 'Buses (shared FX + fader)' 8 472 234 16))
@@ -8223,7 +8300,7 @@ function Show-AudioStudio {
         $g.HelpBackColor = $dk.Panel; $g.HelpForeColor = $dk.Muted; $g.CommandsBackColor = $dk.Panel; $g.CanShowVisualStyleGlyphs = $false
         return $g
     }
-    $S.GridPatch = New-LabGrid 4 410; $S.GridFx = New-LabGrid 420 410
+    $S.GridPatch = New-LabGrid 4 410; $S.GridFx = New-LabGrid 420 410; $S.GridFx.Visible = $false
     $S.LabPrompt = Sty (New-Object Windows.Forms.TextBox); $S.LabPrompt.Multiline = $true; $S.LabPrompt.ScrollBars = 'Vertical'; $S.LabPrompt.SetBounds(846, 24, 500, 50)
     $tLab.Controls.Add((Lbl 'Describe the sound (for example: "wet liquid FM bell that decays into static" or "tearing detuned acid bass")' 846 4 510))
     $S.LabSynth = Btn 'Design synth' 846 80 118 28 $true; $S.LabRSynth = Btn 'Refine synth' 970 80 118; $S.LabFx = Btn 'Design effects' 1094 80 118; $S.LabRFx = Btn 'Refine effects' 1218 80 118
@@ -8758,7 +8835,7 @@ function Show-AudioStudio {
             switch ($n.Kind) {
                 'track' {
                     $ti = -1; for ($i = 0; $i -lt $S.Proj.Tracks.Count; $i++) { if ($S.Proj.Tracks[$i].Uid -eq $n.TrackUid) { $ti = $i; break } }
-                    if ($ti -ge 0) { $t = $S.Proj.Tracks[$ti]; $S.PatchTitle.Text = $t.Name; $S.PatchType.Text = 'track module - knobs edit its FX chain'; $kobj = $t.Fx; $modFilter = $null } else { $S.PatchTitle.Text = '(missing track)'; $S.PatchType.Text = 'track was deleted - delete this module'; $modFilter = $null }
+                    if ($ti -ge 0) { $t = $S.Proj.Tracks[$ti]; $S.PatchTitle.Text = $t.Name; $S.PatchType.Text = 'track module - add FX nodes after this'; $kobj = $null; $modFilter = $null } else { $S.PatchTitle.Text = '(missing track)'; $S.PatchType.Text = 'track was deleted - delete this module'; $modFilter = $null }
                 }
                 'fx'  { $S.PatchTitle.Text = $n.Label; $S.PatchType.Text = $(if ($n.Type -ieq 'busfx') { 'bus FX - lower input is the sidechain trigger (Sidechain Mix > 0)' } else { 'FX module - section' }); $kobj = $n.Fx; $modFilter = $(if ($n.Type -ieq 'trackfx' -or $n.Type -ieq 'busfx') { $null } else { [string]$n.Type }) }
                 'bus' { $S.PatchTitle.Text = $n.Label; $S.PatchType.Text = 'bus amp - gain & pan'; $kobj = $n; $modFilter = $null }
@@ -10269,7 +10346,7 @@ Source and Target must use words from the track names listed below (case does no
     $S.BusModBtns = @()
     $modDefs2 = @('Filter', 'Drive', 'Crush', 'Ring', 'Stutter', 'Chorus', 'Delay', 'Reverb', 'Phaser', 'Flanger', 'TapeStop', 'TapeDelay', 'Plate', 'Vinyl', 'Comp', 'EQ')
     $mx = 264; $my = 46
-    foreach ($m in $modDefs2) { $b = Btn $m $mx $my 78 26; $b.Tag = $m; $tBusFx.Controls.Add($b); $S.BusModBtns += $b; $mx += 84; if ($mx -gt 540) { $mx = 264; $my += 32 } }
+    foreach ($m in $modDefs2) { $b = Btn $m $mx $my 78 26; $b.Tag = $m; $b.Visible = $false; $tBusFx.Controls.Add($b); $S.BusModBtns += $b; $mx += 84; if ($mx -gt 540) { $mx = 264; $my += 32 } }
     foreach ($b in $S.BusModBtns) { $b.Add_Click({ param($snd, $e) $bus = $S.Proj.Buses[$S.CurBus]; if (-not $bus) { return }; $m = $snd.Tag; Set-FxModule $bus.Fx $m (-not (Get-FxModuleOn $bus.Fx $m)); $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Refresh-StripBus }) }
     $capPresets = Lbl 'Presets' 264 116 120 18; $capPresets.ForeColor = $dk.Muted; $tBusFx.Controls.Add($capPresets)
     $S.BusPresetSpace = Btn 'Space' 264 134 72 26; $S.BusPresetLofi = Btn 'Lo-fi' 344 134 64 26; $S.BusPresetDrive = Btn 'Drive' 416 134 64 26; $S.BusPresetDub = Btn 'Dub' 488 134 64 26; $S.BusPresetClear = Btn 'Clear bus' 560 134 84 26
@@ -12206,7 +12283,6 @@ Rules: prefer the user's saved instruments when one fits the goal. Use design_so
         finally { $f.Cursor = 'Default' }
     }
     $S.EGo.Add_Click({ Invoke-StudioExport })
-    $S.BtnFxRack.Add_Click({ Show-FxRack })
 
     # ---- tooltips: one shared ToolTip for the whole window -----------------------------------------------------
     $tip = New-Object Windows.Forms.ToolTip; $tip.AutoPopDelay = 8000; $tip.InitialDelay = 500; $tip.ReshowDelay = 150
