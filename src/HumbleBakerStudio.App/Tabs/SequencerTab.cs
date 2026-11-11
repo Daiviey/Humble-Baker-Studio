@@ -28,7 +28,7 @@ internal sealed class SequencerTab : UserControl
         var stack = new FlowLayoutPanel { Dock = DockStyle.Top, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, BackColor = Theme.Panel };
         side.Controls.Add(stack);
 
-        stack.Controls.Add(Theme.Label("TRACK", Theme.Muted, Theme.UiBold));
+        stack.Controls.Add(Theme.SectionLabel("Selected track"));
         stack.Controls.Add(_name);
         stack.Controls.Add(Theme.Label("Engine", Theme.Muted));
         _synth.Items.AddRange(new object[] { "acid", "saw", "square", "tri", "sine", "pad", "fm", "pluck", "noise", "drums", "patch", "sample" });
@@ -37,7 +37,7 @@ internal sealed class SequencerTab : UserControl
         _kit.Items.AddRange(SampleLibrary.BuiltInKits);
         stack.Controls.Add(_kit);
         stack.Controls.Add(Spacer());
-        stack.Controls.Add(Theme.Label("KEY / SCALE", Theme.Muted, Theme.UiBold));
+        stack.Controls.Add(Theme.SectionLabel("Key and scale"));
         var keyRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = Theme.Panel };
         _root.Items.AddRange(new object[] { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" });
         keyRow.Controls.Add(_root);
@@ -46,7 +46,7 @@ internal sealed class SequencerTab : UserControl
         _scale.Items.AddRange(Scales.Names);
         stack.Controls.Add(_snapScale);
         stack.Controls.Add(Spacer());
-        stack.Controls.Add(Theme.Label("GRID", Theme.Muted, Theme.UiBold));
+        stack.Controls.Add(Theme.SectionLabel("Grid"));
         _grid.Items.AddRange(new object[] { "1/4", "1/8", "1/16", "1/32" });
         _grid.SelectedIndex = 2;
         stack.Controls.Add(_grid);
@@ -56,9 +56,9 @@ internal sealed class SequencerTab : UserControl
         flags.Controls.Add(_solo);
         stack.Controls.Add(flags);
         stack.Controls.Add(Spacer());
-        stack.Controls.Add(Theme.Button("Quantize", (_, _) => Quantize()));
-        stack.Controls.Add(Theme.Button("Clear notes", (_, _) => ClearNotes()));
-        stack.Controls.Add(Theme.Button("Play / stop (Space)", (_, _) => _host.TogglePlayback()));
+        stack.Controls.Add(Theme.Button("Quantize notes", (_, _) => Quantize(), false, "Round note starts to the grid"));
+        stack.Controls.Add(Theme.Button("Clear track notes", (_, _) => ClearNotes(), false, "Remove every note from this track"));
+        stack.Controls.Add(Theme.Button("Play / stop (Space)", (_, _) => _host.TogglePlayback(), true));
         stack.Controls.Add(Spacer());
         stack.Controls.Add(_info);
         stack.Controls.Add(Theme.Label("Tip: drag to add notes, drag the right edge to resize, right-click to delete.", Theme.Muted, Theme.Small));

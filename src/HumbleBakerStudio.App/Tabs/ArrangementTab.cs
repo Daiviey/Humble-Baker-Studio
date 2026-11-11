@@ -63,14 +63,14 @@ internal sealed class ArrangementTab : UserControl
         buttons.Controls.Add(Theme.Button("Apply", (_, _) => ApplySelected()));
         buttons.Controls.Add(Theme.Button("Delete", (_, _) => DeletePattern()));
 
-        var fields = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 32, WrapContents = false, BackColor = Theme.Panel };
+        var fields = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 36, WrapContents = false, BackColor = Theme.Panel };
         fields.Controls.Add(Theme.Label("Name", Theme.Muted));
         fields.Controls.Add(_patternName);
         fields.Controls.Add(Theme.Label("Bars", Theme.Muted));
         fields.Controls.Add(_patternBars);
 
-        panel.Controls.Add(_patterns);
         panel.Controls.Add(buttons);
+        panel.Controls.Add(_patterns);
         panel.Controls.Add(fields);
         AddTitle(panel, "PATTERNS");
 
@@ -110,13 +110,13 @@ internal sealed class ArrangementTab : UserControl
         buttons.Controls.Add(Theme.Button("Remove", (_, _) => RemoveSongItem()));
         buttons.Controls.Add(Theme.Button("Up", (_, _) => MoveSongItem(-1)));
         buttons.Controls.Add(Theme.Button("Down", (_, _) => MoveSongItem(1)));
-        var fields = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 32, WrapContents = false, BackColor = Theme.Panel };
+        var fields = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 36, WrapContents = false, BackColor = Theme.Panel };
         fields.Controls.Add(Theme.Label("Repeats", Theme.Muted));
         fields.Controls.Add(_repeats);
         fields.Controls.Add(Theme.Button("Set", (_, _) => SetRepeats()));
 
-        panel.Controls.Add(_song);
         panel.Controls.Add(buttons);
+        panel.Controls.Add(_song);
         panel.Controls.Add(fields);
         AddTitle(panel, "SONG ORDER");
         return panel;
@@ -129,7 +129,7 @@ internal sealed class ArrangementTab : UserControl
         buttons.Controls.Add(Theme.Button("Add", (_, _) => AddMarker()));
         buttons.Controls.Add(Theme.Button("At playhead", (_, _) => AddMarkerAtPlayhead()));
         buttons.Controls.Add(Theme.Button("Remove", (_, _) => RemoveMarker()));
-        var fields = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 66, WrapContents = true, BackColor = Theme.Panel };
+        var fields = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 66, WrapContents = true, BackColor = Theme.Panel };
         fields.Controls.Add(Theme.Label("Beat", Theme.Muted));
         fields.Controls.Add(_markerBeat);
         fields.Controls.Add(Theme.Label("Name", Theme.Muted));
@@ -137,8 +137,8 @@ internal sealed class ArrangementTab : UserControl
         fields.Controls.Add(Theme.Label("Energy", Theme.Muted));
         fields.Controls.Add(_markerEnergy);
 
-        panel.Controls.Add(_markers);
         panel.Controls.Add(buttons);
+        panel.Controls.Add(_markers);
         panel.Controls.Add(fields);
         AddTitle(panel, "MARKERS");
         _markers.SelectedIndexChanged += (_, _) =>

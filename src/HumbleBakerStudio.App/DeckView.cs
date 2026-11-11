@@ -21,6 +21,7 @@ internal sealed class DeckView : UserControl
     private readonly Label _filterText = new() { AutoSize = true, ForeColor = Theme.Muted, Font = Theme.Small };
     private readonly SimpleList _queue = new() { Dock = DockStyle.Fill };
     private readonly Label _status = new() { AutoSize = true, ForeColor = Theme.Muted, Font = Theme.Small };
+    private readonly Label _cueBadge = new() { Dock = DockStyle.Right, Width = 56, TextAlign = ContentAlignment.MiddleCenter, Font = Theme.Small, ForeColor = Theme.Muted, Text = "CUE" };
     private readonly List<string> _queuePaths = new();
     private int _queueIndex = -1;
     private Project? _project;
@@ -31,10 +32,10 @@ internal sealed class DeckView : UserControl
     {
         _host = host;
         _isA = isA;
-        BackColor = Theme.Panel;
-        Padding = new Padding(8);
+        BackColor = Theme.Card;
+        Padding = new Padding(10);
 
-        var titleBar = new Panel { Dock = DockStyle.Top, Height = 44, BackColor = isA ? Color.FromArgb(36, 52, 78) : Color.FromArgb(64, 42, 34) };
+        var titleBar = new Panel { Dock = DockStyle.Top, Height = 46, BackColor = isA ? Color.FromArgb(40, 62, 100) : Color.FromArgb(94, 58, 40) };
         var tag = new Label
         {
             Text = isA ? "A" : "B",
@@ -45,7 +46,9 @@ internal sealed class DeckView : UserControl
             ForeColor = Theme.Text
         };
         _title.Text = isA ? "Deck A" : "Deck B";
+        _cueBadge.Text = "CUE";
         titleBar.Controls.Add(_title);
+        titleBar.Controls.Add(_cueBadge);
         titleBar.Controls.Add(tag);
 
         var wavePanel = new Panel { Dock = DockStyle.Top, Height = 116, Padding = new Padding(0, 4, 0, 4) };
@@ -65,9 +68,9 @@ internal sealed class DeckView : UserControl
         transport.Controls.Add(_cue);
         transport.Controls.Add(_sync);
         transport.Controls.Add(_loop);
-        transport.Controls.Add(Theme.Button("Load…", (_, _) => ChooseFile()));
-        transport.Controls.Add(Theme.Button("From main", (_, _) => LoadMain()));
-        transport.Controls.Add(Theme.Button("Queue…", (_, _) => AddToQueue()));
+        transport.Controls.Add(FixedButton("Load…", 64, (_, _) => ChooseFile()));
+        transport.Controls.Add(FixedButton("From main", 84, (_, _) => LoadMain()));
+        transport.Controls.Add(FixedButton("Queue…", 68, (_, _) => AddToQueue()));
 
         var controls = new TableLayoutPanel { Dock = DockStyle.Top, Height = 100, ColumnCount = 2, RowCount = 2, BackColor = Theme.Panel };
         controls.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
@@ -83,7 +86,7 @@ internal sealed class DeckView : UserControl
         _filter.Location = new Point(0, 20);
         _filter.Height = 40;
         filterCell.Controls.Add(_filter);
-        filterCell.Controls.Add(new Label { Text = "FILTER  (LP ← • → HP)", ForeColor = Theme.Muted, Font = Theme.Small, Location = new Point(0, 0), AutoSize = true });
+        filterCell.Controls.Add(new Label { Text = "FILTER  LP / HP", ForeColor = Theme.Muted, Font = Theme.Small, Location = new Point(0, 0), AutoSize = true });
         filterCell.Controls.Add(_filterText);
         _filterText.Location = new Point(150, 0);
         controls.RowStyles.Add(new RowStyle(SizeType.Absolute, 74));
@@ -134,6 +137,15 @@ internal sealed class DeckView : UserControl
     }
 
     public LiveDeck Deck => _isA ? _host.Mixer.A : _host.Mixer.B;
+
+    private Button FixedButton(string text, int width, EventHandler click)
+    {
+        var b = Theme.Button(text, click);
+        b.AutoSize = false;
+        b.Width = width;
+        b.Height = 28;
+        return b;
+    }
     public bool LoopEnabled => _loop.Checked;
 
     public void SetLoaded(Project project, string path, string message)
@@ -159,6 +171,8 @@ internal sealed class DeckView : UserControl
             _play.BackColor = Deck.Playing ? Color.FromArgb(54, 120, 84) : Color.FromArgb(54, 92, 156);
             _cue.BackColor = Deck.Cue ? Theme.AccentWarm : Theme.PanelAlt;
             _sync.BackColor = Math.Abs(Deck.Rate - 1) > 0.001 ? Color.FromArgb(54, 92, 156) : Theme.PanelAlt;
+            _cueBadge.ForeColor = Deck.Cue ? Theme.AccentWarm : Theme.Muted;
+            _cueBadge.Text = Deck.Cue ? "CUE ON" : "CUE";
             _gain.Value = Math.Clamp((int)Math.Round(Deck.Gain * 100), _gain.Minimum, _gain.Maximum);
             _filter.Value = Math.Clamp((int)Math.Round(Deck.Filter * 100), _filter.Minimum, _filter.Maximum);
             _info.Text = Deck.HasAudio
@@ -272,5 +286,12 @@ internal sealed class DeckView : UserControl
         if (_queuePaths.Count == 0) return false;
         Next();
         return true;
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        base.OnPaint(e);
+        using var pen = new Pen(Theme.Border);
+        e.Graphics.DrawRectangle(pen, 0, 0, Width - 1, Height - 1);
     }
 }

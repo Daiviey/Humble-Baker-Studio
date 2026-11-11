@@ -1,6 +1,7 @@
 using HumbleBakerStudio.Services;
 using HumbleBakerStudio.Tabs;
 using HumbleBakerStudio.Audio;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 
 namespace HumbleBakerStudio;
@@ -41,9 +42,9 @@ internal sealed class MainForm : Form
     private readonly CheckBox _song = new() { Text = "Song", AutoSize = true };
     private readonly CheckBox _master = new() { Text = "Master", AutoSize = true };
     private readonly Button _playButton = Theme.Button("▶  Play", null, true);
-    private readonly Label _status = new() { AutoSize = true, ForeColor = Theme.Muted, Margin = new Padding(10, 9, 3, 3) };
-    private readonly Label _position = new() { AutoSize = true, ForeColor = Theme.Muted, Margin = new Padding(10, 9, 3, 3) };
-    private readonly Label _title = new() { AutoSize = true, ForeColor = Theme.Text, Font = Theme.UiBold, Margin = new Padding(10, 8, 3, 3) };
+    private readonly ToolStripStatusLabel _status = new() { Spring = true, TextAlign = ContentAlignment.MiddleLeft, ForeColor = Theme.Muted };
+    private readonly ToolStripStatusLabel _position = new() { ForeColor = Theme.Muted };
+    private readonly ToolStripStatusLabel _title = new() { Alignment = ToolStripItemAlignment.Right, ForeColor = Theme.Muted, Font = Theme.Small };
     private readonly TrackListPanel _trackList;
     private LiveWindow? _liveWindow;
 
@@ -96,6 +97,7 @@ internal sealed class MainForm : Form
         Shown += (_, _) =>
         {
             _sequencer.ScrollToContent();
+            Theme.ApplyDarkScrollbars(this);
             if (Environment.GetEnvironmentVariable("HBS_OPEN_LIVE") == "1") OpenLiveWindow();
         };
 
@@ -159,21 +161,19 @@ internal sealed class MainForm : Form
 
     private void BuildLayout()
     {
+        var menu = BuildMenu();
+        MainMenuStrip = menu;
+
         var top = new FlowLayoutPanel
         {
             Dock = DockStyle.Top,
-            Height = 46,
+            Height = 54,
             BackColor = Theme.Panel,
-            Padding = new Padding(6, 6, 6, 4),
+            Padding = new Padding(10, 9, 8, 6),
             WrapContents = false,
-            AutoScroll = true
+            AutoScroll = false
         };
 
-        top.Controls.Add(Theme.Button("New", (_, _) => NewProject()));
-        top.Controls.Add(Theme.Button("Open", (_, _) => OpenProject()));
-        top.Controls.Add(Theme.Button("Save", (_, _) => SaveProject(false)));
-        top.Controls.Add(Theme.Button("Undo", (_, _) => Undo()));
-        top.Controls.Add(Theme.Button("Redo", (_, _) => Redo()));
         top.Controls.Add(Separator());
         top.Controls.Add(Theme.Label("BPM"));
         top.Controls.Add(_bpm);
@@ -183,14 +183,22 @@ internal sealed class MainForm : Form
         top.Controls.Add(_song);
         top.Controls.Add(Separator());
         top.Controls.Add(_playButton);
-        top.Controls.Add(Theme.Button("■  Stop", (_, _) => StopPlayback()));
+        var stop = Theme.Button("Stop", (_, _) => StopPlayback(), false, "Stop playback");
+        stop.Width = 70;
+        top.Controls.Add(stop);
         top.Controls.Add(Separator());
         top.Controls.Add(_master);
-        top.Controls.Add(Theme.Button("Export…", (_, _) => ExportProject()));
+        top.Controls.Add(Theme.Button("Export…", (_, _) => ExportProject(), false, "Render and export audio (Ctrl+E)"));
         top.Controls.Add(Separator());
-        top.Controls.Add(Theme.Button("Live", (_, _) => OpenLiveWindow(), true));
-        top.Controls.Add(Theme.Button("AI", (_, _) => SelectTab(_aiTab)));
-        top.Controls.Add(Theme.Button("Settings", (_, _) => SelectTab(_settingsTab)));
+        var live = Theme.Button("LIVE", (_, _) => OpenLiveWindow(), true, "Two-deck live performance window");
+        live.Font = Theme.UiBold;
+        live.BackColor = Theme.AccentWarm;
+        live.ForeColor = Theme.Back;
+        live.FlatAppearance.BorderColor = Theme.AccentWarm;
+        live.FlatAppearance.MouseOverBackColor = Color.FromArgb(255, 192, 124);
+        top.Controls.Add(live);
+        top.Controls.Add(Theme.Button("AI", (_, _) => SelectTab(_aiTab), false, "Local AI assistant"));
+        top.Controls.Add(Theme.Button("Settings", (_, _) => SelectTab(_settingsTab), false, "Studio settings"));
 
         _bpm.ValueChanged += (_, _) =>
         {
@@ -211,15 +219,16 @@ internal sealed class MainForm : Form
         _master.CheckedChanged += (_, _) => _settings.MasterOnPlayback = _master.Checked;
         _playButton.Click += (_, _) => TogglePlayback();
 
-        var bottom = new Panel { Dock = DockStyle.Bottom, Height = 26, BackColor = Theme.Panel, Padding = new Padding(8, 4, 8, 0) };
-        var flow = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false, BackColor = Theme.Panel };
-        flow.Controls.Add(_status);
-        flow.Controls.Add(_position);
-        flow.Controls.Add(new Label { AutoSize = true, Width = 12 });
-        flow.Controls.Add(_title);
-        bottom.Controls.Add(flow);
+        var status = new StatusStrip { Dock = DockStyle.Bottom, Height = 26 };
+        _status.Text = "Ready";
+        status.Items.Add(_status);
+        status.Items.Add(new ToolStripStatusLabel("   "));
+        status.Items.Add(_position);
+        status.Items.Add(new ToolStripStatusLabel("   "));
+        status.Items.Add(_title);
+        Theme.StyleStatus(status);
 
-        var sidebar = new Panel { Dock = DockStyle.Left, Width = 230, BackColor = Theme.Panel, Padding = new Padding(6) };
+        var sidebar = new Panel { Dock = DockStyle.Left, Width = 236, BackColor = Theme.Panel, Padding = new Padding(8) };
         _trackList.Dock = DockStyle.Fill;
         sidebar.Controls.Add(_trackList);
 
@@ -239,9 +248,128 @@ internal sealed class MainForm : Form
 
         Controls.Add(_tabs);
         Controls.Add(sidebar);
-        Controls.Add(bottom);
+        Controls.Add(status);
         Controls.Add(top);
+        Controls.Add(menu);
         Theme.Apply(this);
+    }
+
+    private MenuStrip BuildMenu()
+    {
+        var menu = new MenuStrip();
+        var file = new ToolStripMenuItem("File");
+        AddMenuItem(file, "New project", NewProject, Keys.Control | Keys.N);
+        AddMenuItem(file, "Open project…", OpenProject, Keys.Control | Keys.O);
+        AddMenuItem(file, "Save", () => SaveProject(false), Keys.Control | Keys.S);
+        AddMenuItem(file, "Save as…", () => SaveProject(true), Keys.Control | Keys.Shift | Keys.S);
+        AddSeparator(file);
+        AddMenuItem(file, "Export audio…", ExportProject, Keys.Control | Keys.E);
+        AddSeparator(file);
+        AddMenuItem(file, "Exit", Close);
+
+        var edit = new ToolStripMenuItem("Edit");
+        var undo = AddMenuItem(edit, "Undo", Undo);
+        undo.ShortcutKeyDisplayString = "Ctrl+Z";
+        var redo = AddMenuItem(edit, "Redo", Redo);
+        redo.ShortcutKeyDisplayString = "Ctrl+Y";
+        AddSeparator(edit);
+        var hint = new ToolStripMenuItem("Ctrl+Z / Ctrl+Y also work inside the piano roll") { Enabled = false };
+        edit.DropDownItems.Add(hint);
+
+        var view = new ToolStripMenuItem("View");
+        AddMenuItem(view, "Sequencer", () => SelectTab(_sequencer));
+        AddMenuItem(view, "Tools (sample, MIDI, spectral)", () => SelectTab(_toolsTab));
+        AddMenuItem(view, "Arrangement", () => SelectTab(_arrangementTab));
+        AddMenuItem(view, "Tracks", () => SelectTab(_tracksTab));
+        AddMenuItem(view, "Effects", () => SelectTab(_effectsTab));
+        AddMenuItem(view, "Synth", () => SelectTab(_synthTab));
+        AddMenuItem(view, "Patch graph", () => SelectTab(_graphTab));
+        AddMenuItem(view, "Mixer", () => SelectTab(_mixerTab));
+        AddMenuItem(view, "Master", () => SelectTab(_masterTab));
+        AddMenuItem(view, "AI", () => SelectTab(_aiTab));
+        AddMenuItem(view, "Settings", () => SelectTab(_settingsTab));
+
+        var tools = new ToolStripMenuItem("Tools");
+        AddMenuItem(tools, "Live performance…", OpenLiveWindow);
+        AddMenuItem(tools, "AI assistant", () => SelectTab(_aiTab));
+        AddMenuItem(tools, "Settings", () => SelectTab(_settingsTab));
+
+        var help = new ToolStripMenuItem("Help");
+        AddMenuItem(help, "About Humble Baker Studio", ShowAbout);
+        AddMenuItem(help, "Open repository", () => OpenUrl("https://github.com/Daiviey/Humble-Baker-Studio"));
+        AddMenuItem(help, "C# port release", () => OpenUrl("https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/csharp-port-v0.1.0"));
+
+        menu.Items.Add(file);
+        menu.Items.Add(edit);
+        menu.Items.Add(view);
+        menu.Items.Add(tools);
+        menu.Items.Add(help);
+        Theme.StyleMenu(menu);
+        return menu;
+    }
+
+    private static ToolStripMenuItem AddMenuItem(ToolStripDropDownItem parent, string text, Action action, Keys shortcut = Keys.None)
+    {
+        var item = new ToolStripMenuItem(text);
+        if (shortcut != Keys.None) item.ShortcutKeys = shortcut;
+        item.Click += (_, _) => action();
+        parent.DropDownItems.Add(item);
+        return item;
+    }
+
+    private static void AddSeparator(ToolStripDropDownItem parent) => parent.DropDownItems.Add(new ToolStripSeparator());
+
+    private static void OpenUrl(string url)
+    {
+        try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); } catch { }
+    }
+
+    private void ShowAbout()
+    {
+        using var about = new Form
+        {
+            Text = "About Humble Baker Studio",
+            Size = new Size(480, 360),
+            StartPosition = FormStartPosition.CenterParent,
+            FormBorderStyle = FormBorderStyle.FixedDialog,
+            MaximizeBox = false,
+            MinimizeBox = false,
+            BackColor = Theme.Back,
+            ForeColor = Theme.Text,
+            Font = Theme.Ui
+        };
+        var body = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            FlowDirection = FlowDirection.TopDown,
+            WrapContents = false,
+            Padding = new Padding(24),
+            AutoScroll = true
+        };
+        body.Controls.Add(new Label { Text = "Humble Baker Studio", AutoSize = true, Font = new Font("Segoe UI Semibold", 17f), ForeColor = Theme.Text });
+        body.Controls.Add(new Label { Text = "C# port 0.1.0 — native local studio", AutoSize = true, ForeColor = Theme.Accent, Font = Theme.UiBold, Margin = new Padding(0, 2, 0, 12) });
+        body.Controls.Add(new Label
+        {
+            Text = "Offline audio production: piano roll, synthesis, effects, mixing, mastering, sampling, MIDI, spectral synthesis, local AI and two-deck live performance.",
+            AutoSize = false,
+            Width = 410,
+            Height = 54,
+            ForeColor = Theme.Muted
+        });
+        body.Controls.Add(new Label { Text = "Project files use the same *.hbstudio.json format as the PowerShell studio.", AutoSize = false, Width = 410, Height = 34, ForeColor = Theme.Muted });
+        body.Controls.Add(new Label { Text = "MIT licence. Built with .NET 8 and WinForms; no runtime packages beyond Windows.", AutoSize = false, Width = 410, Height = 34, ForeColor = Theme.Muted });
+        var link = new LinkLabel
+        {
+            Text = "github.com/Daiviey/Humble-Baker-Studio",
+            AutoSize = true,
+            LinkColor = Theme.Accent,
+            ActiveLinkColor = Theme.AccentWarm,
+            Margin = new Padding(0, 12, 0, 0)
+        };
+        link.LinkClicked += (_, _) => OpenUrl("https://github.com/Daiviey/Humble-Baker-Studio");
+        body.Controls.Add(link);
+        about.Controls.Add(body);
+        about.ShowDialog(this);
     }
 
     private static TabPage Page(string text, Control content)
@@ -255,9 +383,9 @@ internal sealed class MainForm : Form
     private static Control Separator() => new Panel
     {
         Width = 1,
-        Height = 26,
+        Height = 30,
         BackColor = Theme.Border,
-        Margin = new Padding(8, 4, 8, 3)
+        Margin = new Padding(8, 3, 8, 3)
     };
 
     public void SelectTabByContent(string tabText)
@@ -603,11 +731,6 @@ internal sealed class MainForm : Form
             TogglePlayback();
             e.Handled = true;
         }
-        else if (e.Control && e.KeyCode == Keys.S)
-        {
-            SaveProject(e.Shift);
-            e.Handled = true;
-        }
         else if (e.Control && e.KeyCode == Keys.Z)
         {
             Undo();
@@ -616,16 +739,6 @@ internal sealed class MainForm : Form
         else if (e.Control && e.KeyCode == Keys.Y)
         {
             Redo();
-            e.Handled = true;
-        }
-        else if (e.Control && e.KeyCode == Keys.O)
-        {
-            OpenProject();
-            e.Handled = true;
-        }
-        else if (e.Control && e.KeyCode == Keys.N)
-        {
-            NewProject();
             e.Handled = true;
         }
     }

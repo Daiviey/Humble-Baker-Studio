@@ -29,41 +29,59 @@ internal sealed class AiTab : UserControl
         _host = host;
         BackColor = Theme.Back;
 
-        var top = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 76, BackColor = Theme.Panel, Padding = new Padding(10, 6, 6, 4), WrapContents = true };
-        top.Controls.Add(Theme.Label("Ollama", Theme.Muted, Theme.UiBold));
-        top.Controls.Add(_endpoint);
-        top.Controls.Add(Theme.Button("Save endpoint", (_, _) => SaveEndpoint()));
-        top.Controls.Add(Theme.Button("Refresh models", (_, _) => RefreshModels()));
-        top.Controls.Add(_models);
-        top.Controls.Add(Theme.Label("Style / description", Theme.Muted, Theme.UiBold));
-        top.Controls.Add(_style);
-        top.Controls.Add(Theme.Label("Bars", Theme.Muted));
-        top.Controls.Add(_bars);
+        var top = new Panel { Dock = DockStyle.Top, Height = 150, BackColor = Theme.Panel, Padding = new Padding(14, 10, 14, 8) };
 
-        var actions = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 44, BackColor = Theme.Panel, Padding = new Padding(10, 6, 6, 4), WrapContents = false };
-        actions.Controls.Add(Theme.Button("Write melody / bass", (_, _) => GenerateNotes(false), true));
-        actions.Controls.Add(Theme.Button("Write drum groove", (_, _) => GenerateNotes(true)));
-        actions.Controls.Add(Theme.Button("Design synth patch", (_, _) => DesignPatch()));
-        actions.Controls.Add(Theme.Button("Review mix", (_, _) => ReviewMix()));
-        actions.Controls.Add(Theme.Button("Stop", (_, _) => Cancel()));
-        actions.Controls.Add(_replace);
-        actions.Controls.Add(_busy);
+        _endpoint.Width = 300;
+        _style.Width = 560;
+        _models.Width = 260;
 
-        var body = new SplitContainer
+        var row1 = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 38, WrapContents = false, BackColor = Theme.Panel };
+        row1.Controls.Add(Theme.SectionLabel("Ollama"));
+        row1.Controls.Add(_endpoint);
+        row1.Controls.Add(Theme.Button("Save endpoint", (_, _) => SaveEndpoint()));
+        row1.Controls.Add(Theme.Button("Refresh models", (_, _) => RefreshModels()));
+        row1.Controls.Add(_models);
+        row1.Controls.Add(_busy);
+
+        var row2 = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 38, WrapContents = false, BackColor = Theme.Panel };
+        row2.Controls.Add(Theme.SectionLabel("Prompt"));
+        row2.Controls.Add(_style);
+        row2.Controls.Add(Theme.Label("Bars", Theme.Muted));
+        row2.Controls.Add(_bars);
+        row2.Controls.Add(_replace);
+
+        var row3 = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 46, WrapContents = false, BackColor = Theme.Panel };
+        row3.Controls.Add(Theme.Button("Write melody / bass", (_, _) => GenerateNotes(false), true));
+        row3.Controls.Add(Theme.Button("Write drum groove", (_, _) => GenerateNotes(true)));
+        row3.Controls.Add(Theme.Button("Design synth patch", (_, _) => DesignPatch()));
+        row3.Controls.Add(Theme.Button("Review mix", (_, _) => ReviewMix()));
+        row3.Controls.Add(Theme.Button("Stop", (_, _) => Cancel()));
+
+        top.Controls.Add(row3);
+        top.Controls.Add(row2);
+        top.Controls.Add(row1);
+
+        var body = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            Orientation = Orientation.Vertical,
-            SplitterDistance = 360,
-            BackColor = Theme.Back,
-            Panel1MinSize = 260
+            ColumnCount = 2,
+            RowCount = 1,
+            Padding = new Padding(12, 8, 12, 12),
+            BackColor = Theme.Back
         };
+        body.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 42));
+        body.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 58));
+
+        var helpCard = Theme.CardPanel("How it works");
+        helpCard.Dock = DockStyle.Fill;
+        helpCard.Margin = new Padding(0, 0, 8, 0);
         var help = new TextBox
         {
             Dock = DockStyle.Fill,
             Multiline = true,
             ReadOnly = true,
             BorderStyle = BorderStyle.None,
-            BackColor = Theme.Back,
+            BackColor = Theme.Card,
             ForeColor = Theme.Muted,
             Font = Theme.Ui,
             Text = "Local AI\r\n\r\n" +
@@ -71,17 +89,23 @@ internal sealed class AiTab : UserControl
                    "1. Pick a model (a 7B-14B instruct model is a good start).\r\n" +
                    "2. Choose a track in the list on the left.\r\n" +
                    "3. Describe the style and press an action.\r\n\r\n" +
-                   "The model returns structured JSON. It is validated and clamped before it touches the project; generated notes can always be undone by loading the previous save.\r\n\r\n" +
-                   "Tips:\r\n" +
-                   "• Be concrete: genre, energy, instrumentation, reference artist.\r\n" +
-                   "• Use shorter bars for motifs, longer for full sections.\r\n" +
-                   "• Patch design works best for a track already using the patch synth."
+                   "The model returns structured JSON. It is validated and clamped before it touches the project; generated notes can be undone with Ctrl+Z.\r\n\r\n" +
+                   "Tips\r\n" +
+                   "- Be concrete: genre, energy, instrumentation, reference artist.\r\n" +
+                   "- Use shorter bars for motifs, longer for full sections.\r\n" +
+                   "- Patch design works best for a track already using the patch synth."
         };
-        body.Panel1.Controls.Add(help);
-        body.Panel2.Controls.Add(_log);
+        helpCard.Controls.Add(help);
+
+        var logCard = Theme.CardPanel("Activity");
+        logCard.Dock = DockStyle.Fill;
+        logCard.Margin = new Padding(8, 0, 0, 0);
+        logCard.Controls.Add(_log);
+
+        body.Controls.Add(helpCard, 0, 0);
+        body.Controls.Add(logCard, 1, 0);
 
         Controls.Add(body);
-        Controls.Add(actions);
         Controls.Add(top);
 
         _endpoint.Text = _host.Settings.OllamaUrl;
