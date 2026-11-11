@@ -1,6 +1,6 @@
 # Humble Baker Studio - Manual
 
-Version 1.0.19. This manual covers every window, tab, tool, effect slot and option in the app. For the full parameter tables see:
+Version 1.0.20. This manual covers every window, tab, tool, effect slot and option in the app. For the full parameter tables see:
 
 - [Effect Reference](EFFECTS.md) - all 113 effects with every control, range and description
 - [Synth Patch Reference](SYNTH.md) - every synth parameter
@@ -254,7 +254,11 @@ Right-click the graph -> **Add FX module** -> choose any of the 113 effects. The
 - Large code editor for your own SynthDefs.
 - `Insert acid template` adds a working example.
 - `Syntax-check run (render 1 bar)` runs the code for one bar.
+- `Recompile SC definitions` stops transport, writes the stable Humble Baker SC classes for this project and compiles them with `sclang`; transport is left stopped.
+- `Check SC setup` reports the located `sclang`, version, sc3-plugins status and the current project session folder.
+- `Open session folder` opens the per-project SC folder under the Studio data directory.
 - Use the `Engine` selector in the toolbar to preview through SuperCollider when `sclang.exe` is located.
+- Each project has its own SC session folder (`sc\sessions\<project-id>`); these generated files are outside git.
 
 ### 8.4 Log
 

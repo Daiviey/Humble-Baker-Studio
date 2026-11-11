@@ -133,7 +133,37 @@ waits up to the loop length plus 40 seconds for the file [app]. See the official
 `Server` documentation for `record`/`stopRecording`, and the NRT guide for offline rendering
 alternatives [12][18].
 
-### 3.6 What the generated script contains
+### 3.6 Per-project sessions and recompile
+
+The Studio now gives each project its own SC session folder under its data directory:
+
+```text
+<studio>\sc\
+    library\classes\HumbleBakerStable.sc
+    sessions\<project-id>\
+        classes\
+        data\
+        session.json
+        recompile.scd
+```
+
+The project id is saved in the project JSON. The stable classes are `HBProject`, `HBNode`,
+`HBTrack`, `HBSection` and `HBEffect` [app].
+
+The SC tab has three controls [app]:
+
+- **Recompile SC definitions** stops transport, writes the class library and session files,
+  launches `sclang` with `--include-path` for the library and session class folders, compiles
+  `recompile.scd`, and leaves transport stopped.
+- **Check SC setup** reports the `sclang` path, version, sc3-plugins status and the current
+  session folder.
+- **Open session folder** opens the project session in Explorer.
+
+Class compilation is explicit: the Studio does not silently recompile while the user is
+working. The persistent OSC project/graph layer and the native effect library are the next
+integration stages; this release establishes the session, class and recompile foundation.
+
+### 3.7 What the generated script contains
 
 `Get-StudioScd` builds the script in this order [app]:
 

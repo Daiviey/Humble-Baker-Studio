@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.20 — 2026-11-11
+
+- Added per-project SuperCollider session folders under the Studio data directory, with a persistent project `ScSessionId`; generated SC files stay out of git.
+- Added the stable `HBProject`, `HBNode`, `HBTrack`, `HBSection` and `HBEffect` classes and a shared SC class library.
+- Added SC tab controls: **Recompile SC definitions**, **Check SC setup** and **Open session folder**. Recompile stops transport, compiles the classes with `sclang` and leaves transport stopped.
+- SC discovery now finds a `SuperCollider` folder beside the app (for example `Z:\LocalAI\SuperCollider`) in addition to the standard install paths.
+- The setup check reports `sclang` version, sc3-plugins presence and the session path.
+
 ## 1.0.19 — 2026-11-11
 
 - Added 15 effects (113 total): Spectral Gate, Spectral Blur, Spectral Delay, Convolution Reverb, Tank Reverb, Auto-Tune, Octave Up, Chord Generator, Upward Compressor, Transient Gate, Stereo Shuffler, Mono Maker, Phase Aligner, Tape Loop and Stutter Gate.

@@ -944,6 +944,7 @@ public class Project {
     public double Bpm = 140; public int BeatsPerBar = 4; public int BeatUnit = 4; public int PhraseBars = 4; public int Bars = 4; public double Swing = 0;
     public double DelayMix = 0.2, DelayBeats = 0.75, DelayFb = 0.4;
     public int Key = 0; public string Scale = "minor";
+    public string ScSessionId = "";
     public List<Track> Tracks = new List<Track>();
     public List<Pattern> Patterns = new List<Pattern>();
     public List<SongItem> Song = new List<SongItem>();
@@ -6597,7 +6598,7 @@ function Get-StudioProjectData($P) {
         }
     }
     return [ordered]@{
-        bpm = $P.Bpm; beatsPerBar = $P.BeatsPerBar; beatUnit = $P.BeatUnit; phraseBars = $P.PhraseBars; bars = $P.Bars; swing = $P.Swing; delayMix = $P.DelayMix; delayBeats = $P.DelayBeats; delayFb = $P.DelayFb; key = $P.Key; scale = $P.Scale; click = $P.Click
+        bpm = $P.Bpm; beatsPerBar = $P.BeatsPerBar; beatUnit = $P.BeatUnit; phraseBars = $P.PhraseBars; bars = $P.Bars; swing = $P.Swing; delayMix = $P.DelayMix; delayBeats = $P.DelayBeats; delayFb = $P.DelayFb; key = $P.Key; scale = $P.Scale; click = $P.Click; scSessionId = $P.ScSessionId
         master = (ConvertTo-StudioMap $P.Master)
         markers = @($P.Markers | ForEach-Object { [ordered]@{ beat = $_.Beat; name = $_.Name; energy = $_.Energy } })
         mix = @($P.Mix | ForEach-Object { ConvertTo-StudioMap $_ })
@@ -6634,6 +6635,7 @@ function Read-StudioProjectData($d) {
     if ($d.beatUnit) { $p.BeatUnit = [int]$d.beatUnit }; if ($d.phraseBars) { $p.PhraseBars = [int]$d.phraseBars }
     $p.DelayMix = [double]$d.delayMix; $p.DelayBeats = [double]$d.delayBeats; $p.DelayFb = [double]$d.delayFb
     $p.Key = [int]$d.key; $p.Scale = [string]$d.scale
+    if ($d.scSessionId) { $p.ScSessionId = [string]$d.scSessionId }
     if ($null -ne $d.click) { $p.Click = [bool]$d.click }
     foreach ($td in @($d.tracks)) {
         $t = New-Object HbStudio.Track
@@ -6889,7 +6891,9 @@ function Find-StudioSuperCollider {
     $c = Get-Command sclang.exe -ErrorAction SilentlyContinue
     if ($c) { return $c.Source }
     $roots = @($env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:LOCALAPPDATA) | Where-Object { $_ }
-    try { if ($PSScriptRoot) { $roots += (Join-Path $PSScriptRoot '..\Tools') } } catch { }
+    try { if ($PSScriptRoot) { $roots += (Join-Path $PSScriptRoot '..'); $roots += (Join-Path $PSScriptRoot '..\Tools'); $roots += (Join-Path $PSScriptRoot '..\SuperCollider') } } catch { }
+    try { if ($script:StudioRoot) { $roots += (Join-Path $script:StudioRoot '..'); $roots += (Join-Path $script:StudioRoot '..\Tools'); $roots += (Join-Path $script:StudioRoot '..\SuperCollider') } } catch { }
+    try { $exeDir = [IO.Path]::GetDirectoryName([Diagnostics.Process]::GetCurrentProcess().MainModule.FileName); $roots += (Join-Path $exeDir '..'); $roots += (Join-Path $exeDir '..\Tools'); $roots += (Join-Path $exeDir '..\SuperCollider') } catch { }
     try { if (Get-Command Get-ToolsDir -ErrorAction SilentlyContinue) { $roots += (Get-ToolsDir) } } catch { }
     foreach ($r in $roots) {
         if (-not (Test-Path -LiteralPath $r)) { continue }
@@ -6902,6 +6906,265 @@ function Find-StudioSuperCollider {
 function Save-StudioSclangPath([string]$Path) {
     $cfg = Join-Path (Get-StudioDir) 'settings.json'
     (@{ sclang = $Path } | ConvertTo-Json) | Set-Content -LiteralPath $cfg -Encoding UTF8
+}
+
+# ---- Per-project SuperCollider sessions ---------------------------------------------------------------
+# One folder per project. Generated class/project files live in the user's studio data, never in git.
+function Get-StudioScClassText {
+    return @'
+HBNode {
+    var <id, <label, <kind, <synth, <inBus, <outBus, <params;
+
+    *new { |id, kind, label, inBus, outBus, params|
+        ^super.new.init(id, kind, label, inBus, outBus, params)
+    }
+
+    init { |argId, argKind, argLabel, argInBus, argOutBus, argParams|
+        id = argId;
+        kind = argKind;
+        label = argLabel ? argKind.asString;
+        inBus = argInBus;
+        outBus = argOutBus;
+        params = argParams ? Dictionary.new;
+    }
+
+    set { |...args|
+        if(synth.notNil and: { args.size > 0 }) { synth.set(*args) };
+        args.pairsDo { |key, value| params[key] = value };
+        ^this
+    }
+
+    map { |...args|
+        if(synth.notNil and: { args.size > 0 }) { synth.map(*args) };
+        ^this
+    }
+
+    bypass { |state = true|
+        if(synth.notNil) { synth.set(\mix, if(state, 0, 1)) };
+        ^this
+    }
+
+    wet { |value = 1|
+        if(synth.notNil) { synth.set(\mix, value) };
+        ^this
+    }
+
+    free {
+        if(synth.notNil) { synth.free };
+        ^this
+    }
+
+    post {
+        ("HBNode(" ++ id ++ ") " ++ kind ++ " -> " ++ label).postln;
+        ^this
+    }
+}
+
+HBTrack {
+    var <name, <synthName, <pattern, <player, <outBus, <node, <params;
+
+    *new { |name, synthName, outBus|
+        ^super.new.init(name, synthName, outBus)
+    }
+
+    init { |argName, argSynth, argOutBus|
+        name = argName;
+        synthName = argSynth;
+        outBus = argOutBus;
+        params = Dictionary.new;
+    }
+
+    pattern_ { |value|
+        pattern = value;
+        ^this
+    }
+
+    play { |clock, quant = 0|
+        if(pattern.notNil) { player = pattern.play(clock, quant: quant) };
+        ^this
+    }
+
+    stop {
+        if(player.notNil) { player.stop; player = nil };
+        ^this
+    }
+
+    set { |...args|
+        if(node.notNil) { node.set(*args) };
+        args.pairsDo { |key, value| params[key] = value };
+        ^this
+    }
+
+    post {
+        ("HBTrack(" ++ name ++ ") synth " ++ synthName ++ " out " ++ outBus).postln;
+        ^this
+    }
+}
+
+HBSection {
+    var <name, <bars, <energy;
+
+    *new { |name, bars = 8, energy = 1.0|
+        ^super.new.init(name, bars, energy)
+    }
+
+    init { |argName, argBars, argEnergy|
+        name = argName;
+        bars = argBars;
+        energy = argEnergy;
+    }
+
+    post {
+        ("HBSection(" ++ name ++ ") " ++ bars ++ " bars").postln;
+        ^this
+    }
+}
+
+HBEffect {
+    *defName { |kind|
+        ^("hb_" ++ kind).asSymbol
+    }
+
+    *build { |kind, inBus, outBus, params|
+        var args = [\in, inBus, \out, outBus];
+        if(params.notNil) { args = args ++ params.asKeyValuePairs };
+        ^Synth(HBEffect.defName(kind), args)
+    }
+}
+
+HBProject {
+    var <name, <bpm, <beatsPerBar, <beatLength, <clock;
+    var <tracks, <nodes, <sections, <masterBus, <running;
+
+    *new { |name = "Untitled", bpm = 140, beatsPerBar = 4, beatLength = 4|
+        ^super.new.init(name, bpm, beatsPerBar, beatLength)
+    }
+
+    init { |argName, argBpm, argBeats, argBeatLength|
+        name = argName;
+        bpm = argBpm;
+        beatsPerBar = argBeats;
+        beatLength = argBeatLength;
+        tracks = Dictionary.new;
+        nodes = Dictionary.new;
+        sections = Dictionary.new;
+        masterBus = 0;
+        running = false;
+        clock = TempoClock(bpm / 60);
+    }
+
+    addTrack { |trackName, synthName, outBus = 0|
+        var track = HBTrack.new(trackName, synthName, outBus);
+        tracks[trackName] = track;
+        ^track
+    }
+
+    track { |trackName|
+        ^tracks[trackName]
+    }
+
+    addNode { |id, kind, params, inBus = 0, outBus = 0|
+        var node = HBNode.new(id, kind, kind, inBus, outBus, params);
+        nodes[id] = node;
+        ^node
+    }
+
+    node { |id|
+        ^nodes[id]
+    }
+
+    addSection { |sectionName, bars = 8, energy = 1.0|
+        var section = HBSection.new(sectionName, bars, energy);
+        sections[sectionName] = section;
+        ^section
+    }
+
+    section { |sectionName|
+        ^sections[sectionName]
+    }
+
+    connect { |from, to, outBus|
+        // Explicit buses are generated for now; this is the stable hook for automatic routing.
+        ^this
+    }
+
+    bpm_ { |value|
+        bpm = value;
+        if(clock.notNil) { clock.tempo = bpm / 60 };
+        ^this
+    }
+
+    play {
+        if(clock.isNil) { clock = TempoClock(bpm / 60) };
+        tracks.values.do { |track| track.play(clock) };
+        running = true;
+        ^this
+    }
+
+    stop {
+        tracks.values.do { |track| track.stop };
+        running = false;
+        ^this
+    }
+
+    post {
+        ("HBProject(" ++ name ++ ") " ++ bpm ++ " BPM, " ++ tracks.size ++ " tracks, " ++ nodes.size ++ " nodes").postln;
+        ^this
+    }
+}
+'@
+}
+
+function Get-StudioScRoot { return (Join-Path (Get-StudioDir) 'sc') }
+
+function Get-StudioScLibraryClasses {
+    $d = Join-Path (Join-Path (Get-StudioScRoot) 'library') 'classes'
+    New-Item -ItemType Directory -Force -Path $d | Out-Null
+    return $d
+}
+
+function Get-StudioScSessionDir($P) {
+    if (-not $P.ScSessionId) { $P.ScSessionId = [Guid]::NewGuid().ToString('N') }
+    $d = Join-Path (Join-Path (Get-StudioScRoot) 'sessions') $P.ScSessionId
+    foreach ($s in @('classes', 'data')) { New-Item -ItemType Directory -Force -Path (Join-Path $d $s) | Out-Null }
+    return $d
+}
+
+function Write-StudioScLibrary {
+    $dir = Get-StudioScLibraryClasses
+    $path = Join-Path $dir 'HumbleBakerStable.sc'
+    [IO.File]::WriteAllText($path, (Get-StudioScClassText), (New-Object Text.UTF8Encoding($false)))
+    return $dir
+}
+
+function Write-StudioScSessionFiles($P) {
+    $session = Get-StudioScSessionDir $P
+    $lib = Write-StudioScLibrary
+    $meta = [ordered]@{ id = $P.ScSessionId; bpm = $P.Bpm; tracks = $P.Tracks.Count; nodes = $P.Graph.Nodes.Count; app = 'Humble Baker Studio'; updated = (Get-Date).ToString('o') }
+    [IO.File]::WriteAllText((Join-Path $session 'session.json'), ($meta | ConvertTo-Json), (New-Object Text.UTF8Encoding($false)))
+    $recompile = @'
+"Compiling Humble Baker SC definitions...".postln;
+HBProject.new("verify").post;
+"HB definitions OK".postln;
+0.exit;
+'@
+    $script = Join-Path $session 'recompile.scd'
+    [IO.File]::WriteAllText($script, $recompile, (New-Object Text.UTF8Encoding($false)))
+    return @{ Session = $session; Library = $lib; Script = $script }
+}
+
+function Test-StudioScPlugins {
+    $roots = @(
+        (Join-Path $env:LOCALAPPDATA 'SuperCollider\Extensions'),
+        (Join-Path $env:PROGRAMDATA 'SuperCollider\Extensions'),
+        (Join-Path $env:ProgramFiles 'SuperCollider\Extensions')
+    )
+    foreach ($r in $roots) {
+        if (-not (Test-Path -LiteralPath $r)) { continue }
+        $hit = Get-ChildItem -LiteralPath $r -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -match 'PartConv|sc3|PV_' } | Select-Object -First 1
+        if ($hit) { return $hit.FullName }
+    }
+    return $null
 }
 
 function Get-StudioSynthDefs {
@@ -9948,7 +10211,11 @@ function Show-AudioStudio {
     $S.ScCode.Font = New-Object Drawing.Font('Consolas', 10); $S.ScCode.ScrollBars = 'Both'; $S.ScCode.SetBounds(8, 8, 1100, 200)
     $S.ScCode.Text = "// Your own SynthDefs go here. They run before the patterns, with \out bound to ~hbbus.`r`n// Give a track the synth name (for example hello below) and SuperCollider will play it.`r`n// Args the sequencer sends: freq, amp, sustain, pan, cutoff, res, envamt, atk, rel, crush, out`r`n"
     $S.ScTemplate = Btn 'Insert acid template' 1116 8 150; $S.ScTest = Btn 'Syntax-check run (render 1 bar)' 1116 42 180
-    $tSc.Controls.AddRange(@($S.ScCode, $S.ScTemplate, $S.ScTest))
+    $S.ScRecompile = Btn 'Recompile SC definitions' 1116 76 180 28 $true
+    $S.ScCheck = Btn 'Check SC setup' 1116 110 180 28
+    $S.ScFolder = Btn 'Open session folder' 1116 144 180 28
+    $S.ScSetup = Lbl '' 8 218 1100
+    $tSc.Controls.AddRange(@($S.ScCode, $S.ScTemplate, $S.ScTest, $S.ScRecompile, $S.ScCheck, $S.ScFolder, $S.ScSetup))
 
     $S.Log = Sty (New-Object Windows.Forms.TextBox); $S.Log.Multiline = $true; $S.Log.ReadOnly = $true; $S.Log.ScrollBars = 'Vertical'; $S.Log.Dock = 'Fill'
     $tLog.Controls.Add($S.Log)
@@ -14450,6 +14717,53 @@ Rules: prefer the user's saved instruments when one fits the goal. Use design_so
         if (-not $S.Sc) { Show-StudioMsg 'SuperCollider was not found.'; return }
         $prev = $S.Bars.Value; $S.Engine.SelectedIndex = 1
         Invoke-StudioRender
+    })
+    $S.ScRecompile.Add_Click({
+        Stop-Studio
+        if (-not $S.Sc) { Show-StudioMsg 'SuperCollider was not found. Use "Locate SuperCollider" first.'; return }
+        try {
+            Sync-Project
+            $r = Write-StudioScSessionFiles $S.Proj
+            $outLog = Join-Path $r.Session 'recompile.out.log'
+            $errLog = Join-Path $r.Session 'recompile.err.log'
+            Remove-Item $outLog, $errLog -Force -ErrorAction SilentlyContinue
+            $includeA = '--include-path "' + $r.Library + '"'
+            $includeB = '--include-path "' + (Join-Path $r.Session 'classes') + '"'
+            $argStr = '-D ' + $includeA + ' ' + $includeB + ' "' + $r.Script + '"'
+            $S.ScSetup.Text = 'Compiling SC classes...'
+            $p = Start-Process -FilePath $S.Sc -ArgumentList $argStr -WorkingDirectory (Split-Path $S.Sc -Parent) -WindowStyle Hidden -PassThru -Wait -RedirectStandardOutput $outLog -RedirectStandardError $errLog
+            if ($p.ExitCode -eq 0) {
+                $S.ScSetup.Text = 'SC classes compiled. Session: ' + $r.Session
+                Status 'SC definitions compiled; transport left stopped.'
+                Log ('SC definitions compiled: ' + $r.Session)
+            } else {
+                $tail = ''
+                if (Test-Path -LiteralPath $errLog) { $tail = ((Get-Content -LiteralPath $errLog -Tail 12 -ErrorAction SilentlyContinue) -join "`r`n") }
+                $S.ScSetup.Text = 'SC recompile failed. See recompile.err.log in the session folder.'
+                Show-StudioMsg ("SC recompile failed (exit $($p.ExitCode)).`r`n`r`n$tail")
+                Log ('SC recompile failed: ' + $tail)
+            }
+        } catch { $S.ScSetup.Text = 'SC recompile failed: ' + $_.Exception.Message; Log ('SC recompile failed: ' + $_.Exception.Message) }
+    })
+    $S.ScCheck.Add_Click({
+        try {
+            $version = 'not found'
+            if ($S.Sc) { try { $version = (& $S.Sc -v 2>&1 | Select-Object -First 1) } catch { $version = 'error' } }
+            $plugins = Test-StudioScPlugins
+            $session = Get-StudioScSessionDir $S.Proj
+            $msg = @(
+                'SuperCollider: ' + $(if ($S.Sc) { $S.Sc } else { 'not located' }),
+                'Version: ' + $version,
+                'sc3-plugins: ' + $(if ($plugins) { 'found: ' + $plugins } else { 'not found (required for convolution/spectral effects)' }),
+                'Session: ' + $session,
+                'Class library: ' + (Get-StudioScLibraryClasses)
+            ) -join "`r`n"
+            $S.ScSetup.Text = "SC: $version | sc3-plugins: $(if ($plugins) { 'found' } else { 'missing' }) | session: $($S.Proj.ScSessionId)"
+            Show-StudioMsg $msg
+        } catch { Show-StudioMsg ('SC setup check failed: ' + $_.Exception.Message) }
+    })
+    $S.ScFolder.Add_Click({
+        try { $session = Get-StudioScSessionDir $S.Proj; Start-Process explorer.exe -ArgumentList ('"' + $session + '"') } catch { Log ('Could not open SC session folder: ' + $_.Exception.Message) }
     })
     foreach ($k in @('up1', 'dn1', 'up12', 'dn12', 'quant', 'scale', 'rev', 'dbl', 'half', 'all', 'clear', 'undo', 'legato', 'stacc', 'velup', 'veldn', 'velrnd', 'accent', 'inv', 'nudge', 'nudgeb', 'thin', 'octl')) { $S["T_$k"].Add_Click({ param($snd, $e) Invoke-StudioTool ([string]$snd.Tag) }) }
     $S.T_hum.Add_Click({ Invoke-StudioTool 'hum' }); $S.T_mut.Add_Click({ Invoke-StudioTool 'mut' }); $S.T_chop.Add_Click({ Invoke-StudioTool 'chop' }); $S.T_ratch.Add_Click({ Invoke-StudioTool 'ratch' })
