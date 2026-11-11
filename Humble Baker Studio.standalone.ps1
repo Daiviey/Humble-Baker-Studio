@@ -40,10 +40,10 @@ public class RngAttribute : Attribute {
 public class Patch {
     public Patch() {
         Osc1 = Wave.saw; Level1 = 1; Osc2 = Wave.saw; Level2 = 0.5; Detune2 = 7; Semi2 = 0; Osc3 = Wave.sine; Level3 = 0; Semi3 = -12;
-        SubLevel = 0; NoiseLevel = 0; Noise = NoiseColor.white; PulseWidth = 0.5; Unison = 1; UnisonSpread = 12; FmAmount = 0; FmRatio = 2;
+        SubLevel = 0; NoiseLevel = 0; Noise = NoiseColor.white; PulseWidth = 0.5; PulseWidth2 = 0.5; SubShape = Wave.sine; Unison = 1; UnisonSpread = 12; FmAmount = 0; FmRatio = 2;
         Filter = FilterMode.lowpass; Cutoff = 3000; Resonance = 0.3; FilterEnv = 0.5; FilterDecay = 0.25; KeyTrack = 0;
         Attack = 0.005; Decay = 0.3; Sustain = 0.7; Release = 0.2; PitchEnv = 0; PitchDecay = 0.05;
-        LfoRate = 4; LfoPitch = 0; LfoFilter = 0; LfoAmp = 0; Fold = 0; Drive = 0; Bits = 16; Gain = 0.8;
+        LfoRate = 4; LfoPitch = 0; LfoFilter = 0; LfoAmp = 0; Fold = 0; Drive = 0; Bits = 16; Gain = 0.8; OutputDrive = 0;
         Harmonics = 16; Tilt = 1; OddEven = 0; Vowel = 0; VowelEnd = 2; TiltEnd = 1.6; Morph = 0;
         Ring = 1.5; Damping = 0.35; Inharmonic = 0.3; Strike = 0.2; SyncRatio = 2;
         FmDecay = 0; FmSustain = 0.25; Fm2Amount = 0; Fm2Ratio = 3; FmFeedback = 0; RingAmount = 0; NoiseRate = 2000;
@@ -66,6 +66,8 @@ public class Patch {
     [Category("1 Oscillators"), Description("Noise level."), Rng(0, 1)] public double NoiseLevel { get; set; }
     [Category("1 Oscillators"), Description("Noise colour: white, pink or brown.")] public NoiseColor Noise { get; set; }
     [Category("1 Oscillators"), Description("Pulse width for the pulse waveform."), Rng(0.05, 0.95)] public double PulseWidth { get; set; }
+    [Category("1 Oscillators"), Description("Pulse width for oscillator 2's pulse waveform."), Rng(0.05, 0.95)] public double PulseWidth2 { get; set; }
+    [Category("1 Oscillators"), Description("Sub oscillator waveform: sine, tri, square or saw.")] public Wave SubShape { get; set; }
     [Category("2 Unison and FM"), Description("Number of stacked detuned voices (1 to 7)."), Rng(1, 7)] public double Unison { get; set; }
     [Category("2 Unison and FM"), Description("Unison detune spread in cents."), Rng(0, 100)] public double UnisonSpread { get; set; }
     [Category("2 Unison and FM"), Description("Frequency modulation of oscillator 1 (0 off, 1 bell-like, 5+ metallic)."), Rng(0, 10)] public double FmAmount { get; set; }
@@ -90,6 +92,7 @@ public class Patch {
     [Category("6 Distortion"), Description("Saturation drive."), Rng(0, 1)] public double Drive { get; set; }
     [Category("6 Distortion"), Description("Bit depth (16 = clean, 4 = crunchy)."), Rng(2, 16)] public double Bits { get; set; }
     [Category("6 Distortion"), Description("Output gain."), Rng(0, 1.5, NoRandom = true)] public double Gain { get; set; }
+    [Category("6 Distortion"), Description("Post-synth output drive (0 = clean, 1 = saturated)."), Rng(0, 1)] public double OutputDrive { get; set; }
     [Category("7 Wavetable and vowels"), Description("additive/vowel oscillators: number of harmonics in the stack (more = brighter, buzzier)."), Rng(1, 48)] public double Harmonics { get; set; }
     [Category("7 Wavetable and vowels"), Description("additive: spectral tilt, harmonic k has level k^-Tilt (0 = flat and bright, 1 = saw-like, 2 = soft, 3 = nearly sine)."), Rng(0, 3)] public double Tilt { get; set; }
     [Category("7 Wavetable and vowels"), Description("additive: -1 keeps only even harmonics (octave and thin), 0 all, +1 odd harmonics only (hollow, clarinet, square-like)."), Rng(-1, 1)] public double OddEven { get; set; }
@@ -154,6 +157,20 @@ public class Fx {
         PlateMix = 0; PlateSize = 0.6; PlateDamping = 0.5; VinylCrackle = 0; TapeHiss = 0; TapeWow = 0;
         CompThresh = -18; CompRatio = 3; CompAttack = 10; CompRelease = 120; LowShelf = 0; HighShelf = 0; MidPeak = 0; Width = 1; PitchShift = 0;
         SidechainSource = ""; SidechainMix = 0; SidechainAttack = 3; SidechainRelease = 160; CompMakeup = 0;
+        GateAmount = 0; GateThreshold = -45; GateAttack = 2; GateRelease = 90;
+        TransientAttack = 0; TransientSustain = 0; TransientSensitivity = 0.5;
+        Saturator = 0; SatBias = 0; SatTone = 0.5; SatMix = 0.5;
+        Exciter = 0; ExciterFreq = 4000; ExciterMix = 0.5;
+        RectifyMix = 0; RectifyHalf = false; RectifyDrive = 0;
+        TremoloMix = 0; TremoloRate = 5; TremoloDepth = 0.5;
+        AutoPanMix = 0; AutoPanRate = 0.5; AutoPanDepth = 0.7;
+        VibratoMix = 0; VibratoRate = 5; VibratoDepth = 0.3;
+        AutoWahMix = 0; AutoWahRate = 1.5; AutoWahDepth = 0.6; AutoWahResonance = 0.6;
+        CombMix = 0; CombFreq = 220; CombFeedback = 0.5;
+        SpringMix = 0; SpringDecay = 0.6; SpringTone = 0.5;
+        ShimmerMix = 0; ShimmerPitch = 12; ShimmerDecay = 0.7;
+        HaasMix = 0; HaasDelay = 14;
+        LimiterOn = false; LimiterThreshold = -6; LimiterRelease = 100; LimiterCeiling = -1;
     }
     [Category("1 Filter"), Description("Filter type: off, lowpass, highpass, bandpass.")] public FilterMode Filter { get; set; }
     [Category("1 Filter"), Description("Cutoff in Hz."), Rng(30, 16000)] public double Cutoff { get; set; }
@@ -211,13 +228,62 @@ public class Fx {
     [Category("8 Mastering"), Description("Sidechain attack in ms (how fast the duck starts)."), Rng(0.5, 100)] public double SidechainAttack { get; set; }
     [Category("8 Mastering"), Description("Sidechain release in ms (how long recovery takes)."), Rng(10, 1000)] public double SidechainRelease { get; set; }
     [Category("8 Mastering"), Description("Compressor makeup gain in dB (after compression, before the limiter)."), Rng(-12, 24)] public double CompMakeup { get; set; }
+    [Category("9 Dynamics"), Description("Noise gate amount (0 = off). Attenuates the signal below the threshold."), Rng(0, 1)] public double GateAmount { get; set; }
+    [Category("9 Dynamics"), Description("Gate threshold in dBFS."), Rng(-60, 0)] public double GateThreshold { get; set; }
+    [Category("9 Dynamics"), Description("Gate attack in ms."), Rng(0.1, 50)] public double GateAttack { get; set; }
+    [Category("9 Dynamics"), Description("Gate release in ms."), Rng(10, 500)] public double GateRelease { get; set; }
+    [Category("9 Dynamics"), Description("Transient attack boost/cut (positive = punchier)."), Rng(-1, 1)] public double TransientAttack { get; set; }
+    [Category("9 Dynamics"), Description("Transient sustain boost/cut (negative = tighter)."), Rng(-1, 1)] public double TransientSustain { get; set; }
+    [Category("9 Dynamics"), Description("Transient detector sensitivity."), Rng(0, 1)] public double TransientSensitivity { get; set; }
+    [Category("9 Dynamics"), Description("Brickwall limiter on/off.")] public bool LimiterOn { get; set; }
+    [Category("9 Dynamics"), Description("Limiter threshold in dBFS."), Rng(-24, 0)] public double LimiterThreshold { get; set; }
+    [Category("9 Dynamics"), Description("Limiter release in ms."), Rng(10, 500)] public double LimiterRelease { get; set; }
+    [Category("9 Dynamics"), Description("Limiter output ceiling in dBFS."), Rng(-6, 0)] public double LimiterCeiling { get; set; }
+    [Category("10 Saturation"), Description("Saturator amount (0 = off)."), Rng(0, 1)] public double Saturator { get; set; }
+    [Category("10 Saturation"), Description("Saturator DC bias (asymmetry)."), Rng(-0.5, 0.5)] public double SatBias { get; set; }
+    [Category("10 Saturation"), Description("Saturator tone: dark to bright."), Rng(0, 1)] public double SatTone { get; set; }
+    [Category("10 Saturation"), Description("Saturator dry/wet mix."), Rng(0, 1)] public double SatMix { get; set; }
+    [Category("10 Saturation"), Description("High-frequency exciter amount (0 = off)."), Rng(0, 1)] public double Exciter { get; set; }
+    [Category("10 Saturation"), Description("Exciter crossover frequency in Hz."), Rng(1000, 12000)] public double ExciterFreq { get; set; }
+    [Category("10 Saturation"), Description("Exciter dry/wet mix."), Rng(0, 1)] public double ExciterMix { get; set; }
+    [Category("10 Saturation"), Description("Rectifier mix (0 = off)."), Rng(0, 1)] public double RectifyMix { get; set; }
+    [Category("10 Saturation"), Description("Half-wave rectification (otherwise full-wave).")] public bool RectifyHalf { get; set; }
+    [Category("10 Saturation"), Description("Rectifier pre-gain."), Rng(0, 1)] public double RectifyDrive { get; set; }
+    [Category("11 Modulation"), Description("Tremolo mix (0 = off)."), Rng(0, 1)] public double TremoloMix { get; set; }
+    [Category("11 Modulation"), Description("Tremolo rate in Hz."), Rng(0.1, 20)] public double TremoloRate { get; set; }
+    [Category("11 Modulation"), Description("Tremolo depth."), Rng(0, 1)] public double TremoloDepth { get; set; }
+    [Category("11 Modulation"), Description("Auto-pan mix (0 = off)."), Rng(0, 1)] public double AutoPanMix { get; set; }
+    [Category("11 Modulation"), Description("Auto-pan rate in Hz."), Rng(0.05, 5)] public double AutoPanRate { get; set; }
+    [Category("11 Modulation"), Description("Auto-pan depth."), Rng(0, 1)] public double AutoPanDepth { get; set; }
+    [Category("11 Modulation"), Description("Vibrato mix (0 = off)."), Rng(0, 1)] public double VibratoMix { get; set; }
+    [Category("11 Modulation"), Description("Vibrato rate in Hz."), Rng(0.1, 12)] public double VibratoRate { get; set; }
+    [Category("11 Modulation"), Description("Vibrato depth (pitch bend)."), Rng(0, 1)] public double VibratoDepth { get; set; }
+    [Category("11 Modulation"), Description("Auto-wah mix (0 = off)."), Rng(0, 1)] public double AutoWahMix { get; set; }
+    [Category("11 Modulation"), Description("Auto-wah LFO rate in Hz."), Rng(0.1, 8)] public double AutoWahRate { get; set; }
+    [Category("11 Modulation"), Description("Auto-wah filter depth."), Rng(0, 1)] public double AutoWahDepth { get; set; }
+    [Category("11 Modulation"), Description("Auto-wah resonance."), Rng(0, 0.95)] public double AutoWahResonance { get; set; }
+    [Category("12 Space / Utility"), Description("Comb filter mix (0 = off)."), Rng(0, 1)] public double CombMix { get; set; }
+    [Category("12 Space / Utility"), Description("Comb filter frequency in Hz."), Rng(20, 2000)] public double CombFreq { get; set; }
+    [Category("12 Space / Utility"), Description("Comb filter feedback."), Rng(0, 0.95)] public double CombFeedback { get; set; }
+    [Category("12 Space / Utility"), Description("Spring reverb mix (0 = off)."), Rng(0, 1)] public double SpringMix { get; set; }
+    [Category("12 Space / Utility"), Description("Spring reverb decay."), Rng(0, 1)] public double SpringDecay { get; set; }
+    [Category("12 Space / Utility"), Description("Spring reverb tone."), Rng(0, 1)] public double SpringTone { get; set; }
+    [Category("12 Space / Utility"), Description("Shimmer reverb mix (0 = off)."), Rng(0, 1)] public double ShimmerMix { get; set; }
+    [Category("12 Space / Utility"), Description("Shimmer pitch shift in semitones."), Rng(-12, 12)] public double ShimmerPitch { get; set; }
+    [Category("12 Space / Utility"), Description("Shimmer decay."), Rng(0, 1)] public double ShimmerDecay { get; set; }
+    [Category("12 Space / Utility"), Description("Haas widener mix (0 = off)."), Rng(0, 1)] public double HaasMix { get; set; }
+    [Category("12 Space / Utility"), Description("Haas delay in ms."), Rng(1, 40)] public double HaasDelay { get; set; }
     [Category("5 Output"), Description("Output gain."), Rng(0, 2, NoRandom = true)] public double Gain { get; set; }
     public bool Active {
         get {
             return Filter != FilterMode.off || Drive > 0 || Fold > 0 || Bits < 16 || Downsample > 1 || RingMix > 0 || (StutterBeats > 0 && StutterChance > 0)
                 || Chorus > 0 || DelayMix > 0 || ReverbMix > 0 || Math.Abs(Gain - 1) > 0.001
                 || PhaserMix > 0 || FlangerMix > 0 || TapeStop > 0 || TapeDelayMix > 0 || PlateMix > 0
-                || VinylCrackle > 0 || TapeHiss > 0 || TapeWow > 0 || CompRatio > 1 || LowShelf != 0 || HighShelf != 0 || MidPeak != 0 || Math.Abs(Width - 1) > 0.001 || PitchShift != 0;
+                || VinylCrackle > 0 || TapeHiss > 0 || TapeWow > 0 || CompRatio > 1 || LowShelf != 0 || HighShelf != 0 || MidPeak != 0 || Math.Abs(Width - 1) > 0.001 || PitchShift != 0
+                || GateAmount > 0 || Math.Abs(TransientAttack) > 0.001 || Math.Abs(TransientSustain) > 0.001 || LimiterOn
+                || Saturator > 0 || Exciter > 0 || RectifyMix > 0
+                || TremoloMix > 0 || AutoPanMix > 0 || VibratoMix > 0 || AutoWahMix > 0
+                || CombMix > 0 || SpringMix > 0 || ShimmerMix > 0 || HaasMix > 0;
         }
     }
 }
@@ -3040,6 +3106,7 @@ public static class PatchSynth {
         double q = Math.Max(0.05, 1 - Math.Min(0.95, p.Resonance));
         double bitsSteps = Math.Pow(2, Math.Max(2, Math.Min(16, p.Bits)) - 1);
         double pw0 = Math.Max(0.05, Math.Min(0.95, p.PulseWidth));
+        double pw20 = Math.Max(0.05, Math.Min(0.95, p.PulseWidth2));
         double norm = 1.0 / Math.Sqrt(uni);
         double s2 = Math.Pow(2, p.Semi2 / 12.0) * Math.Pow(2, p.Detune2 / 1200.0), s3 = Math.Pow(2, p.Semi3 / 12.0);
         double ampAtDur = Adsr(Math.Min(dur, 1e9), dur, atk, dec, sus);
@@ -3074,6 +3141,7 @@ public static class PatchSynth {
             double fmE = p.FmDecay > 0 ? p.FmSustain + (1 - p.FmSustain) * Math.Exp(-t / p.FmDecay) : 1;
             double fmIdx = anyFm ? Math.Max(0, p.FmAmount * fmE * (1 + p.VelFm * vd * 0.8) + 4 * p.LfoFm * lfo + 4 * p.Lfo2Fm * lfo2 + 6 * p.ModFm * me) : 0;
             double pw = Math.Max(0.05, Math.Min(0.95, pw0 + 0.4 * (p.LfoPwm * lfo + p.Lfo2Pwm * lfo2 + p.ModPwm * me)));
+            double pw2 = Math.Max(0.05, Math.Min(0.95, pw20 + 0.4 * (p.LfoPwm * lfo + p.Lfo2Pwm * lfo2 + p.ModPwm * me)));
             double mo = Math.Max(0, Math.Min(1, p.Morph + 0.5 * p.LfoMorph * lfo + 0.5 * p.Lfo2Morph * lfo2 + p.ModMorph * me));
             double syncR = Math.Max(1, p.SyncRatio + 6 * (p.Lfo2Sync * lfo2 + p.ModSync * me));
             double x = 0;
@@ -3089,7 +3157,7 @@ public static class PatchSynth {
                 double v = 0, a1 = 0, a2 = 0;
                 bool phys1 = ow[0] == Wave.pluck || ow[0] == Wave.bell, phys2 = ow[1] == Wave.pluck || ow[1] == Wave.bell, phys3 = ow[2] == Wave.pluck || ow[2] == Wave.bell;
                 if (ol[0] > 0 && (u == 0 || !phys1)) { a1 = Slot(ow[0], p1[u], pw, rnd, tA[0], tB[0], mo, syncR, pb[0], i); v += ol[0] * a1; }
-                if (ol[1] > 0 && (u == 0 || !phys2)) { a2 = Slot(ow[1], p2[u], pw, rnd, tA[1], tB[1], mo, syncR, pb[1], i); v += ol[1] * a2; }
+                if (ol[1] > 0 && (u == 0 || !phys2)) { a2 = Slot(ow[1], p2[u], pw2, rnd, tA[1], tB[1], mo, syncR, pb[1], i); v += ol[1] * a2; }
                 if (ol[2] > 0 && (u == 0 || !phys3)) v += ol[2] * Slot(ow[2], p3[u], pw, rnd, tA[2], tB[2], mo, syncR, pb[2], i);
                 if (p.RingAmount > 0 && ol[0] > 0 && ol[1] > 0) v = v * (1 - 0.7 * p.RingAmount) + p.RingAmount * 1.6 * a1 * a2 * (ol[0] + ol[1]) * 0.5;
                 x += v;
@@ -3098,7 +3166,11 @@ public static class PatchSynth {
                 p3[u] += fu * s3 / SR; p3[u] -= Math.Floor(p3[u]);
             }
             x *= norm * 0.5;
-            if (p.SubLevel > 0) { x += p.SubLevel * 0.6 * Math.Sin(2 * Math.PI * psub); psub += fNote * fm * 0.5 / SR; psub -= Math.Floor(psub); }
+            if (p.SubLevel > 0) {
+                double sp = psub * 2 * Math.PI;
+                double sv = p.SubShape == Wave.square ? Math.Sign(Math.Sin(sp)) : (p.SubShape == Wave.tri ? (2 / Math.PI) * Math.Asin(Math.Sin(sp)) : (p.SubShape == Wave.saw ? 2 * (psub - Math.Floor(psub + 0.5)) : Math.Sin(sp)));
+                x += p.SubLevel * 0.6 * sv; psub += fNote * fm * 0.5 / SR; psub -= Math.Floor(psub);
+            }
             double nl = p.NoiseLevel + p.ModNoise * me;
             if (nl > 0) {
                 double w = rnd.NextDouble() * 2 - 1, nz;
@@ -3152,6 +3224,7 @@ public static class PatchSynth {
             else env = ampAtDur * Math.Max(0, 1 - (t - dur) / rel);
             env *= Math.Max(0, 1 - p.LfoAmp * (0.5 + 0.5 * lfo) - p.Lfo2Amp * (0.5 + 0.5 * lfo2));
             double outv = x * env * p.Gain * 1.6;
+            if (p.OutputDrive > 0) outv = Math.Tanh(outv * (1 + 8 * p.OutputDrive));
             if (double.IsNaN(outv) || double.IsInfinity(outv)) { outv = 0; lo = bd = lo2 = bd2 = 0; }
             o[i] = (float)outv;
         }
@@ -3178,6 +3251,19 @@ public static class FxProc {
 
     static void Run(Fx fx, float[] a, float[] b, double spb) {
         int n = a.Length;
+        if (fx.GateAmount > 0) GateFx(fx, a, b);
+        if (fx.Saturator > 0) SaturatorFx(fx, a, b);
+        if (fx.Exciter > 0) ExciterFx(fx, a, b);
+        if (fx.RectifyMix > 0) RectifyFx(fx, a, b);
+        if (Math.Abs(fx.TransientAttack) > 0.001 || Math.Abs(fx.TransientSustain) > 0.001) TransientFx(fx, a, b);
+        if (fx.TremoloMix > 0) TremoloFx(fx, a, b);
+        if (fx.AutoPanMix > 0) AutoPanFx(fx, a, b);
+        if (fx.VibratoMix > 0) VibratoFx(fx, a, b);
+        if (fx.AutoWahMix > 0) AutoWahFx(fx, a, b);
+        if (fx.CombMix > 0) CombFx(fx, a, b);
+        if (fx.SpringMix > 0) SpringFx(fx, a, b);
+        if (fx.ShimmerMix > 0) ShimmerFx(fx, a, b);
+        if (fx.HaasMix > 0) HaasFx(fx, a, b);
         if (fx.PitchShift != 0) PitchShift(fx, a, b);
         if (fx.TapeWow > 0) Wow(fx, a, b);
         if (fx.TapeStop > 0) TapeStopFx(fx, a, b, spb);
@@ -3217,6 +3303,7 @@ public static class FxProc {
         if (fx.CompRatio > 1) Comp(fx, a, b);
         if (fx.LowShelf != 0 || fx.HighShelf != 0 || fx.MidPeak != 0) EqFx(fx, a, b);
         if (Math.Abs(fx.Width - 1) > 0.001) WidthFx(fx, a, b);
+        if (fx.LimiterOn) LimiterFx(fx, a, b);
         if (Math.Abs(fx.Gain - 1) > 0.001) { float g = (float)fx.Gain; for (int i = 0; i < n; i++) { a[i] *= g; b[i] *= g; } }
     }
 
@@ -3299,6 +3386,141 @@ public static class FxProc {
             double nz = r.NextDouble() * 2 - 1;
             if (fx.TapeHiss > 0) { a[i] += (float)(nz * fx.TapeHiss * 0.03); b[i] += (float)(nz * fx.TapeHiss * 0.03); }
             if (fx.VinylCrackle > 0 && r.NextDouble() < fx.VinylCrackle * 0.02) { float pop = (float)((r.NextDouble() * 2 - 1) * fx.VinylCrackle * 0.6); a[i] += pop; b[i] += pop; }
+        }
+    }
+    static void GateFx(Fx fx, float[] a, float[] b) {
+        double thr = Math.Pow(10, fx.GateThreshold / 20.0), amt = Math.Max(0, Math.Min(1, fx.GateAmount));
+        double atk = 1 - Math.Exp(-1.0 / (Math.Max(0.1, fx.GateAttack) * 0.001 * SR));
+        double rel = 1 - Math.Exp(-1.0 / (Math.Max(10, fx.GateRelease) * 0.001 * SR));
+        double env = 0;
+        for (int i = 0; i < a.Length; i++) {
+            double x = Math.Max(Math.Abs(a[i]), Math.Abs(b[i]));
+            env += (x > env ? atk : rel) * (x - env);
+            double g = env >= thr ? 1 : 1 - amt;
+            a[i] = (float)(a[i] * g); b[i] = (float)(b[i] * g);
+        }
+    }
+    static void SaturatorFx(Fx fx, float[] a, float[] b) {
+        double drive = 1 + fx.Saturator * 12, mix = Math.Max(0, Math.Min(1, fx.SatMix)), tone = Math.Max(0, Math.Min(1, fx.SatTone));
+        double lp = 0;
+        for (int i = 0; i < a.Length; i++) {
+            double xa = Math.Tanh((a[i] + fx.SatBias) * drive) * 0.75;
+            double xb = Math.Tanh((b[i] + fx.SatBias) * drive) * 0.75;
+            lp += (xa - lp) * (0.02 + 0.6 * (1 - tone));
+            a[i] = (float)(a[i] * (1 - mix) + lp * mix);
+            b[i] = (float)(b[i] * (1 - mix) + xb * mix);
+        }
+    }
+    static void ExciterFx(Fx fx, float[] a, float[] b) {
+        double fc = Math.Max(500, Math.Min(SR / 4.0, fx.ExciterFreq)), coef = Math.Exp(-2 * Math.PI * fc / SR), mix = Math.Max(0, Math.Min(1, fx.ExciterMix));
+        double la = 0, lb = 0;
+        for (int i = 0; i < a.Length; i++) {
+            la = (1 - coef) * a[i] + coef * la; lb = (1 - coef) * b[i] + coef * lb;
+            double ha = Math.Tanh((a[i] - la) * 4) * fx.Exciter, hb = Math.Tanh((b[i] - lb) * 4) * fx.Exciter;
+            a[i] = (float)(a[i] + ha * mix); b[i] = (float)(b[i] + hb * mix);
+        }
+    }
+    static void RectifyFx(Fx fx, float[] a, float[] b) {
+        double mix = Math.Max(0, Math.Min(1, fx.RectifyMix)), drive = 1 + fx.RectifyDrive * 8;
+        for (int i = 0; i < a.Length; i++) {
+            double xa = a[i] * drive, xb = b[i] * drive;
+            double ya = fx.RectifyHalf ? Math.Max(0, xa) : Math.Abs(xa);
+            double yb = fx.RectifyHalf ? Math.Max(0, xb) : Math.Abs(xb);
+            a[i] = (float)(a[i] * (1 - mix) + ya * mix); b[i] = (float)(b[i] * (1 - mix) + yb * mix);
+        }
+    }
+    static void TransientFx(Fx fx, float[] a, float[] b) {
+        double af = 1 - Math.Exp(-1.0 / (0.0015 * SR)), aslow = 1 - Math.Exp(-1.0 / (0.08 * SR));
+        double atk = fx.TransientAttack, sus = fx.TransientSustain, sens = Math.Max(0, Math.Min(1, fx.TransientSensitivity));
+        double fast = 0, slow = 0;
+        for (int i = 0; i < a.Length; i++) {
+            double x = Math.Max(Math.Abs(a[i]), Math.Abs(b[i]));
+            fast += (x - fast) * (x > fast ? af : aslow); slow += (x - slow) * aslow;
+            double g = 1 + atk * Math.Max(0, fast - slow) * (1 + sens * 8) - sus * slow * (1 + sens * 4);
+            g = Math.Max(0, Math.Min(4, g));
+            a[i] = (float)(a[i] * g); b[i] = (float)(b[i] * g);
+        }
+    }
+    static void TremoloFx(Fx fx, float[] a, float[] b) {
+        double rate = Math.Max(0.05, fx.TremoloRate), depth = Math.Max(0, Math.Min(1, fx.TremoloDepth)), mix = Math.Max(0, Math.Min(1, fx.TremoloMix));
+        for (int i = 0; i < a.Length; i++) { double lfo = 0.5 + 0.5 * Math.Sin(2 * Math.PI * rate * i / SR); double g = 1 - depth * (1 - lfo); a[i] = (float)(a[i] * (1 - mix + mix * g)); b[i] = (float)(b[i] * (1 - mix + mix * g)); }
+    }
+    static void AutoPanFx(Fx fx, float[] a, float[] b) {
+        double rate = Math.Max(0.02, fx.AutoPanRate), depth = Math.Max(0, Math.Min(1, fx.AutoPanDepth)), mix = Math.Max(0, Math.Min(1, fx.AutoPanMix));
+        for (int i = 0; i < a.Length; i++) {
+            double p = depth * Math.Sin(2 * Math.PI * rate * i / SR);
+            double gl = Math.Min(1, 1 - p), gr = Math.Min(1, 1 + p);
+            a[i] = (float)(a[i] * (1 - mix + mix * gl)); b[i] = (float)(b[i] * (1 - mix + mix * gr));
+        }
+    }
+    static void VibratoFx(Fx fx, float[] a, float[] b) {
+        int len = (int)(SR * 0.03) + 2; float[] dl = new float[len], dr = new float[len]; int pos = 0;
+        double rate = Math.Max(0.05, fx.VibratoRate), depth = Math.Max(0, Math.Min(1, fx.VibratoDepth)), mix = Math.Max(0, Math.Min(1, fx.VibratoMix));
+        for (int i = 0; i < a.Length; i++) {
+            double d = (0.004 + 0.006 * depth * (0.5 + 0.5 * Math.Sin(2 * Math.PI * rate * i / SR))) * SR;
+            int di = Math.Max(1, Math.Min(len - 1, (int)d)); int rp = pos - di; if (rp < 0) rp += len;
+            double ya = dl[rp], yb = dr[rp]; dl[pos] = a[i]; dr[pos] = b[i]; pos++; if (pos >= len) pos = 0;
+            a[i] = (float)(a[i] * (1 - mix) + ya * mix); b[i] = (float)(b[i] * (1 - mix) + yb * mix);
+        }
+    }
+    static void AutoWahFx(Fx fx, float[] a, float[] b) {
+        double rate = Math.Max(0.05, fx.AutoWahRate), depth = Math.Max(0, Math.Min(1, fx.AutoWahDepth)), q = Math.Max(0.05, 1 - Math.Min(0.95, fx.AutoWahResonance)), mix = Math.Max(0, Math.Min(1, fx.AutoWahMix));
+        double loA = 0, bdA = 0, loB = 0, bdB = 0;
+        for (int i = 0; i < a.Length; i++) {
+            double fc = 250 + depth * 3500 * (0.5 + 0.5 * Math.Sin(2 * Math.PI * rate * i / SR)); fc = Math.Max(80, Math.Min(SR / 5.0, fc));
+            double ff = 2 * Math.Sin(Math.PI * fc / SR);
+            double hiA = a[i] - loA - q * bdA; bdA += ff * hiA; loA += ff * bdA;
+            double hiB = b[i] - loB - q * bdB; bdB += ff * hiB; loB += ff * bdB;
+            a[i] = (float)(a[i] * (1 - mix) + bdA * mix); b[i] = (float)(b[i] * (1 - mix) + bdB * mix);
+        }
+    }
+    static void CombFx(Fx fx, float[] a, float[] b) {
+        int d = Math.Max(2, (int)(SR / Math.Max(20, Math.Min(2000, fx.CombFreq))));
+        float[] dl = new float[d], dr = new float[d]; int pos = 0;
+        double fb = Math.Max(0, Math.Min(0.95, fx.CombFeedback)), mix = Math.Max(0, Math.Min(1, fx.CombMix));
+        for (int i = 0; i < a.Length; i++) {
+            double ya = dl[pos], yb = dr[pos];
+            dl[pos] = (float)(a[i] + ya * fb); dr[pos] = (float)(b[i] + yb * fb); pos++; if (pos >= d) pos = 0;
+            a[i] = (float)(a[i] * (1 - mix) + ya * mix); b[i] = (float)(b[i] * (1 - mix) + yb * mix);
+        }
+    }
+    static void SpringFx(Fx fx, float[] a, float[] b) {
+        int d1 = (int)(SR * 0.031), d2 = (int)(SR * 0.047), d3 = (int)(SR * 0.071);
+        float[] b1 = new float[d1], b2 = new float[d2], b3 = new float[d3]; int p1 = 0, p2 = 0, p3 = 0;
+        double decay = 0.3 + 0.6 * Math.Max(0, Math.Min(1, fx.SpringDecay)), tone = Math.Max(0, Math.Min(1, fx.SpringTone)), mix = Math.Max(0, Math.Min(1, fx.SpringMix)), lp = 0;
+        for (int i = 0; i < a.Length; i++) {
+            double inx = (a[i] + b[i]) * 0.5, y1 = b1[p1], y2 = b2[p2], y3 = b3[p3];
+            b1[p1] = (float)(inx + (y2 + y3) * 0.5 * decay); b2[p2] = (float)(inx + (y1 + y3) * 0.5 * decay); b3[p3] = (float)(inx + (y1 + y2) * 0.5 * decay);
+            p1++; if (p1 >= d1) p1 = 0; p2++; if (p2 >= d2) p2 = 0; p3++; if (p3 >= d3) p3 = 0;
+            double wet = (y1 + y2 + y3) / 3.0; lp += (wet - lp) * (0.05 + 0.75 * tone);
+            a[i] = (float)(a[i] * (1 - mix) + lp * mix); b[i] = (float)(b[i] * (1 - mix) + lp * mix);
+        }
+    }
+    static void ShimmerFx(Fx fx, float[] a, float[] b) {
+        int d = (int)(SR * 0.12); float[] dl = new float[d], dr = new float[d]; int pos = 0;
+        double ratio = Math.Pow(2, fx.ShimmerPitch / 12.0), decay = 0.3 + 0.6 * Math.Max(0, Math.Min(1, fx.ShimmerDecay)), mix = Math.Max(0, Math.Min(1, fx.ShimmerMix));
+        double rp = 0;
+        for (int i = 0; i < a.Length; i++) {
+            int ri = (int)rp; if (ri >= d) ri %= d; double fr = rp - Math.Floor(rp);
+            int ri2 = (ri + 1) % d;
+            double ya = dl[ri] * (1 - fr) + dl[ri2] * fr, yb = dr[ri] * (1 - fr) + dr[ri2] * fr;
+            dl[pos] = (float)(a[i] + ya * decay); dr[pos] = (float)(b[i] + yb * decay); pos++; if (pos >= d) pos = 0;
+            rp += ratio; if (rp >= d) rp -= d;
+            a[i] = (float)(a[i] * (1 - mix) + ya * mix); b[i] = (float)(b[i] * (1 - mix) + yb * mix);
+        }
+    }
+    static void HaasFx(Fx fx, float[] a, float[] b) {
+        int d = Math.Max(1, (int)(Math.Max(1, fx.HaasDelay) * 0.001 * SR)); float[] db = new float[d]; int pos = 0; double mix = Math.Max(0, Math.Min(1, fx.HaasMix));
+        for (int i = 0; i < a.Length; i++) { double y = db[pos]; db[pos] = b[i]; pos++; if (pos >= d) pos = 0; b[i] = (float)(b[i] * (1 - mix) + y * mix); }
+    }
+    static void LimiterFx(Fx fx, float[] a, float[] b) {
+        double thr = Math.Pow(10, fx.LimiterThreshold / 20.0), ceil = Math.Pow(10, fx.LimiterCeiling / 20.0);
+        double rel = 1 - Math.Exp(-1.0 / (Math.Max(10, fx.LimiterRelease) * 0.001 * SR)); double env = 0;
+        for (int i = 0; i < a.Length; i++) {
+            double x = Math.Max(Math.Abs(a[i]), Math.Abs(b[i])); env = Math.Max(x, env * (1 - rel) + x * rel);
+            double g = env > thr ? thr / env : 1; g = Math.Min(1, g);
+            double ya = a[i] * g, yb = b[i] * g;
+            a[i] = (float)Math.Max(-ceil, Math.Min(ceil, ya)); b[i] = (float)Math.Max(-ceil, Math.Min(ceil, yb));
         }
     }
     static void Comp(Fx fx, float[] a, float[] b) {
@@ -7633,8 +7855,9 @@ function Show-AudioStudio {
     $S.BtnNew = Btn 'New' 8 46 56; $S.BtnOpen = Btn 'Open...' 70 46 64; $S.BtnSave = Btn 'Save...' 140 46 64
     $S.BtnWav = Btn 'Export...' 214 46 100; $S.BtnMidi = Btn 'Export MIDI' 320 46 94; $S.BtnScd = Btn 'Export .scd' 420 46 90
     $S.BtnSc = Btn 'Locate SuperCollider' 520 46 140; $S.BtnScGet = Btn 'Get SuperCollider' 666 46 124
-    $top.Controls.AddRange(@($S.BtnNew, $S.BtnOpen, $S.BtnSave, $S.BtnWav, $S.BtnMidi, $S.BtnScd, $S.BtnSc, $S.BtnScGet))
-    $S.Click = New-Object Windows.Forms.CheckBox; $S.Click.Text = 'Click (metronome)'; $S.Click.SetBounds(810, 49, 150, 22); $S.Click.ForeColor = $dk.Text; $top.Controls.Add($S.Click)
+    $S.BtnFxRack = Btn 'FX Rack...' 790 46 100
+    $top.Controls.AddRange(@($S.BtnNew, $S.BtnOpen, $S.BtnSave, $S.BtnWav, $S.BtnMidi, $S.BtnScd, $S.BtnSc, $S.BtnScGet, $S.BtnFxRack))
+    $S.Click = New-Object Windows.Forms.CheckBox; $S.Click.Text = 'Click (metronome)'; $S.Click.SetBounds(900, 49, 150, 22); $S.Click.ForeColor = $dk.Text; $top.Controls.Add($S.Click)
     $S.ScLbl = New-Object Windows.Forms.Label; $S.ScLbl.SetBounds(1110, 50, 270, 18); $S.ScLbl.ForeColor = $dk.Muted
     $top.Controls.Add($S.ScLbl)
 
@@ -8154,6 +8377,8 @@ function Show-AudioStudio {
             'Filter'  { if ($on) { $fx.Filter = [HbStudio.FilterMode]::lowpass; if ($fx.Cutoff -gt 8000) { $fx.Cutoff = 1200 }; $fx.Resonance = [math]::Max($fx.Resonance, 0.4) } else { $fx.Filter = [HbStudio.FilterMode]::off } }
             'Drive'   { $fx.Drive = $(if ($on) { 0.35 } else { 0 }) }
             'Crush'   { if ($on) { $fx.Bits = 6; $fx.Downsample = 2 } else { $fx.Bits = 16; $fx.Downsample = 1 } }
+            'Fold'    { $fx.Fold = $(if ($on) { 0.4 } else { 0 }) }
+            'Width'   { if ($on) { $fx.Width = 1.3 } else { $fx.Width = 1; $fx.PitchShift = 0 } }
             'Ring'    { if ($on) { $fx.RingMix = 0.5; $fx.RingFreq = 200 } else { $fx.RingMix = 0 } }
             'Stutter' { if ($on) { $fx.StutterBeats = 0.25; $fx.StutterDiv = 4; $fx.StutterChance = 0.3 } else { $fx.StutterBeats = 0 } }
             'Chorus'  { if ($on) { $fx.Chorus = 0.35; $fx.ChorusRate = 0.6; $fx.ChorusDepth = 0.5 } else { $fx.Chorus = 0 } }
@@ -8167,6 +8392,20 @@ function Show-AudioStudio {
             'Vinyl'   { if ($on) { $fx.VinylCrackle = 0.4; $fx.TapeHiss = 0.2; $fx.TapeWow = 0.3 } else { $fx.VinylCrackle = 0; $fx.TapeHiss = 0; $fx.TapeWow = 0 } }
             'Comp'    { if ($on) { $fx.CompThresh = -18; $fx.CompRatio = 3; $fx.CompAttack = 10; $fx.CompRelease = 120; $fx.CompMakeup = 3 } else { $fx.CompRatio = 1; $fx.CompMakeup = 0 } }
             'EQ'      { if ($on) { $fx.LowShelf = 2; $fx.HighShelf = 2 } else { $fx.LowShelf = 0; $fx.HighShelf = 0 } }
+            'Saturator' { if ($on) { $fx.Saturator = 0.45; $fx.SatMix = 0.5 } else { $fx.Saturator = 0 } }
+            'Exciter' { if ($on) { $fx.Exciter = 0.4; $fx.ExciterFreq = 4000; $fx.ExciterMix = 0.5 } else { $fx.Exciter = 0 } }
+            'Rectify' { if ($on) { $fx.RectifyMix = 0.5; $fx.RectifyHalf = $false; $fx.RectifyDrive = 0.2 } else { $fx.RectifyMix = 0 } }
+            'Gate' { if ($on) { $fx.GateAmount = 0.8; $fx.GateThreshold = -45; $fx.GateAttack = 2; $fx.GateRelease = 90 } else { $fx.GateAmount = 0 } }
+            'Transient' { if ($on) { $fx.TransientAttack = 0.4; $fx.TransientSustain = -0.2; $fx.TransientSensitivity = 0.5 } else { $fx.TransientAttack = 0; $fx.TransientSustain = 0 } }
+            'Tremolo' { if ($on) { $fx.TremoloMix = 0.6; $fx.TremoloRate = 5; $fx.TremoloDepth = 0.5 } else { $fx.TremoloMix = 0 } }
+            'AutoPan' { if ($on) { $fx.AutoPanMix = 0.6; $fx.AutoPanRate = 0.5; $fx.AutoPanDepth = 0.7 } else { $fx.AutoPanMix = 0 } }
+            'Vibrato' { if ($on) { $fx.VibratoMix = 0.5; $fx.VibratoRate = 5; $fx.VibratoDepth = 0.3 } else { $fx.VibratoMix = 0 } }
+            'AutoWah' { if ($on) { $fx.AutoWahMix = 0.6; $fx.AutoWahRate = 1.5; $fx.AutoWahDepth = 0.6; $fx.AutoWahResonance = 0.6 } else { $fx.AutoWahMix = 0 } }
+            'Comb' { if ($on) { $fx.CombMix = 0.5; $fx.CombFreq = 220; $fx.CombFeedback = 0.5 } else { $fx.CombMix = 0 } }
+            'Spring' { if ($on) { $fx.SpringMix = 0.4; $fx.SpringDecay = 0.6; $fx.SpringTone = 0.5 } else { $fx.SpringMix = 0 } }
+            'Shimmer' { if ($on) { $fx.ShimmerMix = 0.4; $fx.ShimmerPitch = 12; $fx.ShimmerDecay = 0.7 } else { $fx.ShimmerMix = 0 } }
+            'Haas' { if ($on) { $fx.HaasMix = 0.5; $fx.HaasDelay = 14 } else { $fx.HaasMix = 0 } }
+            'Limiter' { $fx.LimiterOn = $on; if ($on) { $fx.LimiterThreshold = -6; $fx.LimiterRelease = 100; $fx.LimiterCeiling = -1 } }
         }
     }
     function Get-FxModuleOn($fx, [string]$name) {
@@ -8174,6 +8413,8 @@ function Show-AudioStudio {
             'Filter'  { return ($fx.Filter -ne [HbStudio.FilterMode]::off) }
             'Drive'   { return ($fx.Drive -gt 0) }
             'Crush'   { return (($fx.Bits -lt 16) -or ($fx.Downsample -gt 1)) }
+            'Fold'    { return ($fx.Fold -gt 0) }
+            'Width'   { return ([math]::Abs($fx.Width - 1) -gt 0.001 -or $fx.PitchShift -ne 0) }
             'Ring'    { return ($fx.RingMix -gt 0) }
             'Stutter' { return ($fx.StutterBeats -gt 0) }
             'Chorus'  { return ($fx.Chorus -gt 0) }
@@ -8187,6 +8428,20 @@ function Show-AudioStudio {
             'Vinyl'   { return ($fx.VinylCrackle -gt 0 -or $fx.TapeHiss -gt 0 -or $fx.TapeWow -gt 0) }
             'Comp'    { return ($fx.CompRatio -gt 1 -or $fx.CompMakeup -ne 0) }
             'EQ'      { return ($fx.LowShelf -ne 0 -or $fx.HighShelf -ne 0 -or $fx.MidPeak -ne 0) }
+            'Saturator' { return ($fx.Saturator -gt 0) }
+            'Exciter' { return ($fx.Exciter -gt 0) }
+            'Rectify' { return ($fx.RectifyMix -gt 0) }
+            'Gate' { return ($fx.GateAmount -gt 0) }
+            'Transient' { return ([math]::Abs($fx.TransientAttack) -gt 0.001 -or [math]::Abs($fx.TransientSustain) -gt 0.001) }
+            'Tremolo' { return ($fx.TremoloMix -gt 0) }
+            'AutoPan' { return ($fx.AutoPanMix -gt 0) }
+            'Vibrato' { return ($fx.VibratoMix -gt 0) }
+            'AutoWah' { return ($fx.AutoWahMix -gt 0) }
+            'Comb' { return ($fx.CombMix -gt 0) }
+            'Spring' { return ($fx.SpringMix -gt 0) }
+            'Shimmer' { return ($fx.ShimmerMix -gt 0) }
+            'Haas' { return ($fx.HaasMix -gt 0) }
+            'Limiter' { return ([bool]$fx.LimiterOn) }
         }
         return $false
     }
@@ -11539,6 +11794,39 @@ Rules: prefer the user's saved instruments when one fits the goal. Use design_so
             Set-MasterStatus 'FFmpeg installed.'
         } catch { Set-MasterStatus ('FFmpeg download failed: ' + $_.Exception.Message) } finally { $f.Cursor = 'Default'; Update-FfmpegLabel }
     })
+    function Show-FxRack {
+        $t = Get-CurTrack
+        if (-not $t) { Show-StudioMsg 'Select a track first.'; return }
+        $f = New-Object Windows.Forms.Form
+        $f.Text = 'FX Rack'; $f.StartPosition = 'CenterParent'; $f.FormBorderStyle = 'Sizable'
+        $f.ClientSize = New-Object Drawing.Size(800, 580); $f.BackColor = $dk.Panel; $f.ForeColor = $dk.Text
+        $f.MinimizeBox = $false; $f.MaximizeBox = $false
+        $f.Controls.Add((Lbl 'Enable modules on the left; edit every parameter on the right.' 16 12 740 18))
+        $list = New-Object Windows.Forms.CheckedListBox
+        $list.SetBounds(16, 38, 230, 490); $list.BackColor = $dk.Field; $list.ForeColor = $dk.Text; $list.BorderStyle = 'FixedSingle'; $list.CheckOnClick = $true
+        $list.Tag = $t
+        $mods = @('Filter', 'Drive', 'Crush', 'Fold', 'Ring', 'Stutter', 'Chorus', 'Delay', 'Reverb', 'Phaser', 'Flanger', 'TapeStop', 'TapeDelay', 'Plate', 'Vinyl', 'Comp', 'EQ', 'Width', 'Saturator', 'Exciter', 'Rectify', 'Gate', 'Transient', 'Tremolo', 'AutoPan', 'Vibrato', 'AutoWah', 'Comb', 'Spring', 'Shimmer', 'Haas', 'Limiter')
+        $script:FxRackLoading = $true
+        foreach ($m in $mods) { [void]$list.Items.Add($m, (Get-FxModuleOn $t.Fx $m)) }
+        $script:FxRackLoading = $false
+        $grid = New-Object Windows.Forms.PropertyGrid
+        $grid.SetBounds(258, 38, 526, 490); $grid.SelectedObject = $t.Fx; $grid.PropertySort = 'Categorized'
+        $grid.HelpVisible = $true; $grid.ToolbarVisible = $false; $grid.BackColor = $dk.Field; $grid.ForeColor = $dk.Text
+        $list.Add_ItemCheck({
+            if ($script:FxRackLoading) { return }
+            try {
+                $tt = $list.Tag; $m = [string]$list.Items[$_.Index]; $on = ($_.NewValue -eq [Windows.Forms.CheckState]::Checked)
+                Set-FxModule $tt.Fx $m $on
+                $grid.Refresh()
+                $script:AutoUi.Dirty = $true; $script:AutoUi.AudioRev++; Suspend-AudioForEdit
+            } catch { }
+        })
+        $close = Btn 'Close' 694 538 88 30 $true
+        $close.Add_Click({ $f.Close() })
+        $f.Controls.AddRange(@($list, $grid, $close))
+        $f.CancelButton = $close
+        [void]$f.ShowDialog()
+    }
     function Show-StudioExportDialog {
         try { Add-Content -LiteralPath (Join-Path $env:TEMP 'hb-export-debug.log') -Value ('[{0}] dialog enter' -f (Get-Date)) } catch { }
         function ExportCheck([string]$t, [int]$x, [int]$y, [int]$w, [bool]$v) {
@@ -11665,6 +11953,7 @@ Rules: prefer the user's saved instruments when one fits the goal. Use design_so
         finally { $f.Cursor = 'Default' }
     }
     $S.EGo.Add_Click({ Invoke-StudioExport })
+    $S.BtnFxRack.Add_Click({ Show-FxRack })
 
     # ---- tooltips: one shared ToolTip for the whole window -----------------------------------------------------
     $tip = New-Object Windows.Forms.ToolTip; $tip.AutoPopDelay = 8000; $tip.InitialDelay = 500; $tip.ReshowDelay = 150

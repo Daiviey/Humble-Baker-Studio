@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.7 — 2026-11-10
+
+- Added an **FX Rack** dialog with 32 effects, category-grouped parameters and descriptions.
+- New effects: Saturator, Exciter, Rectifier, Gate, Transient Shaper, Tremolo, Auto-Pan, Vibrato, Auto-Wah, Comb Filter, Spring Reverb, Shimmer Reverb, Haas Widener, Limiter.
+- New synth parameters: oscillator 2 pulse width, sub-oscillator waveform, and post-synth output drive.
+
 ## 1.0.6 — 2026-11-10
 
 - Bus/group graph sidechain: when the shared bus has **Sidechain Mix > 0**, the **bottom-most connected source** becomes the trigger and ducks the other inputs.
