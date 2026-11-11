@@ -1,4 +1,4 @@
-# Audio Studio: piano roll, tracks, SuperCollider bridge and AI production tools for the Audio tab.
+﻿# Audio Studio: piano roll, tracks, SuperCollider bridge and AI production tools for the Audio tab.
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 David Burr (Daiviey)
 # Dot-sourced by Humble Baker.ps1. Entry point: Show-AudioStudio. Works standalone too (see the bottom of this file).
@@ -12,7 +12,10 @@ using System.Drawing;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Net;
+using System.Net.Sockets;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Windows.Forms;
 
 namespace HbStudio {
@@ -88,6 +91,80 @@ public class MidiInPort : IDisposable {
     }
     public int[][] Drain() { lock (gate) { int[][] r = events.ToArray(); events.Clear(); return r; } }
     public void Dispose() { Close(); }
+}
+
+// Minimal OSC UDP client for the SuperCollider live bridge. Sends to sclang on 57120,
+// receives status/meter replies on 57121.
+public class OscUdp : IDisposable {
+    UdpClient udp;
+    IPEndPoint sendTo;
+
+    public OscUdp(int listenPort = 57121, int sendPort = 57120) {
+        udp = new UdpClient(listenPort);
+        sendTo = new IPEndPoint(IPAddress.Loopback, sendPort);
+    }
+
+    static void WriteString(BinaryWriter w, string s) {
+        byte[] b = Encoding.UTF8.GetBytes(s ?? "");
+        w.Write(b); w.Write((byte)0);
+        while ((w.BaseStream.Position % 4) != 0) w.Write((byte)0);
+    }
+
+    // PowerShell passes values from variables inside a PSObject wrapper. Left alone, the
+    // wrapper is neither string nor number and every value would be coerced to int.
+    static object Unwrap(object a) {
+        if (a == null) return null;
+        if (a.GetType().FullName != "System.Management.Automation.PSObject") return a;
+        string s = a.ToString();
+        double d;
+        if (double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out d)) return d;
+        return s;
+    }
+
+    public void Send(string address, params object[] args) {
+        object[] vals = new object[args == null ? 0 : args.Length];
+        for (int i = 0; i < vals.Length; i++) vals[i] = Unwrap(args[i]);
+        using (MemoryStream ms = new MemoryStream()) {
+            using (BinaryWriter w = new BinaryWriter(ms, Encoding.UTF8, true)) {
+                WriteString(w, address);
+                StringBuilder types = new StringBuilder(",");
+                foreach (object a in vals) {
+                    if (a is string) types.Append('s');
+                    else if (a is float || a is double) types.Append('f');
+                    else if (a is bool) types.Append('i');
+                    else types.Append('i');
+                }
+                WriteString(w, types.ToString());
+                foreach (object a in vals) {
+                    if (a is string) WriteString(w, (string)a);
+                    else if (a is float) w.Write((float)a);
+                    else if (a is double) w.Write((float)(double)a);
+                    else if (a is bool) w.Write((bool)a ? 1 : 0);
+                    else w.Write(Convert.ToInt32(a, CultureInfo.InvariantCulture));
+                }
+            }
+            byte[] data = ms.ToArray();
+            try { udp.Send(data, data.Length, sendTo); } catch { }
+        }
+    }
+
+    // Returns human-readable replies. Parsing is intentionally light: the bridge only needs
+    // ready/error addresses and a short argument summary for the log.
+    public string[] Drain() {
+        List<string> lines = new List<string>();
+        try {
+            while (udp.Available > 0) {
+                IPEndPoint from = new IPEndPoint(IPAddress.Any, 0);
+                byte[] data = udp.Receive(ref from);
+                int end = Array.IndexOf(data, (byte)0);
+                string addr = end > 0 ? Encoding.UTF8.GetString(data, 0, end) : "(osc)";
+                lines.Add(addr);
+            }
+        } catch { }
+        return lines.ToArray();
+    }
+
+    public void Dispose() { try { udp.Close(); } catch { } }
 }
 
 // Waveform display with drag selection and slice markers. Samples are mono 44.1 kHz.
@@ -2404,7 +2481,7 @@ public class PatchGraphControl : Control {
             using (SolidBrush gb = new SolidBrush(Color.FromArgb(26, gc))) g.FillRectangle(gb, box);
             using (Pen gp2 = new Pen(Color.FromArgb(150, gc), 2f) { DashStyle = System.Drawing.Drawing2D.DashStyle.Dash }) g.DrawRectangle(gp2, box);
             using (SolidBrush head = new SolidBrush(Color.FromArgb(210, gc))) g.FillRectangle(head, box.Left, box.Top, Math.Min(box.Width, 190), 22);
-            using (SolidBrush htxt = new SolidBrush(Color.FromArgb(20, 22, 28))) g.DrawString((pg.Name ?? "GROUP").ToUpperInvariant() + "  ·  " + CountGroupTree(pg) + " modules", HeaderFont, htxt, new RectangleF(box.Left + 8, box.Top + 2, 300, 18));
+            using (SolidBrush htxt = new SolidBrush(Color.FromArgb(20, 22, 28))) g.DrawString((pg.Name ?? "GROUP").ToUpperInvariant() + "  Â·  " + CountGroupTree(pg) + " modules", HeaderFont, htxt, new RectangleF(box.Left + 8, box.Top + 2, 300, 18));
         }
         // wires
         foreach (PatchLink l in gp.Links) {
@@ -2447,7 +2524,7 @@ public class PatchGraphControl : Control {
                     g.DrawString("GAIN", Font, sub, new RectangleF(gr.Left, gr.Top - 2, gr.Width, 12), sf);
                     g.DrawString("PAN " + n.Pan.ToString("0.00"), Font, sub, new RectangleF(r.X + 8, r.Y + 72, r.Width - 16, 16), sf);
                     string state = (pg != null && pg.Collapsed) ? "CONDENSED COMPONENT" : "GROUP MASTER";
-                    g.DrawString(state + " · " + (pg == null ? 0 : CountGroupTree(pg)) + " modules", Font, sub, new RectangleF(r.X + 8, r.Y + 26, r.Width - 16, 18), sf);
+                    g.DrawString(state + " Â· " + (pg == null ? 0 : CountGroupTree(pg)) + " modules", Font, sub, new RectangleF(r.X + 8, r.Y + 26, r.Width - 16, 18), sf);
                     g.DrawString((pg != null && pg.Collapsed) ? "double-click to expand" : "double-click to condense", Font, sub, new RectangleF(r.X + 8, r.Y + 88, r.Width - 16, 16), sf);
                 }
                 else if (n.Kind == "out") { g.DrawString("master chain", Font, sub, new RectangleF(r.X + 8, r.Y + 26, r.Width - 16, 20), sf); }
@@ -6939,6 +7016,11 @@ HBNode {
         ^this
     }
 
+    synth_ { |value|
+        synth = value;
+        ^this
+    }
+
     bypass { |state = true|
         if(synth.notNil) { synth.set(\mix, if(state, 0, 1)) };
         ^this
@@ -7112,6 +7194,55 @@ HBProject {
         ^this
     }
 }
+
+HBBootstrap {
+    classvar <port = 57120, <replyPort = 57121, <out;
+
+    *start {
+        thisProcess.openUDPPort(port);
+        out = NetAddr("127.0.0.1", replyPort);
+        OSCdef(\hbProjectLoad, { |msg| HBBootstrap.load(msg[1].asString) }, '/hb/project/load');
+        OSCdef(\hbPlay, { |msg| if(~hbProject.notNil) { ~hbProject.play } }, '/hb/transport/play');
+        OSCdef(\hbStop, { |msg| if(~hbProject.notNil) { ~hbProject.stop } }, '/hb/transport/stop');
+        OSCdef(\hbBpm, { |msg| if(~hbProject.notNil) { ~hbProject.bpm_(msg[1]) } }, '/hb/transport/bpm');
+        OSCdef(\hbNodeSet, { |msg|
+            if(~hbProject.notNil) {
+                var node = ~hbProject.node(msg[1].asString.asSymbol);
+                if(node.notNil) { node.set(msg[2].asString.asSymbol, msg[3]) };
+            };
+        }, '/hb/node/set');
+        OSCdef(\hbNodeBypass, { |msg|
+            if(~hbProject.notNil) {
+                var node = ~hbProject.node(msg[1].asString.asSymbol);
+                if(node.notNil) { node.bypass(msg[2] == 1) };
+            };
+        }, '/hb/node/bypass');
+        OSCdef(\hbRecompile, { |msg|
+            if(~hbProject.notNil) { ~hbProject.stop };
+            thisProcess.recompile;
+        }, '/hb/recompile');
+        OSCdef(\hbShutdown, { |msg|
+            if(~hbProject.notNil) { ~hbProject.stop };
+            Server.default.quit;
+            0.exit;
+        }, '/hb/shutdown');
+        out.sendMsg('/hb/ready', 1);
+        "HB bridge ready on 57120".postln;
+    }
+
+    *load { |path|
+        try {
+            ~hbProject = nil;
+            File.readAllString(path).interpret;
+            ~hbProject = ~hb;
+            out.sendMsg('/hb/ready', 1);
+            ("HB project loaded: " ++ path).postln;
+        } { |err|
+            out.sendMsg('/hb/error', err.errorString);
+            ("HB load error: " ++ err.errorString).postln;
+        }
+    }
+}
 '@
 }
 
@@ -7134,6 +7265,8 @@ function Write-StudioScLibrary {
     $dir = Get-StudioScLibraryClasses
     $path = Join-Path $dir 'HumbleBakerStable.sc'
     [IO.File]::WriteAllText($path, (Get-StudioScClassText), (New-Object Text.UTF8Encoding($false)))
+    $startup = Join-Path $dir 'HBBootstrapStartup.sc'
+    [IO.File]::WriteAllText($startup, 'HBBootstrapStartup { *initClass { StartUp.add { HBBootstrap.start }; } }', (New-Object Text.UTF8Encoding($false)))
     return $dir
 }
 
@@ -7165,6 +7298,226 @@ function Test-StudioScPlugins {
         if ($hit) { return $hit.FullName }
     }
     return $null
+}
+
+$script:StudioScEffectTypes = @(
+    'filter','drive','crush','fold','ring','stutter','chorus','delay','reverb','phaser','flanger','tapestop','tapedelay','plate','vinyl','comp','eq','width','saturator','exciter','rectify','gate','transient','tremolo','autopan','vibrato','autowah','comb','spring','shimmer','haas','limiter','ensemble','rotary','octaver','harmonizer','resonator','tilteq','midside','deesser','mbcomp','clipper','autofilter','gatedverb','reverseverb','multitap','doubler','formant','ladder','tube','tapesat','diode','fuzz','chiptune','subbass','bassenh','freqshift','airband','stereoimage','pingpong','dubdelay','cathedral','roomverb','ambience','wahpedal','talkbox','ducker','rider','harmtrem','beatrepeat','grain','glitchgate','sweep','optocomp','fetcomp','vcacomp','expander','mscomp','dyneq','pulteceq','overdrive','metaldrive','cabsim','mbdist','tapeflutter','dimension','envphaser','envflanger','chopper','barberpole','halfspeed','pitchecho','spectralfreeze','revdelay','echoverb','bloomverb','nonlinverb','vocoder','specgate','specblur','specdelay','convreverb','tankreverb','autotune','octaveup','chordgen','upcomp','trangate','shuffle','monomaker','phasealign','tapeloop','stuttergate'
+)
+
+function Get-StudioScEffectText {
+    $lines = New-Object Collections.Generic.List[string]
+    $lines.Add('// Native SuperCollider effect library: shared DSP families plus one named')
+    $lines.Add('// SynthDef per Humble Baker effect type (hb_<type>).')
+    $lines.Add('(')
+    $lines.Add('~hbFamilies = (')
+    $lines.Add('    filter: { |dry| RLPF.ar(dry, \cutoff.kr(1200), (1 - \resonance.kr(0.3)).clip(0.05, 1)) },')
+    $lines.Add('    drive: { |dry| LPF.ar((dry * (1 + (\drive.kr(0.4) * 12))).tanh * 0.5, \cutoff.kr(6000)) },')
+    $lines.Add('    crush: { |dry| var steps = 2 ** \bits.kr(8); var held = Latch.ar(dry, Impulse.ar(SampleRate.ir / \downsample.kr(4).max(1))); (held * steps).round / steps },')
+    $lines.Add('    mod: { |dry| dry + DelayC.ar(dry, 0.05, (0.004 + (\depth.kr(0.5) * 0.008)) * (0.5 + (0.5 * SinOsc.kr(\rate.kr(0.6))))) },')
+    $lines.Add('    delay: { |dry| CombC.ar(dry, 2, \time.kr(0.3).clip(0.01, 1.9), (\time.kr(0.3) * \feedback.kr(0.3)).clip(0.01, 1.9)) },')
+    $lines.Add('    reverb: { |dry| FreeVerb2.ar(dry[0], dry[1], 1, \size.kr(0.6), \damp.kr(0.5)) },')
+    $lines.Add('    comp: { |dry| Compander.ar(dry, dry, \threshold.kr(0.1), 1, 1 / \ratio.kr(3).max(1), 0.01, 0.12) },')
+    $lines.Add('    eq: { |dry| BHiShelf.ar(BLowShelf.ar(dry, 200, 1, (\amount.kr(0.5) * 12) - 6), 6000, 1, (\amount.kr(0.5) * 12) - 6) },')
+    $lines.Add('    width: { |dry| var mid = (dry[0] + dry[1]) * 0.5; var side = (dry[0] - dry[1]) * 0.5 * \width.kr(1); [mid + side, mid - side] },')
+    $lines.Add('    pitch: { |dry| PitchShift.ar(dry, 0.2, 2 ** (\semitones.kr(12) / 12)) },')
+    $lines.Add('    spectral: { |dry| [IFFT(PV_MagSmear(FFT(LocalBuf(1024), dry[0]), \amount.kr(0.5) * 30)), IFFT(PV_MagSmear(FFT(LocalBuf(1024), dry[1]), \amount.kr(0.5) * 30))] },')
+    $lines.Add('    gate: { |dry| Gate.ar(dry, Amplitude.kr(dry) > \threshold.kr(0.02)) },')
+    $lines.Add('    passthrough: { |dry| dry }')
+    $lines.Add(');')
+    $lines.Add('~hbMap = (')
+    foreach ($t in $script:StudioScEffectTypes) {
+        $fam = (Get-StudioScEffectFamily $t) -replace '^hb_', ''
+        $lines.Add('    ' + $t + ': \' + $fam + ',')
+    }
+    $lines.Add(');')
+    $lines.Add('~hbMap.keysValuesDo { |type, fam|')
+    $lines.Add('    var family = ~hbFamilies[fam];')
+    $lines.Add('    SynthDef(("hb_" ++ type).asSymbol, { |in = 0, out = 0, mix = 1, gain = 1|')
+    $lines.Add('        var dry = In.ar(in, 2);')
+    $lines.Add('        var wet = SynthDef.wrap(family, nil, [dry]);')
+    $lines.Add('        Out.ar(out, ((dry * (1 - mix)) + (wet * mix)) * gain);')
+    $lines.Add('    }).add;')
+    $lines.Add('};')
+    $lines.Add('SynthDef(\hb_passthrough, { |in = 0, out = 0, mix = 1, gain = 1| Out.ar(out, In.ar(in, 2) * gain) }).add;')
+    $lines.Add('SynthDef(\hb_route, { |in = 0, out = 0, gain = 1| Out.ar(out, In.ar(in, 2) * gain) }).add;')
+    $lines.Add('SynthDef(\hb_busamp, { |in = 0, out = 0, gain = 1, pan = 0|')
+    $lines.Add('    var sig = In.ar(in, 2);')
+    $lines.Add('    Out.ar(out, Balance2.ar(sig[0], sig[1], pan, gain));')
+    $lines.Add('}).add;')
+    $lines.Add(')')
+    return ($lines -join "`r`n")
+}
+
+function Get-StudioScEffectFamily([string]$Type) {
+    switch ($Type) {
+        { $_ -in @('filter','ladder','autofilter','sweep','wahpedal','talkbox','formant','airband') } { return 'hb_filter' }
+        { $_ -in @('drive','tube','tapesat','diode','fuzz','overdrive','metaldrive','cabsim','mbdist','saturator','exciter','rectify','clipper','fold') } { return 'hb_drive' }
+        { $_ -in @('crush','chiptune') } { return 'hb_crush' }
+        { $_ -in @('chorus','ensemble','dimension','flanger','envflanger','phaser','envphaser','barberpole','rotary','tremolo','harmtrem','autopan','vibrato','autowah','chopper','stutter','stuttergate','glitchgate','ring') } { return 'hb_mod' }
+        { $_ -in @('delay','tapedelay','multitap','pingpong','dubdelay','revdelay','pitchecho','doubler','haas','beatrepeat','tapeloop','echoverb') } { return 'hb_delay' }
+        { $_ -in @('reverb','plate','spring','shimmer','gatedverb','reverseverb','cathedral','roomverb','ambience','convreverb','tankreverb','bloomverb','nonlinverb','spectralfreeze','vinyl') } { return 'hb_reverb' }
+        { $_ -in @('comp','mbcomp','optocomp','fetcomp','vcacomp','expander','mscomp','ducker','rider','upcomp','limiter','transient','deesser') } { return 'hb_comp' }
+        { $_ -in @('eq','tilteq','pulteceq','dyneq','midside') } { return 'hb_eq' }
+        { $_ -in @('width','stereoimage','shuffle','monomaker','phasealign') } { return 'hb_width' }
+        { $_ -in @('octaver','harmonizer','octaveup','autotune','chordgen','freqshift','subbass','bassenh') } { return 'hb_pitch' }
+        { $_ -in @('specgate','specblur','specdelay','vocoder') } { return 'hb_spectral' }
+        'gate' { return 'hb_gate' }
+        default { return 'hb_passthrough' }
+    }
+}
+
+function Get-StudioScFamilyArgs([string]$Family, $Fx, [double]$Spb) {
+    $a = New-Object Collections.Generic.List[object]
+    $a.Add('\mix'); $a.Add('1')
+    switch ($Family) {
+        'hb_filter' { $a.Add('\cutoff'); $a.Add((ConvertTo-ScNum ([math]::Max(40, $Fx.Cutoff)))); $a.Add('\resonance'); $a.Add((ConvertTo-ScNum ([math]::Max(0.0, [math]::Min(0.95, $Fx.Resonance))))) }
+        'hb_drive' { $a.Add('\drive'); $a.Add((ConvertTo-ScNum ([math]::Max(0.0, $Fx.Drive)))); $a.Add('\cutoff'); $a.Add((ConvertTo-ScNum ([math]::Max(200, $Fx.Cutoff)))) }
+        'hb_crush' { $a.Add('\bits'); $a.Add((ConvertTo-ScNum ([math]::Max(2, $Fx.Bits)))); $a.Add('\downsample'); $a.Add((ConvertTo-ScNum ([math]::Max(1.0, $Fx.Downsample)))) }
+        'hb_mod' { $a.Add('\rate'); $a.Add((ConvertTo-ScNum ([math]::Max(0.05, $Fx.ChorusRate)))); $a.Add('\depth'); $a.Add((ConvertTo-ScNum ([math]::Max(0.0, $Fx.ChorusDepth)))); $a.Add('\feedback'); $a.Add((ConvertTo-ScNum ([math]::Max(0.0, $Fx.FlangerFb)))) }
+        'hb_delay' { $a.Add('\time'); $a.Add((ConvertTo-ScNum ([math]::Max(0.02, $Fx.DelayBeats * $Spb)))); $a.Add('\feedback'); $a.Add((ConvertTo-ScNum ([math]::Max(0.0, $Fx.DelayFeedback)))) }
+        'hb_reverb' { $a.Add('\size'); $a.Add((ConvertTo-ScNum ([math]::Max(0.0, $Fx.ReverbSize)))); $a.Add('\damp'); $a.Add((ConvertTo-ScNum ([math]::Max(0.0, $Fx.ReverbDamping)))) }
+        'hb_comp' { $a.Add('\threshold'); $a.Add((ConvertTo-ScNum ([math]::Pow(10, [math]::Max(-60.0, [math]::Min(0.0, $Fx.CompThresh)) / 20.0)))); $a.Add('\ratio'); $a.Add((ConvertTo-ScNum ([math]::Max(1.0, $Fx.CompRatio)))) }
+        'hb_eq' { $a.Add('\amount'); $a.Add((ConvertTo-ScNum ([math]::Max(0.0, [math]::Min(1.0, ($Fx.LowShelf + $Fx.HighShelf + 12) / 24.0))))) }
+        'hb_width' { $a.Add('\width'); $a.Add((ConvertTo-ScNum ([math]::Max(0.0, $Fx.Width)))) }
+        'hb_pitch' { $a.Add('\semitones'); $a.Add((ConvertTo-ScNum ($Fx.PitchShift))) }
+        'hb_spectral' { $a.Add('\amount'); $a.Add('0.5') }
+        'hb_gate' { $a.Add('\threshold'); $a.Add((ConvertTo-ScNum ([math]::Pow(10, [math]::Max(-60.0, [math]::Min(0.0, $Fx.GateThreshold)) / 20.0)))) }
+    }
+    return $a
+}
+
+function Get-StudioScGraphProject($P) {
+    $ci = [Globalization.CultureInfo]::InvariantCulture
+    $spb = 60.0 / [math]::Max(20, $P.Bpm)
+    $lines = New-Object Collections.Generic.List[string]
+    $lines.Add('(')
+    $lines.Add('~hb = HBProject.new("Humble Baker Session", ' + (ConvertTo-ScNum $P.Bpm) + ', ' + $P.BeatsPerBar + ', ' + $P.BeatUnit + ');')
+    $bus = 0; $busOf = @{}; $inBus = @{}; $nodeSym = @{}
+    $nodes = @($P.Graph.Nodes); $links = @($P.Graph.Links)
+    for ($i = 0; $i -lt $nodes.Count; $i++) {
+        $n = $nodes[$i]
+        $sym = 'n' + $i; $nodeSym[$n.Id] = $sym
+        if ($n.Kind -ne 'out') { $busOf[$n.Id] = '~b' + $bus; $bus++ }
+        if ($n.Kind -in @('fx','bus','group','out')) { $inBus[$n.Id] = '~b' + $bus; $bus++ }
+    }
+    $lines.Add('s.waitForBoot({')
+    $stmt = { param([string]$s) ($s.TrimEnd() -replace ';\s*$', '') + ';' }
+    $lines.Add((& $stmt (Get-StudioScEffectText)))
+    # Built-in instruments (acid/saw/square/pluck), drum kit voices, patch and sample players.
+    $lines.Add((& $stmt (Get-StudioSynthDefs)))
+    $needsSampleDefs = $false
+    $trackNodes = @{}
+    foreach ($n in $nodes) { if ($n.Kind -eq 'track') { $trackNodes[$n.TrackUid] = $n } }
+    $trackIndex = 0
+    $trackPlan = New-Object Collections.Generic.List[object]
+    foreach ($t in $P.Tracks) {
+        if ($t.Mute -or $t.Notes.Count -eq 0) { continue }
+        $name = ($t.Name -replace '[^A-Za-z0-9_]+', '_'); if (-not $name) { $name = 'Track' }
+        $name = 't' + $trackIndex + '_' + $name
+        $tn = $trackNodes[$t.Uid]
+        $outBus = if ($tn -and $busOf.ContainsKey($tn.Id)) { $busOf[$tn.Id] } else { '0' }
+        $pattern = Get-StudioScdPattern $P $t $trackIndex $outBus
+        if (-not $pattern) { $trackIndex++; continue }
+        if ($t.Synth -eq 'patch' -and $t.Patch) { $lines.Add((& $stmt (Get-StudioPatchSynthDef $t.Patch ('hbp' + $trackIndex)))) }
+        $bufLine = $null
+        if ($t.Synth -eq 'sample' -and $t.Sample) {
+            $needsSampleDefs = $true
+            $wav = Join-Path (Get-StudioDir) ('sample_' + $trackIndex + '.wav')
+            [HbStudio.Dsp]::WriteWavMono($wav, $t.Sample)
+            $bufLine = '~hbbuf' + $trackIndex + ' = Buffer.read(s, "' + ($wav.Replace('\', '/')) + '");'
+        }
+        $trackPlan.Add(@{ Name = $name; Synth = $t.Synth; OutBus = $outBus; Pattern = $pattern; Buffer = $bufLine })
+        $trackIndex++
+    }
+    if ($needsSampleDefs) { $lines.Add((& $stmt (Get-StudioSampleSynthDefs))) }
+    for ($i = 0; $i -lt $bus; $i++) { $lines.Add('~b' + $i + ' = Bus.audio(s, 2);') }
+    foreach ($tp in $trackPlan) { if ($tp.Buffer) { $lines.Add($tp.Buffer) } }
+    $lines.Add('s.sync;')
+    foreach ($tp in $trackPlan) {
+        $lines.Add('~' + $tp.Name + ' = ~hb.addTrack(\' + $tp.Name + ', \' + $tp.Synth + ', ' + $tp.OutBus + ');')
+        $lines.Add('~' + $tp.Name + '.pattern = ' + $tp.Pattern + ';')
+    }
+    # Effect/bus/group nodes.
+    foreach ($n in $nodes) {
+        if ($n.Kind -notin @('fx','bus','group')) { continue }
+        $sym = $nodeSym[$n.Id]; $inb = $inBus[$n.Id]; $outb = $busOf[$n.Id]
+        $type = if ($n.Type) { [string]$n.Type } else { 'passthrough' }
+        $family = if ($n.Kind -eq 'fx') { Get-StudioScEffectFamily $type } else { 'hb_busamp' }
+        $defName = if ($n.Kind -eq 'fx' -and $script:StudioScEffectTypes -contains $type) { 'hb_' + $type } else { $family }
+        if ($n.Kind -eq 'fx') { $args = Get-StudioScFamilyArgs $family $n.Fx $spb } else { $args = @('\gain', (ConvertTo-ScNum ([math]::Max(0, $n.Gain))), '\pan', (ConvertTo-ScNum ([math]::Max(-1, [math]::Min(1, $n.Pan))))) }
+        $argText = ($args | ForEach-Object { if ($_ -is [string] -and $_.StartsWith('\')) { $_ } else { [string]$_ } }) -join ', '
+        $lines.Add('~' + $sym + ' = ~hb.addNode(\' + $sym + ', \' + $type + ', Dictionary.new);')
+        $lines.Add('~' + $sym + '.synth = Synth(\' + $defName + ', [\in, ' + $inb + ', \out, ' + $outb + ', ' + $argText + '], addAction: \addToTail);')
+    }
+    # Links become bus routes.
+    foreach ($l in $links) {
+        if (-not $busOf.ContainsKey($l.From) -or -not $inBus.ContainsKey($l.To)) { continue }
+        $lines.Add('Synth(\hb_route, [\in, ' + $busOf[$l.From] + ', \out, ' + $inBus[$l.To] + '], addAction: \addToTail);')
+    }
+    # The out node receives routes and sends to hardware bus 0.
+    foreach ($n in $nodes) { if ($n.Kind -eq 'out') { $lines.Add('Synth(\hb_route, [\in, ' + $inBus[$n.Id] + ', \out, 0], addAction: \addToTail);') } }
+    # Empty graph: connect every track bus to master.
+    if ($links.Count -eq 0) { foreach ($tn in $trackNodes.Values) { $lines.Add('Synth(\hb_route, [\in, ' + $busOf[$tn.Id] + ', \out, 0], addAction: \addToTail);') } }
+    $lines.Add('~hb.play;')
+    $lines.Add('});')
+    $lines.Add('~hb;')
+    $lines.Add(')')
+    return ($lines -join "`r`n")
+}
+
+function Send-StudioScBridge([string]$Address, [object[]]$Values = @()) {
+    if (-not $script:S -or -not $script:S.ScBridgeOsc) { return $false }
+    try {
+        $vals = New-Object object[] $Values.Count
+        for ($i = 0; $i -lt $Values.Count; $i++) { $vals[$i] = $Values[$i].PSObject.BaseObject }
+        $script:S.ScBridgeOsc.Send($Address, $vals)
+        return $true
+    } catch { return $false }
+}
+
+function Start-StudioScBridge {
+    $S = $script:S
+    if (-not $S.Sc) { throw 'SuperCollider was not found. Use Locate SuperCollider first.' }
+    if ($S.ScBridgeProc -and -not $S.ScBridgeProc.HasExited) { return }
+    $r = Write-StudioScSessionFiles $S.Proj
+    $bootstrap = Join-Path $r.Session 'bootstrap.scd'
+    [IO.File]::WriteAllText($bootstrap, 'HBBootstrap.start;', (New-Object Text.UTF8Encoding($false)))
+    $project = Join-Path $r.Session 'project.scd'
+    [IO.File]::WriteAllText($project, (Get-StudioScGraphProject $S.Proj), (New-Object Text.UTF8Encoding($false)))
+    $S.ScBridgeProjectPath = $project
+    $outLog = Join-Path $r.Session 'bridge.out.log'; $errLog = Join-Path $r.Session 'bridge.err.log'
+    Remove-Item $outLog, $errLog -Force -ErrorAction SilentlyContinue
+    $argStr = '-D --include-path "' + $r.Library + '" --include-path "' + (Join-Path $r.Session 'classes') + '" "' + $bootstrap + '"'
+    $S.ScBridgeOldScsynth = @(Get-Process scsynth -ErrorAction SilentlyContinue | ForEach-Object { $_.Id })
+    if (-not $S.ScBridgeOsc) { $S.ScBridgeOsc = New-Object HbStudio.OscUdp -ArgumentList @(57121, 57120) }
+    $S.ScBridgeProc = Start-Process -FilePath $S.Sc -ArgumentList $argStr -WorkingDirectory (Split-Path $S.Sc -Parent) -WindowStyle Hidden -PassThru -RedirectStandardOutput $outLog -RedirectStandardError $errLog
+    $S.ScBridgeReady = $false
+    for ($i = 0; $i -lt 40; $i++) {
+        Start-Sleep -Milliseconds 100
+        if ($S.ScBridgeProc.HasExited) { break }
+        foreach ($m in @($S.ScBridgeOsc.Drain())) { if ($m -eq '/hb/ready') { $S.ScBridgeReady = $true } }
+        if ($S.ScBridgeReady) { break }
+    }
+    $S.ScBridgeTimer.Start()
+    return $true
+}
+
+function Stop-StudioScBridge {
+    $S = $script:S
+    if ($S.ScBridgeOsc) { try { $S.ScBridgeOsc.Send('/hb/transport/stop'); $S.ScBridgeOsc.Send('/hb/shutdown') } catch { } }
+    if ($S.ScBridgeTimer) { $S.ScBridgeTimer.Stop() }
+    if ($S.ScBridgeProc -and -not $S.ScBridgeProc.HasExited) {
+        if (-not $S.ScBridgeProc.WaitForExit(1200)) { try { $S.ScBridgeProc.Kill() } catch { } }
+        try { [void]$S.ScBridgeProc.WaitForExit(3000) } catch { }
+    }
+    # scsynth outlives sclang when the interpreter is killed; clean up the server this bridge started.
+    try {
+        $before = @($S.ScBridgeOldScsynth)
+        Get-Process scsynth -ErrorAction SilentlyContinue | Where-Object { $before -notcontains $_.Id } | Stop-Process -Force -ErrorAction SilentlyContinue
+    } catch { }
+    $S.ScBridgeProc = $null
+    if ($S.ScBridgeOsc) { try { $S.ScBridgeOsc.Dispose() } catch { }; $S.ScBridgeOsc = $null }
+    $S.ScBridgeReady = $false
 }
 
 function Get-StudioSynthDefs {
@@ -10214,8 +10567,29 @@ function Show-AudioStudio {
     $S.ScRecompile = Btn 'Recompile SC definitions' 1116 76 180 28 $true
     $S.ScCheck = Btn 'Check SC setup' 1116 110 180 28
     $S.ScFolder = Btn 'Open session folder' 1116 144 180 28
+    $S.ScBridgeStart = Btn 'Start live bridge' 1116 178 180 28 $true
+    $S.ScBridgeStop = Btn 'Stop bridge' 1116 212 180 28
+    $S.ScBridgeLoad = Btn 'Load session in SC' 1116 246 180 28
+    $S.ScBridgePlay = Btn 'Play SC' 1116 280 84 28
+    $S.ScBridgeStopPlay = Btn 'Stop SC' 1204 280 92 28
     $S.ScSetup = Lbl '' 8 218 1100
-    $tSc.Controls.AddRange(@($S.ScCode, $S.ScTemplate, $S.ScTest, $S.ScRecompile, $S.ScCheck, $S.ScFolder, $S.ScSetup))
+    $S.ScBridgeStatus = Lbl 'Live bridge: stopped.' 8 244 1100
+    $S.ScBridgeProc = $null; $S.ScBridgeOsc = $null; $S.ScBridgeReady = $false; $S.ScBridgeProjectPath = ''
+    $S.ScBridgeTimer = New-Object Windows.Forms.Timer; $S.ScBridgeTimer.Interval = 200
+    $S.ScBridgeTimer.Add_Tick({
+        try {
+            if ($S.ScBridgeOsc) {
+                foreach ($m in @($S.ScBridgeOsc.Drain())) {
+                    if ($m -eq '/hb/ready') { $S.ScBridgeReady = $true; $S.ScBridgeStatus.Text = 'Live bridge: ready.' }
+                    elseif ($m -eq '/hb/error') { $S.ScBridgeStatus.Text = 'Live bridge: SuperCollider reported an error (see bridge.err.log).'; Log 'SC bridge error.' }
+                }
+            }
+            if ($S.ScBridgeProc -and $S.ScBridgeProc.HasExited) {
+                $S.ScBridgeStatus.Text = 'Live bridge: SuperCollider exited.'; $S.ScBridgeTimer.Stop()
+            }
+        } catch { }
+    })
+    $tSc.Controls.AddRange(@($S.ScCode, $S.ScTemplate, $S.ScTest, $S.ScRecompile, $S.ScCheck, $S.ScFolder, $S.ScBridgeStart, $S.ScBridgeStop, $S.ScBridgeLoad, $S.ScBridgePlay, $S.ScBridgeStopPlay, $S.ScSetup, $S.ScBridgeStatus))
 
     $S.Log = Sty (New-Object Windows.Forms.TextBox); $S.Log.Multiline = $true; $S.Log.ReadOnly = $true; $S.Log.ScrollBars = 'Vertical'; $S.Log.Dock = 'Fill'
     $tLog.Controls.Add($S.Log)
@@ -14721,6 +15095,15 @@ Rules: prefer the user's saved instruments when one fits the goal. Use design_so
     $S.ScRecompile.Add_Click({
         Stop-Studio
         if (-not $S.Sc) { Show-StudioMsg 'SuperCollider was not found. Use "Locate SuperCollider" first.'; return }
+        if ($S.ScBridgeProc -and -not $S.ScBridgeProc.HasExited -and $S.ScBridgeOsc) {
+            Send-StudioScBridge '/hb/transport/stop' | Out-Null
+            Start-Sleep -Milliseconds 120
+            Send-StudioScBridge '/hb/recompile' | Out-Null
+            $S.ScBridgeStatus.Text = 'Live bridge: recompiling definitions...'
+            $S.ScSetup.Text = 'Recompile requested; transport left stopped.'
+            Log 'SC bridge recompile requested.'
+            return
+        }
         try {
             Sync-Project
             $r = Write-StudioScSessionFiles $S.Proj
@@ -14765,6 +15148,39 @@ Rules: prefer the user's saved instruments when one fits the goal. Use design_so
     $S.ScFolder.Add_Click({
         try { $session = Get-StudioScSessionDir $S.Proj; Start-Process explorer.exe -ArgumentList ('"' + $session + '"') } catch { Log ('Could not open SC session folder: ' + $_.Exception.Message) }
     })
+    $S.ScBridgeStart.Add_Click({
+        try {
+            Stop-Studio
+            Start-StudioScBridge | Out-Null
+            $S.ScBridgeStatus.Text = $(if ($S.ScBridgeReady) { 'Live bridge: ready.' } else { 'Live bridge: started; waiting for SuperCollider.' })
+            $S.ScSetup.Text = 'Live bridge session: ' + (Get-StudioScSessionDir $S.Proj)
+            Log 'SC live bridge started.'
+        } catch { $S.ScBridgeStatus.Text = 'Live bridge failed: ' + $_.Exception.Message; Log ('SC bridge failed: ' + $_.Exception.Message) }
+    })
+    $S.ScBridgeStop.Add_Click({
+        try { Stop-StudioScBridge; $S.ScBridgeStatus.Text = 'Live bridge: stopped.'; Log 'SC live bridge stopped.' } catch { Log ('SC bridge stop failed: ' + $_.Exception.Message) }
+    })
+    $S.ScBridgeLoad.Add_Click({
+        try {
+            if (-not ($S.ScBridgeProc -and -not $S.ScBridgeProc.HasExited)) { Start-StudioScBridge | Out-Null }
+            if ($S.ScBridgeProjectPath) {
+                Send-StudioScBridge '/hb/project/load' @($S.ScBridgeProjectPath) | Out-Null
+                $S.ScBridgeStatus.Text = 'Live bridge: session sent to SuperCollider.'
+            }
+        } catch { $S.ScBridgeStatus.Text = 'Load failed: ' + $_.Exception.Message; Log ('SC bridge load failed: ' + $_.Exception.Message) }
+    })
+    $S.ScBridgePlay.Add_Click({
+        try {
+            if (-not ($S.ScBridgeProc -and -not $S.ScBridgeProc.HasExited)) { Start-StudioScBridge | Out-Null }
+            if ($S.ScBridgeProjectPath) { Send-StudioScBridge '/hb/project/load' @($S.ScBridgeProjectPath) | Out-Null; Start-Sleep -Milliseconds 300 }
+            Send-StudioScBridge '/hb/transport/play' | Out-Null
+            $S.ScBridgeStatus.Text = 'Live bridge: playing.'
+        } catch { $S.ScBridgeStatus.Text = 'Play failed: ' + $_.Exception.Message; Log ('SC bridge play failed: ' + $_.Exception.Message) }
+    })
+    $S.ScBridgeStopPlay.Add_Click({
+        try { Send-StudioScBridge '/hb/transport/stop' | Out-Null; $S.ScBridgeStatus.Text = 'Live bridge: stopped (ready).' } catch { }
+    })
+    $f.Add_FormClosing({ try { Stop-StudioScBridge } catch { } })
     foreach ($k in @('up1', 'dn1', 'up12', 'dn12', 'quant', 'scale', 'rev', 'dbl', 'half', 'all', 'clear', 'undo', 'legato', 'stacc', 'velup', 'veldn', 'velrnd', 'accent', 'inv', 'nudge', 'nudgeb', 'thin', 'octl')) { $S["T_$k"].Add_Click({ param($snd, $e) Invoke-StudioTool ([string]$snd.Tag) }) }
     $S.T_hum.Add_Click({ Invoke-StudioTool 'hum' }); $S.T_mut.Add_Click({ Invoke-StudioTool 'mut' }); $S.T_chop.Add_Click({ Invoke-StudioTool 'chop' }); $S.T_ratch.Add_Click({ Invoke-StudioTool 'ratch' })
     $S.T_euc.Add_Click({ Invoke-StudioGenerator 'euc' }); $S.T_walk.Add_Click({ Invoke-StudioGenerator 'walk' }); $S.T_poly.Add_Click({ Invoke-StudioGenerator 'poly' })
@@ -14856,6 +15272,8 @@ Rules: prefer the user's saved instruments when one fits the goal. Use design_so
     while (-not $f.IsDisposed -and $f.Visible) { [Windows.Forms.Application]::DoEvents(); Start-Sleep -Milliseconds 12 }
     $timer.Dispose(); $script:StudioForm = $null
 }
+
+
 
 
 

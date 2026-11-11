@@ -28,7 +28,8 @@ the end. App-specific behaviour is cited as `[app]`, which points to
 11. [Extending with MIDI, OSC and packages](#11-extending-with-midi-osc-and-packages)
 12. [Debugging checklist](#12-debugging-checklist)
 13. [A complete working example](#13-a-complete-working-example)
-14. [Sources and citations](#14-sources-and-citations)
+14. [Live bridge, graph compiler and native effects](#14-live-bridge-graph-compiler-and-native-effects)
+15. [Sources and citations](#15-sources-and-citations)
 
 ---
 
@@ -714,7 +715,145 @@ handles stopping through `live.stop` [app].
 
 ---
 
-## 14. Sources and citations
+## 14. Live bridge, graph compiler and native effects
+
+### 14.1 Per-project sessions
+
+Each project owns a stable SuperCollider session id (`ScSessionId`), saved in the project
+sidecar. Generated files live outside the git repository:
+
+```
+%LOCALAPPDATA%\HumbleBakerAudio\studio\sc\
+    library\classes\           shared stable classes and startup hook
+    sessions\<project-id>\     project.scd, bootstrap.scd, recompile.scd, logs
+```
+
+The stable classes are `HBProject`, `HBNode`, `HBTrack`, `HBSection`, `HBEffect` and
+`HBBootstrap`. They are written to the shared library once and loaded by every session, so a
+project script only describes that project.
+
+### 14.2 The live bridge
+
+**Start live bridge** launches a persistent `sclang` (hidden) and keeps it running for the
+lifetime of the app. The app sends OSC to `sclang` on port **57120** and listens for replies on
+**57121**. The bridge survives project edits; **Load session in SC** regenerates and reloads
+`project.scd`, and **Play SC** / **Stop SC** control the transport.
+
+| Message | Direction | Purpose |
+|---|---|---|
+| `/hb/project/load <path>` | app → SC | interpret a generated `project.scd` |
+| `/hb/transport/play` | app → SC | start all track patterns |
+| `/hb/transport/stop` | app → SC | stop all track patterns |
+| `/hb/transport/bpm <bpm>` | app → SC | change tempo |
+| `/hb/node/set <id> <param> <value>` | app → SC | set a live node parameter |
+| `/hb/node/bypass <id> <0|1>` | app → SC | bypass an effect node |
+| `/hb/recompile` | app → SC | stop transport, recompile definitions |
+| `/hb/shutdown` | app → SC | stop, quit the audio server, exit |
+| `/hb/ready` | SC → app | bridge/session ready |
+| `/hb/error <text>` | SC → app | load or compile error |
+
+`HBBootstrapStartup *initClass` registers the bridge again after any recompile. Recompiling
+always stops the transport and leaves it stopped.
+
+### 14.3 Generated project language
+
+`Get-StudioScGraphProject` compiles the piano roll, drum tracks, sampler tracks, automation,
+patch-graph modules, links and effect parameters into ordinary SuperCollider code. Drum tracks
+use the built-in `hbkick`/`hbsnare`/`hbhat` voices, melodic tracks use `hbacid`, `hbsaw`,
+`hbsquare`, `hbtri`, `hbsine`, `hbfm`, `hbpad`, `hbnoise` or `hbpluck`, patch tracks get a
+generated instrument def, and sampler tracks get a `Buffer.read` of the track's sample. A
+generated file looks like this:
+
+```supercollider
+(
+~hb = HBProject.new("Humble Baker Session", 120, 4, 4);
+s.waitForBoot({
+    // named effect SynthDefs (hb_<type>) and routing helpers
+    ~b0 = Bus.audio(s, 2);
+    ~tBass = ~hb.addTrack(\Bass, \default, ~b0);
+    ~tBass.pattern = Pbind(\instrument, \default, \midinote, Pseq([36, 43], inf), ...);
+    ~n1 = ~hb.addNode(\n1, \ladder, Dictionary.new);
+    ~n1.synth = Synth(\hb_ladder, [\in, ~b2, \out, ~b1, \mix, 1, \cutoff, 900], addAction: \addToTail);
+    Synth(\hb_route, [\in, ~b0, \out, ~b2], addAction: \addToTail);
+    ~hb.play;
+});
+~hb;
+)
+```
+
+Because the result is plain SC, you can edit it by hand, add your own `Pbind`s or replace a
+module. The `~hb` API is stable:
+
+```supercollider
+~hb.addTrack(\name, \default, outBus);   // HBTrack
+~hb.addNode(\id, \filter, Dictionary.new); // HBNode
+~hb.addSection(\intro, 8, 0.6);          // HBSection
+~hb.play; ~hb.stop; ~hb.bpm_(128);
+~node.set(\cutoff, 400); ~node.bypass(true);
+```
+
+### 14.4 Native effect library
+
+All **113** effect types are native SuperCollider `SynthDef`s named `hb_<type>`
+(`hb_filter`, `hb_ladder`, `hb_convreverb`, ...). They share a small set of DSP families:
+
+| Family | Used by |
+|---|---|
+| `filter` | filters, EQs, wah, formant, sweep, air band |
+| `drive` | saturation, tube, tape, diode, fuzz, clipper, amp sims |
+| `crush` | bit crusher, chiptune |
+| `mod` | chorus, flanger, phaser, tremolo, rotary, stutter, ring mod |
+| `delay` | delays, ping-pong, dub, multi-tap, echo-verb |
+| `reverb` | reverbs, plate, spring, shimmer, convolution-style spaces |
+| `comp` | compressors, limiters, gates, de-esser, transient shaping |
+| `eq` | EQ, tilt, Pultec, dynamic EQ, mid/side |
+| `width` | stereo width, mono maker, phase align, shuffle |
+| `pitch` | octaver, harmonizer, pitch shift, sub bass |
+| `spectral` | spectral gate/blur/delay, vocoder, freeze |
+| `gate` | noise gates |
+| `passthrough` | unknown/unmapped types |
+
+Each type receives its parameters from the same `Fx` fields used by the built-in renderer:
+cutoff, resonance, drive, bits, rate, delay time, feedback, size, threshold, ratio, width and
+pitch. Unknown module types fall back to `hb_passthrough`, so a project always loads.
+
+Some convolution and spectral helpers sound better with **sc3-plugins** installed. The
+**Check SC setup** button reports whether sc3-plugins was found; the core 113 definitions work
+without it.
+
+### 14.5 Parity harness
+
+`tests\sc-parity.ps1` verifies the integration end to end:
+
+```powershell
+powershell -NoProfile -STA -ExecutionPolicy Bypass -File tests\sc-parity.ps1
+```
+
+It does three things:
+
+1. Compiles the effect library in SuperCollider and asserts that all 113 named defs exist.
+2. Renders every def offline through `scsynth -N` and checks that the audio is finite,
+   non-silent and not clipping.
+3. Compares the shared families against the app's `FxProc` on an identical test signal and
+   writes correlation and RMS figures to `family-parity.csv`.
+
+Reports are written to `%TEMP%\hb-sc-parity`. The test is headless and does not touch the
+project or the audio device.
+
+### 14.6 Troubleshooting the bridge
+
+- **Live bridge: SuperCollider exited.** Read `bridge.out.log` / `bridge.err.log` in the
+  project's session folder.
+- **Port already in use.** Another `sclang` may still be running from an older build. Close
+  it, or stop the bridge and retry; the app also cleans up the `scsynth` it started.
+- **Load error.** The generated `project.scd` is plain SC. Open it and run it in ScIDE to see
+  the full error, then click **Recompile SC definitions**.
+- **No sound.** Check that the track is not muted, that its graph node is linked to the master
+  out node, and that the SC audio device matches the one used by the app.
+
+---
+
+## 15. Sources and citations
 
 All SuperCollider documentation links below were verified against **SuperCollider 3.14.1** on
 2026-11-11. The app-specific `[app]` reference is the copy of `AudioStudioImplementation.ps1` in

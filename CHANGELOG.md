@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.21 - 2026-11-11
+
+- Added the persistent SuperCollider live bridge: `sclang` stays running, the app sends OSC on port 57120 and receives status on 57121. Controls: **Start live bridge**, **Stop bridge**, **Load session in SC**, **Play SC**, **Stop SC**.
+- Added the graph compiler. Piano-roll notes, tracks, patch-graph modules, links, effect parameters, bus gain/pan and master routing now generate a runnable `project.scd` with `~hb`, `HBProject`, `HBTrack`, `HBNode` and explicit audio buses.
+- Added native SuperCollider definitions for all 113 effect types, named `hb_<type>` (`hb_filter`, `hb_ladder`, `hb_convreverb`, ...), generated from shared DSP families.
+- Added `tests/sc-parity.ps1`: compiles all 113 defs, renders every effect offline with `scsynth -N`, checks for silence/non-finite audio, and records family correlation/RMS against the app's `FxProc`.
+- Fixed OSC argument handling for PowerShell-wrapped values, the out-node bus allocation, effect bus routing, the `HBNode.synth` setter and bridge shutdown (now cleans up the `scsynth` it started).
+- Documented the bridge, generated language, native effect library, parity harness and bridge troubleshooting in `docs/SUPERCOLLIDER.md`.
+
 ## 1.0.20 — 2026-11-11
 
 - Added per-project SuperCollider session folders under the Studio data directory, with a persistent project `ScSessionId`; generated SC files stay out of git.

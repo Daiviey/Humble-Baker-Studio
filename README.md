@@ -21,7 +21,7 @@ powershell -ExecutionPolicy Bypass -File ".\Humble Baker Studio.ps1"
 | Guide | Contents |
 |---|---|
 | [Manual](docs/MANUAL.md) | every window, tab, tool, button and workflow |
-| [SuperCollider tutorial](docs/SUPERCOLLIDER.md) | using SC in the Studio, SynthDefs, patterns, buses, MIDI/OSC, debugging, cited SC docs |
+| [SuperCollider tutorial](docs/SUPERCOLLIDER.md) | live bridge, generated graph projects, 113 native effects, parity harness, SynthDefs, patterns, buses, MIDI/OSC, debugging, cited SC docs |
 | [Effect Reference](docs/EFFECTS.md) | all 113 effects, every control, range and description |
 | [Synth Patch Reference](docs/SYNTH.md) | every synth parameter |
 | [Settings Reference](docs/SETTINGS.md) | mastering, mix rules, spectral and meta settings |
@@ -80,6 +80,7 @@ No installer is required: the build is portable. FFmpeg and SuperCollider are di
 | `Humble Baker Studio.ps1` | Launcher source |
 | `AudioStudioImplementation.ps1` | Canonical studio implementation |
 | `Humble Baker Studio.standalone.ps1` | Single-file standalone build |
+| `tests/sc-parity.ps1` | Headless SuperCollider effect/parity harness |
 | `docs/` | Manual and full parameter references |
 | `LICENSE` | MIT license for the software |
 | `NOTICE.md` | Copyright, content/brand terms and third-party attributions |
