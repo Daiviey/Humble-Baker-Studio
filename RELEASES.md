@@ -12,6 +12,8 @@ GitHub release assets are not stored in the file tree. Use the links below or op
 
 C# source: [`src/`](src) · build guide: [README-CSHARP.md](README-CSHARP.md) · port status: [docs/PORT.md](docs/PORT.md).
 
+The portable exe is also committed in the repository at [`CSharp-Port/Humble Baker Studio.exe`](CSharp-Port/Humble%20Baker%20Studio.exe).
+
 A copy of the latest C# build is also kept locally in `Z:\LocalAI\Repo\release\csharp-v0.1.1\`
 and as `Z:\LocalAI\Repo\release\Humble-Baker-Studio-CSharp-v0.1.1.zip`.
 
