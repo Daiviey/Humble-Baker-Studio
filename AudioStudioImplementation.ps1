@@ -7593,7 +7593,7 @@ function Show-AudioStudio {
     $S.Key.SelectedIndex = 0; $S.Scale.SelectedItem = 'minor'; $S.Grid.SelectedIndex = 2; $S.Engine.SelectedIndex = 0
 
     $S.BtnNew = Btn 'New' 8 46 56; $S.BtnOpen = Btn 'Open...' 70 46 64; $S.BtnSave = Btn 'Save...' 140 46 64
-    $S.BtnWav = Btn 'Render WAV' 214 46 100; $S.BtnMidi = Btn 'Export MIDI' 320 46 94; $S.BtnScd = Btn 'Export .scd' 420 46 90
+    $S.BtnWav = Btn 'Export...' 214 46 100; $S.BtnMidi = Btn 'Export MIDI' 320 46 94; $S.BtnScd = Btn 'Export .scd' 420 46 90
     $S.BtnSc = Btn 'Locate SuperCollider' 520 46 140; $S.BtnScGet = Btn 'Get SuperCollider' 666 46 124
     $top.Controls.AddRange(@($S.BtnNew, $S.BtnOpen, $S.BtnSave, $S.BtnWav, $S.BtnMidi, $S.BtnScd, $S.BtnSc, $S.BtnScGet))
     $S.Click = New-Object Windows.Forms.CheckBox; $S.Click.Text = 'Click (metronome)'; $S.Click.SetBounds(810, 49, 150, 22); $S.Click.ForeColor = $dk.Text; $top.Controls.Add($S.Click)
@@ -11502,12 +11502,16 @@ Rules: prefer the user's saved instruments when one fits the goal. Use design_so
         } catch { Set-MasterStatus ('FFmpeg download failed: ' + $_.Exception.Message) } finally { $f.Cursor = 'Default'; Update-FfmpegLabel }
     })
     function Show-StudioExportDialog {
+        try { Add-Content -LiteralPath (Join-Path $env:TEMP 'hb-export-debug.log') -Value ('[{0}] dialog enter' -f (Get-Date)) } catch { }
+        function ExportCheck([string]$t, [int]$x, [int]$y, [int]$w, [bool]$v) {
+            $c = New-Object Windows.Forms.CheckBox; $c.Text = $t; $c.Checked = $v; $c.SetBounds($x, $y, $w, 22); $c.ForeColor = $dk.Text; return $c
+        }
         $s = $script:StudioExportSettings
         if (-not $s) { $s = @{ Song = $false; Loops = 1; Tempo = 0; Click = $false; Master = $true; Normalize = $false; NormDb = -1.0; FadeIn = 0; FadeOut = 0; Format = 'WAV 16-bit'; SampleRate = 44100; Mono = $false } }
         $f = New-Object Windows.Forms.Form
         $f.Text = 'Export audio'; $f.StartPosition = 'CenterParent'; $f.FormBorderStyle = 'FixedDialog'
         $f.MaximizeBox = $false; $f.MinimizeBox = $false; $f.ClientSize = New-Object Drawing.Size(520, 380)
-        $f.BackColor = $script:Colors.Bg; $f.ForeColor = $script:Colors.Text
+        $f.BackColor = $dk.Panel; $f.ForeColor = $dk.Text
         $add = { param($c) $f.Controls.Add($c) }
         $y = 14
         & $add (Lbl 'Source' 16 $y 70); $cbSource = Combo @('Current pattern', 'Whole song') 110 $y 170; $cbSource.SelectedIndex = $(if ($s.Song) { 1 } else { 0 }); & $add $cbSource
@@ -11516,16 +11520,16 @@ Rules: prefer the user's saved instruments when one fits the goal. Use design_so
         & $add (Lbl 'Tempo override' 16 $y 95); $nTempo = Num $s.Tempo 0 300 1 0 110 $y 70; & $add $nTempo
         & $add (Lbl '(0 = project tempo)' 190 $y 140)
         $y += 36
-        $ckClick = New-Check 'Include metronome click' 16 $y 220 ([bool]$s.Click); & $add $ckClick
-        $ckMaster = New-Check 'Apply mastering chain' 260 $y 220 ([bool]$s.Master); & $add $ckMaster
+        $ckClick = ExportCheck 'Include metronome click' 16 $y 220 ([bool]$s.Click); & $add $ckClick
+        $ckMaster = ExportCheck 'Apply mastering chain' 260 $y 220 ([bool]$s.Master); & $add $ckMaster
         $y += 36
-        $ckNorm = New-Check 'Normalize peak' 16 $y 130 ([bool]$s.Normalize); & $add $ckNorm
+        $ckNorm = ExportCheck 'Normalize peak' 16 $y 130 ([bool]$s.Normalize); & $add $ckNorm
         & $add (Lbl 'Target dBFS' 160 $y 80); $nNorm = Num $s.NormDb -24 0 0.5 1 250 $y 70; & $add $nNorm
         $y += 36
         & $add (Lbl 'Fade in (ms)' 16 $y 80); $nFadeIn = Num $s.FadeIn 0 10000 50 0 110 $y 70; & $add $nFadeIn
         & $add (Lbl 'Fade out (ms)' 260 $y 85); $nFadeOut = Num $s.FadeOut 0 10000 50 0 360 $y 70; & $add $nFadeOut
         $y += 40
-        & $add (Lbl 'Format' 16 $y 70); $cbFormat = Combo @($script:StudioFormats.Keys) 110 $y 220; $cbFormat.SelectedItem = [string]$s.Format; if ($cbFormat.SelectedIndex -lt 0) { $cbFormat.SelectedIndex = 0 }; & $add $cbFormat
+        & $add (Lbl 'Format' 16 $y 70); $fmtKeys = @($script:StudioFormats.Keys | ForEach-Object { [string]$_ }); $cbFormat = Combo $fmtKeys 110 $y 220; $cbFormat.SelectedItem = [string]$s.Format; if ($cbFormat.SelectedIndex -lt 0) { $cbFormat.SelectedIndex = 0 }; & $add $cbFormat
         $y += 36
         & $add (Lbl 'Sample rate' 16 $y 85); $cbRate = Combo @('44100', '48000', '96000') 110 $y 100; $cbRate.SelectedItem = [string]$s.SampleRate; if ($cbRate.SelectedIndex -lt 0) { $cbRate.SelectedIndex = 0 }; & $add $cbRate
         & $add (Lbl 'Channels' 260 $y 70); $cbCh = Combo @('Stereo', 'Mono') 340 $y 100; $cbCh.SelectedIndex = $(if ($s.Mono) { 1 } else { 0 }); & $add $cbCh
@@ -11537,7 +11541,10 @@ Rules: prefer the user's saved instruments when one fits the goal. Use design_so
         $cancel.Add_Click({ $f.DialogResult = 'Cancel'; $f.Close() })
         $f.Controls.AddRange(@($ok, $cancel))
         $f.AcceptButton = $ok; $f.CancelButton = $cancel
-        if ($f.ShowDialog() -ne 'OK') { return $null }
+        try { Add-Content -LiteralPath (Join-Path $env:TEMP 'hb-export-debug.log') -Value ('[{0}] dialog before show' -f (Get-Date)) } catch { }
+        $dr = $f.ShowDialog()
+        try { Add-Content -LiteralPath (Join-Path $env:TEMP 'hb-export-debug.log') -Value ('[{0}] dialog result={1}' -f (Get-Date), $dr) } catch { }
+        if ($dr -ne 'OK') { return $null }
         $res = @{
             Song = ($cbSource.SelectedIndex -eq 1); Loops = [int]$nLoops.Value; Tempo = [double]$nTempo.Value; Click = [bool]$ckClick.Checked
             Master = [bool]$ckMaster.Checked; Normalize = [bool]$ckNorm.Checked; NormDb = [double]$nNorm.Value
@@ -11548,6 +11555,8 @@ Rules: prefer the user's saved instruments when one fits the goal. Use design_so
         return $res
     }
     function Invoke-StudioExport {
+        $exportLog = Join-Path $env:TEMP 'hb-export-debug.log'
+        try { Add-Content -LiteralPath $exportLog -Value ('[{0}] invoke path={1}' -f (Get-Date), [bool]$script:StudioExportPath) } catch { }
         $opt = if ($script:StudioExportPath) {
             @{ Song = [bool]$S.ESong.Checked; Loops = 1; Tempo = 0; Click = [bool]$S.Proj.Click; Master = [bool]$S.EMaster.Checked; Normalize = $false; NormDb = -1.0; FadeIn = 0; FadeOut = 0; Format = [string]$S.EFormat.Text; SampleRate = 44100; Mono = $false }
         } else { Show-StudioExportDialog }
@@ -11600,7 +11609,7 @@ Rules: prefer the user's saved instruments when one fits the goal. Use design_so
             Set-MasterStatus ('Exported ' + (Split-Path $d.FileName -Leaf) + "  ($loops loop(s), $fn)")
             try { if (Get-Command Add-AudioPlaylistFiles -ErrorAction SilentlyContinue) { [void](Add-AudioPlaylistFiles @($d.FileName)) } } catch { }
             if (-not $script:StudioExportPath) { Start-Process explorer.exe -ArgumentList "/select,`"$($d.FileName)`"" }
-        } catch { Log ('Export failed: ' + $_.Exception.Message); Set-MasterStatus ('Export failed: ' + $_.Exception.Message); Show-StudioMsg ('Export failed: ' + $_.Exception.Message) }
+        } catch { try { Add-Content -LiteralPath $exportLog -Value ('[{0}] ERROR {1}' -f (Get-Date), $_.Exception.ToString()) } catch { }; Log ('Export failed: ' + $_.Exception.Message); Set-MasterStatus ('Export failed: ' + $_.Exception.Message); Show-StudioMsg ('Export failed: ' + $_.Exception.Message) }
         finally { $f.Cursor = 'Default' }
     }
     $S.EGo.Add_Click({ Invoke-StudioExport })
@@ -11625,7 +11634,7 @@ Rules: prefer the user's saved instruments when one fits the goal. Use design_so
     TT $S.BtnNew 'New project (drums/acid/pad starter)'
     TT $S.BtnOpen 'Open a saved .hbstudio.json project'
     TT $S.BtnSave 'Save the project to a .hbstudio.json file'
-    TT $S.BtnWav 'Render the current loop (or song) to a WAV file'
+    TT $S.BtnWav 'Export audio: loop count, tempo, metronome, mastering, normalize, fades, format, sample rate and channels'
     TT $S.BtnMidi 'Export the pattern as a MIDI file'
     TT $S.BtnScd 'Export a SuperCollider .scd script of the pattern'
     TT $S.BtnSc 'Point to sclang.exe for SuperCollider previews'
@@ -11756,7 +11765,7 @@ Rules: prefer the user's saved instruments when one fits the goal. Use design_so
 
     $S.Play.Add_Click({ try { Start-Studio } catch { Log ('Play failed: ' + $_.Exception.Message); Show-StudioMsg ('Play failed: ' + $_.Exception.Message); Stop-Studio } })
     $S.Stop.Add_Click({ Stop-Studio; Status 'Stopped.' })
-    $S.BtnWav.Add_Click({ Invoke-StudioRender })
+    $S.BtnWav.Add_Click({ Invoke-StudioExport })
     $S.BtnMidi.Add_Click({
         $d = New-Object Windows.Forms.SaveFileDialog; $d.Filter = 'MIDI file|*.mid'; $d.FileName = 'studio.mid'; $d.InitialDirectory = (Get-StudioDir)
         if ($d.ShowDialog() -eq 'OK') { Sync-Project; [HbStudio.MidiWriter]::Write($S.Proj, $d.FileName); Log "MIDI saved: $($d.FileName)" }

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.1 — 2026-11-10
+
+- Fixed the export dialog failing to open in standalone builds.
+- The toolbar Export button now opens the same dialog.
+- Added export diagnostics.
+
 ## 1.0.0 — 2026-11-10
 
 Initial standalone release of Humble Baker Studio.
