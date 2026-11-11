@@ -1,0 +1,11836 @@
+# Audio Studio: piano roll, tracks, SuperCollider bridge and AI production tools for the Audio tab.
+# Dot-sourced by Humble Baker.ps1. Entry point: Show-AudioStudio. Works standalone too (see the bottom of this file).
+
+if (-not ('HbStudio.KnobPanel' -as [type])) {
+Add-Type -ReferencedAssemblies System.Windows.Forms, System.Drawing, Microsoft.VisualBasic -Language CSharp -TypeDefinition @'
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Drawing;
+using System.Globalization;
+using System.IO;
+using System.Linq;
+using System.Windows.Forms;
+
+namespace HbStudio {
+
+public class Note {
+    public int Pitch; public double Start; public double Len; public int Vel;
+    public Note() { }
+    public Note(int p, double s, double l, int v) { Pitch = p; Start = s; Len = l; Vel = v; }
+    public Note Clone() { return new Note(Pitch, Start, Len, Vel); }
+}
+
+public enum Wave { saw, square, pulse, tri, sine, noise, additive, vowel, pluck, bell, sync }
+public enum NoiseColor { white, pink, brown, blue, dust, bits }
+public enum FilterMode { off, lowpass, highpass, bandpass, notch, lowpass24, comb, vowel }
+public enum LfoWave { sine, tri, square, saw, sh, smooth }
+
+[AttributeUsage(AttributeTargets.Property)]
+public class RngAttribute : Attribute {
+    public double Min, Max; public bool NoRandom;
+    public RngAttribute(double min, double max) { Min = min; Max = max; }
+}
+
+// Designable synth voice. Every property is bounded by [Rng] so AI output and the randomizer stay in a musical, safe range.
+public class Patch {
+    public Patch() {
+        Osc1 = Wave.saw; Level1 = 1; Osc2 = Wave.saw; Level2 = 0.5; Detune2 = 7; Semi2 = 0; Osc3 = Wave.sine; Level3 = 0; Semi3 = -12;
+        SubLevel = 0; NoiseLevel = 0; Noise = NoiseColor.white; PulseWidth = 0.5; Unison = 1; UnisonSpread = 12; FmAmount = 0; FmRatio = 2;
+        Filter = FilterMode.lowpass; Cutoff = 3000; Resonance = 0.3; FilterEnv = 0.5; FilterDecay = 0.25; KeyTrack = 0;
+        Attack = 0.005; Decay = 0.3; Sustain = 0.7; Release = 0.2; PitchEnv = 0; PitchDecay = 0.05;
+        LfoRate = 4; LfoPitch = 0; LfoFilter = 0; LfoAmp = 0; Fold = 0; Drive = 0; Bits = 16; Gain = 0.8;
+        Harmonics = 16; Tilt = 1; OddEven = 0; Vowel = 0; VowelEnd = 2; TiltEnd = 1.6; Morph = 0;
+        Ring = 1.5; Damping = 0.35; Inharmonic = 0.3; Strike = 0.2; SyncRatio = 2;
+        FmDecay = 0; FmSustain = 0.25; Fm2Amount = 0; Fm2Ratio = 3; FmFeedback = 0; RingAmount = 0; NoiseRate = 2000;
+        FilterDrive = 0; FilterVowel = 0;
+        LfoShape = LfoWave.sine; LfoDelay = 0; LfoPwm = 0; LfoFm = 0; LfoMorph = 0;
+        Lfo2Rate = 0.3; Lfo2Shape = LfoWave.tri; Lfo2Pitch = 0; Lfo2Filter = 0; Lfo2Fm = 0; Lfo2Morph = 0; Lfo2Pwm = 0; Lfo2Sync = 0; Lfo2Amp = 0;
+        ModAttack = 0.01; ModDecay = 0.5; ModPitch = 0; ModFm = 0; ModMorph = 0; ModPwm = 0; ModSync = 0; ModNoise = 0;
+        Drift = 0; Variation = 0; VelFilter = 0; VelFm = 0; VelAttack = 0; VelDrive = 0;
+    }
+    [Category("1 Oscillators"), Description("Oscillator 1 waveform: saw, square, pulse, tri, sine or noise.")] public Wave Osc1 { get; set; }
+    [Category("1 Oscillators"), Description("Oscillator 1 level."), Rng(0, 1)] public double Level1 { get; set; }
+    [Category("1 Oscillators"), Description("Oscillator 2 waveform.")] public Wave Osc2 { get; set; }
+    [Category("1 Oscillators"), Description("Oscillator 2 level."), Rng(0, 1)] public double Level2 { get; set; }
+    [Category("1 Oscillators"), Description("Oscillator 2 detune in cents."), Rng(-1200, 1200)] public double Detune2 { get; set; }
+    [Category("1 Oscillators"), Description("Oscillator 2 transpose in semitones."), Rng(-36, 36)] public double Semi2 { get; set; }
+    [Category("1 Oscillators"), Description("Oscillator 3 waveform.")] public Wave Osc3 { get; set; }
+    [Category("1 Oscillators"), Description("Oscillator 3 level."), Rng(0, 1)] public double Level3 { get; set; }
+    [Category("1 Oscillators"), Description("Oscillator 3 transpose in semitones."), Rng(-36, 36)] public double Semi3 { get; set; }
+    [Category("1 Oscillators"), Description("Sine sub oscillator one octave down."), Rng(0, 1)] public double SubLevel { get; set; }
+    [Category("1 Oscillators"), Description("Noise level."), Rng(0, 1)] public double NoiseLevel { get; set; }
+    [Category("1 Oscillators"), Description("Noise colour: white, pink or brown.")] public NoiseColor Noise { get; set; }
+    [Category("1 Oscillators"), Description("Pulse width for the pulse waveform."), Rng(0.05, 0.95)] public double PulseWidth { get; set; }
+    [Category("2 Unison and FM"), Description("Number of stacked detuned voices (1 to 7)."), Rng(1, 7)] public double Unison { get; set; }
+    [Category("2 Unison and FM"), Description("Unison detune spread in cents."), Rng(0, 100)] public double UnisonSpread { get; set; }
+    [Category("2 Unison and FM"), Description("Frequency modulation of oscillator 1 (0 off, 1 bell-like, 5+ metallic)."), Rng(0, 10)] public double FmAmount { get; set; }
+    [Category("2 Unison and FM"), Description("FM modulator frequency as a ratio of the note (non-integer = inharmonic)."), Rng(0.25, 16)] public double FmRatio { get; set; }
+    [Category("3 Filter"), Description("Filter type: off, lowpass, highpass, bandpass.")] public FilterMode Filter { get; set; }
+    [Category("3 Filter"), Description("Base cutoff in Hz."), Rng(30, 16000)] public double Cutoff { get; set; }
+    [Category("3 Filter"), Description("Resonance (0.9+ screams, acid style)."), Rng(0, 0.95)] public double Resonance { get; set; }
+    [Category("3 Filter"), Description("Filter envelope depth in 5-octave units; negative sweeps down."), Rng(-1, 1)] public double FilterEnv { get; set; }
+    [Category("3 Filter"), Description("Filter envelope decay in seconds (long = slow sweep or riser)."), Rng(0.01, 8)] public double FilterDecay { get; set; }
+    [Category("3 Filter"), Description("How much the cutoff follows the note pitch."), Rng(0, 1)] public double KeyTrack { get; set; }
+    [Category("4 Amp envelope"), Description("Attack seconds."), Rng(0.001, 5)] public double Attack { get; set; }
+    [Category("4 Amp envelope"), Description("Decay seconds."), Rng(0.01, 8)] public double Decay { get; set; }
+    [Category("4 Amp envelope"), Description("Sustain level."), Rng(0, 1)] public double Sustain { get; set; }
+    [Category("4 Amp envelope"), Description("Release seconds."), Rng(0.005, 8)] public double Release { get; set; }
+    [Category("5 Pitch and LFO"), Description("Pitch envelope start offset in semitones, decaying to the note (kick drops, laser zaps, risers)."), Rng(-48, 48)] public double PitchEnv { get; set; }
+    [Category("5 Pitch and LFO"), Description("Pitch envelope decay seconds."), Rng(0.002, 4)] public double PitchDecay { get; set; }
+    [Category("5 Pitch and LFO"), Description("LFO rate in Hz."), Rng(0.05, 40)] public double LfoRate { get; set; }
+    [Category("5 Pitch and LFO"), Description("LFO to pitch (vibrato) in cents."), Rng(0, 1200)] public double LfoPitch { get; set; }
+    [Category("5 Pitch and LFO"), Description("LFO to cutoff (wobble)."), Rng(0, 1)] public double LfoFilter { get; set; }
+    [Category("5 Pitch and LFO"), Description("LFO to volume (tremolo)."), Rng(0, 1)] public double LfoAmp { get; set; }
+    [Category("6 Distortion"), Description("Wavefolder amount."), Rng(0, 1)] public double Fold { get; set; }
+    [Category("6 Distortion"), Description("Saturation drive."), Rng(0, 1)] public double Drive { get; set; }
+    [Category("6 Distortion"), Description("Bit depth (16 = clean, 4 = crunchy)."), Rng(2, 16)] public double Bits { get; set; }
+    [Category("6 Distortion"), Description("Output gain."), Rng(0, 1.5, NoRandom = true)] public double Gain { get; set; }
+    [Category("7 Wavetable and vowels"), Description("additive/vowel oscillators: number of harmonics in the stack (more = brighter, buzzier)."), Rng(1, 48)] public double Harmonics { get; set; }
+    [Category("7 Wavetable and vowels"), Description("additive: spectral tilt, harmonic k has level k^-Tilt (0 = flat and bright, 1 = saw-like, 2 = soft, 3 = nearly sine)."), Rng(0, 3)] public double Tilt { get; set; }
+    [Category("7 Wavetable and vowels"), Description("additive: -1 keeps only even harmonics (octave and thin), 0 all, +1 odd harmonics only (hollow, clarinet, square-like)."), Rng(-1, 1)] public double OddEven { get; set; }
+    [Category("7 Wavetable and vowels"), Description("vowel oscillator: vowel position 0=a 1=e 2=i 3=o 4=u (voice formants, choirs, talking pads)."), Rng(0, 4)] public double Vowel { get; set; }
+    [Category("7 Wavetable and vowels"), Description("vowel position the Morph control moves to."), Rng(0, 4)] public double VowelEnd { get; set; }
+    [Category("7 Wavetable and vowels"), Description("additive: tilt the Morph control moves to."), Rng(0, 3)] public double TiltEnd { get; set; }
+    [Category("7 Wavetable and vowels"), Description("Wavetable morph 0..1 between the start spectrum (Tilt, Vowel) and the end spectrum (TiltEnd, VowelEnd). Modulate it with LfoMorph, Lfo2Morph and ModMorph for evolving, vocal or sweeping timbres."), Rng(0, 1)] public double Morph { get; set; }
+    [Category("7 Wavetable and vowels"), Description("sync oscillator: hard-sync ratio (1 = plain saw; 2-8 gives the sweeping, screaming sync-lead sound when modulated)."), Rng(1, 12)] public double SyncRatio { get; set; }
+    [Category("8 Physical models"), Description("pluck/bell oscillators: ring time in seconds (how long the string or metal keeps sounding)."), Rng(0.05, 10)] public double Ring { get; set; }
+    [Category("8 Physical models"), Description("pluck/bell: damping (0 = bright and sustained, 1 = muted and dull). Wood and felt are high, glass and steel strings are low."), Rng(0, 1)] public double Damping { get; set; }
+    [Category("8 Physical models"), Description("bell: inharmonicity (0 = harmonic string, 0.3 = stiff piano string, 0.5 = marimba or glockenspiel bar, 1 = clangorous church bell)."), Rng(0, 1)] public double Inharmonic { get; set; }
+    [Category("8 Physical models"), Description("pluck/bell: strike or pluck position along the string (0.05 = twangy and nasal, 0.5 = round and hollow)."), Rng(0.02, 0.5)] public double Strike { get; set; }
+    [Category("9 FM and ring"), Description("FM index decay in seconds (0 = constant). Short = bright attack that mellows: electric piano, bell, pluck, brass blat."), Rng(0, 8)] public double FmDecay { get; set; }
+    [Category("9 FM and ring"), Description("Fraction of the FM index that remains after FmDecay."), Rng(0, 1)] public double FmSustain { get; set; }
+    [Category("9 FM and ring"), Description("Second modulator that modulates the first modulator (3-operator FM chain; 0 off)."), Rng(0, 10)] public double Fm2Amount { get; set; }
+    [Category("9 FM and ring"), Description("Second modulator frequency ratio."), Rng(0.25, 16)] public double Fm2Ratio { get; set; }
+    [Category("9 FM and ring"), Description("FM feedback: noisy, sawtooth-like FM tones (0.3+ metallic, 0.8+ harsh)."), Rng(0, 1)] public double FmFeedback { get; set; }
+    [Category("9 FM and ring"), Description("Ring modulation between oscillators 1 and 2 (bells, robots, clangs)."), Rng(0, 1)] public double RingAmount { get; set; }
+    [Category("1 Oscillators"), Description("bits noise: sample-and-hold rate in Hz; dust noise: crackles per second."), Rng(20, 20000)] public double NoiseRate { get; set; }
+    [Category("3 Filter"), Description("Saturation into the filter (0-1), for gritty resonant filters."), Rng(0, 1)] public double FilterDrive { get; set; }
+    [Category("3 Filter"), Description("vowel filter: vowel position 0=a 1=e 2=i 3=o 4=u; cutoff modulation shifts the formants up and down (talking wah)."), Rng(0, 4)] public double FilterVowel { get; set; }
+    [Category("10 Modulation"), Description("LFO 1 shape: sine, tri, square, saw, sh (random steps) or smooth (random glides).")] public LfoWave LfoShape { get; set; }
+    [Category("10 Modulation"), Description("Seconds before LFO 1 starts to fade in (delayed vibrato on sustained notes)."), Rng(0, 5)] public double LfoDelay { get; set; }
+    [Category("10 Modulation"), Description("LFO 1 to pulse width (PWM)."), Rng(0, 1)] public double LfoPwm { get; set; }
+    [Category("10 Modulation"), Description("LFO 1 to FM index."), Rng(0, 1)] public double LfoFm { get; set; }
+    [Category("10 Modulation"), Description("LFO 1 to wavetable morph."), Rng(0, 1)] public double LfoMorph { get; set; }
+    [Category("10 Modulation"), Description("LFO 2 rate in Hz (slow = evolving, fast = ring-like)."), Rng(0.02, 40)] public double Lfo2Rate { get; set; }
+    [Category("10 Modulation"), Description("LFO 2 shape.")] public LfoWave Lfo2Shape { get; set; }
+    [Category("10 Modulation"), Description("LFO 2 to pitch in cents."), Rng(0, 1200)] public double Lfo2Pitch { get; set; }
+    [Category("10 Modulation"), Description("LFO 2 to filter cutoff."), Rng(0, 1)] public double Lfo2Filter { get; set; }
+    [Category("10 Modulation"), Description("LFO 2 to FM index."), Rng(0, 1)] public double Lfo2Fm { get; set; }
+    [Category("10 Modulation"), Description("LFO 2 to wavetable morph."), Rng(0, 1)] public double Lfo2Morph { get; set; }
+    [Category("10 Modulation"), Description("LFO 2 to pulse width."), Rng(0, 1)] public double Lfo2Pwm { get; set; }
+    [Category("10 Modulation"), Description("LFO 2 to sync ratio."), Rng(0, 1)] public double Lfo2Sync { get; set; }
+    [Category("10 Modulation"), Description("LFO 2 to volume."), Rng(0, 1)] public double Lfo2Amp { get; set; }
+    [Category("10 Modulation"), Description("Modulation envelope attack seconds."), Rng(0.001, 5)] public double ModAttack { get; set; }
+    [Category("10 Modulation"), Description("Modulation envelope decay seconds (a second envelope for movement: use it for FM, morph, sync, noise and pitch)."), Rng(0.01, 8)] public double ModDecay { get; set; }
+    [Category("10 Modulation"), Description("Modulation envelope to pitch in semitones (blips, zaps, scoops)."), Rng(-24, 24)] public double ModPitch { get; set; }
+    [Category("10 Modulation"), Description("Modulation envelope to FM index."), Rng(0, 1)] public double ModFm { get; set; }
+    [Category("10 Modulation"), Description("Modulation envelope to wavetable morph."), Rng(-1, 1)] public double ModMorph { get; set; }
+    [Category("10 Modulation"), Description("Modulation envelope to pulse width."), Rng(-1, 1)] public double ModPwm { get; set; }
+    [Category("10 Modulation"), Description("Modulation envelope to sync ratio."), Rng(-1, 1)] public double ModSync { get; set; }
+    [Category("10 Modulation"), Description("Modulation envelope to noise level (breath, chiff, bow noise at the start of a note)."), Rng(0, 1)] public double ModNoise { get; set; }
+    [Category("11 Expression"), Description("Analog drift: slow random wander of pitch and cutoff so held notes feel alive."), Rng(0, 1)] public double Drift { get; set; }
+    [Category("11 Expression"), Description("Per-note variation: every repeated note differs slightly (round robin), so riffs sound played instead of machine-gun."), Rng(0, 1)] public double Variation { get; set; }
+    [Category("11 Expression"), Description("Velocity to filter cutoff: hard notes are brighter."), Rng(0, 1)] public double VelFilter { get; set; }
+    [Category("11 Expression"), Description("Velocity to FM index."), Rng(0, 1)] public double VelFm { get; set; }
+    [Category("11 Expression"), Description("Velocity to attack speed: hard notes start faster."), Rng(0, 1)] public double VelAttack { get; set; }
+    [Category("11 Expression"), Description("Velocity to drive: hard notes get dirtier."), Rng(0, 1)] public double VelDrive { get; set; }
+    public bool NeedsContext() { return Variation > 0 || VelFilter > 0 || VelFm > 0 || VelAttack > 0 || VelDrive > 0; }
+    public Patch Clone() { return (Patch)MemberwiseClone(); }
+}
+
+// Per-track effect chain. Order: stutter, filter, fold, drive, crush, ring mod, chorus, delay, reverb, gain.
+public class Fx {
+    public Fx() {
+        Filter = FilterMode.off; Cutoff = 4000; Resonance = 0.3; FilterLfoRate = 0; FilterLfoDepth = 0.5; Drive = 0; Fold = 0; Bits = 16; Downsample = 1;
+        RingFreq = 200; RingMix = 0; StutterBeats = 0; StutterDiv = 4; StutterChance = 0.3; Chorus = 0; ChorusRate = 0.6; ChorusDepth = 0.5;
+        DelayMix = 0; DelayBeats = 0.75; DelayFeedback = 0.4; ReverbMix = 0; ReverbSize = 0.6; Gain = 1;
+        PhaserMix = 0; PhaserRate = 0.5; PhaserDepth = 0.6; PhaserStages = 4; FlangerMix = 0; FlangerRate = 0.8; FlangerDepth = 0.6; FlangerFb = 0.4;
+        TapeStop = 0; TapeStopRate = 0.5; TapeDelayMix = 0; TapeDelayTime = 280; TapeDelayFb = 0.45; TapeDelayWow = 0.3;
+        PlateMix = 0; PlateSize = 0.6; PlateDamping = 0.5; VinylCrackle = 0; TapeHiss = 0; TapeWow = 0;
+        CompThresh = -18; CompRatio = 3; CompAttack = 10; CompRelease = 120; LowShelf = 0; HighShelf = 0; MidPeak = 0; Width = 1; PitchShift = 0;
+        SidechainSource = ""; SidechainMix = 0; SidechainAttack = 3; SidechainRelease = 160; CompMakeup = 0;
+    }
+    [Category("1 Filter"), Description("Filter type: off, lowpass, highpass, bandpass.")] public FilterMode Filter { get; set; }
+    [Category("1 Filter"), Description("Cutoff in Hz."), Rng(30, 16000)] public double Cutoff { get; set; }
+    [Category("1 Filter"), Description("Resonance."), Rng(0, 0.95)] public double Resonance { get; set; }
+    [Category("1 Filter"), Description("Filter LFO rate in Hz (0 = off). Wobble and auto-wah."), Rng(0, 30)] public double FilterLfoRate { get; set; }
+    [Category("1 Filter"), Description("Filter LFO depth in octaves-ish."), Rng(0, 1)] public double FilterLfoDepth { get; set; }
+    [Category("2 Distortion"), Description("Saturation."), Rng(0, 1)] public double Drive { get; set; }
+    [Category("2 Distortion"), Description("Wavefolder."), Rng(0, 1)] public double Fold { get; set; }
+    [Category("2 Distortion"), Description("Bit depth (16 = clean)."), Rng(2, 16)] public double Bits { get; set; }
+    [Category("2 Distortion"), Description("Sample-rate reduction factor (1 = off, 8 = lo-fi aliasing)."), Rng(1, 32)] public double Downsample { get; set; }
+    [Category("2 Distortion"), Description("Ring modulator frequency in Hz."), Rng(0, 4000)] public double RingFreq { get; set; }
+    [Category("2 Distortion"), Description("Ring modulator mix."), Rng(0, 1)] public double RingMix { get; set; }
+    [Category("3 Glitch"), Description("Stutter block length in beats (0 = off). 0.25 = sixteenth-note stutters."), Rng(0, 4)] public double StutterBeats { get; set; }
+    [Category("3 Glitch"), Description("Each stuttered block repeats its first 1/N."), Rng(2, 16)] public double StutterDiv { get; set; }
+    [Category("3 Glitch"), Description("Chance that a block stutters."), Rng(0, 1)] public double StutterChance { get; set; }
+    [Category("4 Space"), Description("Chorus / flanger mix."), Rng(0, 1)] public double Chorus { get; set; }
+    [Category("4 Space"), Description("Chorus rate in Hz."), Rng(0.05, 8)] public double ChorusRate { get; set; }
+    [Category("4 Space"), Description("Chorus depth."), Rng(0, 1)] public double ChorusDepth { get; set; }
+    [Category("4 Space"), Description("Ping-pong delay mix."), Rng(0, 1)] public double DelayMix { get; set; }
+    [Category("4 Space"), Description("Delay time in beats (0.75 = dotted eighth)."), Rng(0.0625, 8)] public double DelayBeats { get; set; }
+    [Category("4 Space"), Description("Delay feedback."), Rng(0, 0.95)] public double DelayFeedback { get; set; }
+    [Category("4 Space"), Description("Reverb mix."), Rng(0, 1)] public double ReverbMix { get; set; }
+    [Category("4 Space"), Description("Reverb size / decay."), Rng(0, 1)] public double ReverbSize { get; set; }
+    [Category("4 Space"), Description("Plate reverb mix."), Rng(0, 1)] public double PlateMix { get; set; }
+    [Category("4 Space"), Description("Plate reverb size (small room to big hall)."), Rng(0, 1)] public double PlateSize { get; set; }
+    [Category("4 Space"), Description("Plate reverb damping (dark to bright)."), Rng(0, 1)] public double PlateDamping { get; set; }
+    [Category("6 Modulation"), Description("Phaser mix."), Rng(0, 1)] public double PhaserMix { get; set; }
+    [Category("6 Modulation"), Description("Phaser LFO rate in Hz."), Rng(0.01, 8)] public double PhaserRate { get; set; }
+    [Category("6 Modulation"), Description("Phaser LFO depth."), Rng(0, 1)] public double PhaserDepth { get; set; }
+    [Category("6 Modulation"), Description("Phaser stages (notch count)."), Rng(1, 12)] public double PhaserStages { get; set; }
+    [Category("6 Modulation"), Description("Flanger mix."), Rng(0, 1)] public double FlangerMix { get; set; }
+    [Category("6 Modulation"), Description("Flanger rate in Hz."), Rng(0.02, 10)] public double FlangerRate { get; set; }
+    [Category("6 Modulation"), Description("Flanger depth."), Rng(0, 1)] public double FlangerDepth { get; set; }
+    [Category("6 Modulation"), Description("Flanger feedback (jet whoosh)."), Rng(0, 0.95)] public double FlangerFb { get; set; }
+    [Category("7 Tape / Vinyl"), Description("Tape stop effect (1 = full stop-and-restart with pitch slam)."), Rng(0, 1)] public double TapeStop { get; set; }
+    [Category("7 Tape / Vinyl"), Description("Tape stop time in seconds (how long the stop takes)."), Rng(0.05, 3)] public double TapeStopRate { get; set; }
+    [Category("7 Tape / Vinyl"), Description("Tape delay mix."), Rng(0, 1)] public double TapeDelayMix { get; set; }
+    [Category("7 Tape / Vinyl"), Description("Tape delay time in milliseconds."), Rng(10, 2000)] public double TapeDelayTime { get; set; }
+    [Category("7 Tape / Vinyl"), Description("Tape delay feedback."), Rng(0, 0.95)] public double TapeDelayFb { get; set; }
+    [Category("7 Tape / Vinyl"), Description("Tape delay wow/flutter depth (wobble)."), Rng(0, 1)] public double TapeDelayWow { get; set; }
+    [Category("7 Tape / Vinyl"), Description("Vinyl crackle amount."), Rng(0, 1)] public double VinylCrackle { get; set; }
+    [Category("7 Tape / Vinyl"), Description("Tape hiss amount."), Rng(0, 1)] public double TapeHiss { get; set; }
+    [Category("7 Tape / Vinyl"), Description("Tape wow/flutter pitch wobble."), Rng(0, 1)] public double TapeWow { get; set; }
+    [Category("8 Mastering"), Description("Compressor threshold in dB (higher = gentler)."), Rng(-40, 0)] public double CompThresh { get; set; }
+    [Category("8 Mastering"), Description("Compressor ratio (1 = off)."), Rng(1, 12)] public double CompRatio { get; set; }
+    [Category("8 Mastering"), Description("Compressor attack in ms."), Rng(0.1, 100)] public double CompAttack { get; set; }
+    [Category("8 Mastering"), Description("Compressor release in ms."), Rng(10, 1000)] public double CompRelease { get; set; }
+    [Category("8 Mastering"), Description("Low shelf gain in dB (bass boost/cut)."), Rng(-12, 12)] public double LowShelf { get; set; }
+    [Category("8 Mastering"), Description("High shelf gain in dB (air boost/cut)."), Rng(-12, 12)] public double HighShelf { get; set; }
+    [Category("8 Mastering"), Description("Mid peak gain in dB (presence)."), Rng(-12, 12)] public double MidPeak { get; set; }
+    [Category("8 Mastering"), Description("Stereo width (1 = unchanged, 0 = mono, >1 = wide)."), Rng(0, 1.6)] public double Width { get; set; }
+    [Category("8 Mastering"), Description("Pitch shift in semitones (formant preserved-ish via resample)."), Rng(-12, 12)] public double PitchShift { get; set; }
+    [Category("8 Mastering"), Description("Sidechain source track name (empty = self). Duck this track's gain when the source plays.")] public string SidechainSource { get; set; }
+    [Category("8 Mastering"), Description("Sidechain duck amount (1 = fully silent on source hits)."), Rng(0, 1)] public double SidechainMix { get; set; }
+    [Category("8 Mastering"), Description("Sidechain attack in ms (how fast the duck starts)."), Rng(0.5, 100)] public double SidechainAttack { get; set; }
+    [Category("8 Mastering"), Description("Sidechain release in ms (how long recovery takes)."), Rng(10, 1000)] public double SidechainRelease { get; set; }
+    [Category("8 Mastering"), Description("Compressor makeup gain in dB (after compression, before the limiter)."), Rng(-12, 24)] public double CompMakeup { get; set; }
+    [Category("5 Output"), Description("Output gain."), Rng(0, 2, NoRandom = true)] public double Gain { get; set; }
+    public bool Active {
+        get {
+            return Filter != FilterMode.off || Drive > 0 || Fold > 0 || Bits < 16 || Downsample > 1 || RingMix > 0 || (StutterBeats > 0 && StutterChance > 0)
+                || Chorus > 0 || DelayMix > 0 || ReverbMix > 0 || Math.Abs(Gain - 1) > 0.001
+                || PhaserMix > 0 || FlangerMix > 0 || TapeStop > 0 || TapeDelayMix > 0 || PlateMix > 0
+                || VinylCrackle > 0 || TapeHiss > 0 || TapeWow > 0 || CompRatio > 1 || LowShelf != 0 || HighShelf != 0 || MidPeak != 0 || Math.Abs(Width - 1) > 0.001 || PitchShift != 0;
+        }
+    }
+}
+
+// A shared effects return. Tracks send into it; its FX chain runs on the summed signal before it hits the master.
+public class Bus {
+    public Bus() { Name = "Bus A"; }
+    public Bus(string name) { Name = name; }
+    public string Name = "Bus A"; public bool Enabled = true;
+    public Fx Fx = new Fx();
+    public List<AutoLane> Auto = new List<AutoLane>();
+}
+
+public class Track {
+    public string Name = "Track"; public string Synth = "acid";
+    public double Vol = 0.8, Pan = 0, Cutoff = 2400, Res = 0.3, EnvAmt = 0.6, Atk = 0.005, Rel = 0.15, Crush = 16;
+    public bool Mute;
+    public bool Solo;   // when any track is soloed, only soloed tracks (and sidechain sources) are heard
+    public int Bus = 0; // 0 = direct to master, 1..4 = Bus A..D
+    public Patch Patch; public Fx Fx = new Fx();
+    public string Uid = Guid.NewGuid().ToString("N");
+    public float[] Sample; public int SampleRoot = 60; public bool SampleGate; public int SampleMode = 0;
+    public string DrumKit = "Standard"; public string InstrumentName = "";
+    public List<Note> Notes = new List<Note>();
+    public List<AutoLane> Auto = new List<AutoLane>();
+}
+
+public class GradientPanel : Panel {
+    public Color TopColor = Color.FromArgb(36, 39, 51);
+    public Color BottomColor = Color.FromArgb(18, 20, 28);
+    protected override void OnPaint(PaintEventArgs e) {
+        using (var b = new System.Drawing.Drawing2D.LinearGradientBrush(ClientRectangle, TopColor, BottomColor, 90f)) e.Graphics.FillRectangle(b, ClientRectangle);
+    }
+}
+
+// Automation of one track parameter over time (beats). Params: vol (gain 0-2), pan (-1..1), lp (low-pass Hz), hp (high-pass Hz),
+// and "p:Name" for any numeric synth-patch parameter (for example p:FmAmount or p:Morph) so a sound can develop through the song.
+// Before the first point the parameter is neutral (patch lanes: unchanged); after the last point the last value is held.
+public class AutoLane {
+    public int Track; public string Param = "vol"; public List<double[]> Points = new List<double[]>();
+    public AutoLane() { }
+    public AutoLane(int track, string param) { Track = track; Param = param; }
+    public AutoLane Clone() { AutoLane a = new AutoLane(Track, Param); foreach (double[] p in Points) a.Points.Add(new double[] { p[0], p[1] }); return a; }
+    public static double Neutral(string param) { return param.StartsWith("p:") ? double.NaN : param == "lp" ? 20000 : param == "hp" ? 20 : param == "pan" ? 0 : 1; }
+    public double At(double beat) {
+        if (Points.Count == 0 || beat < Points[0][0]) return Neutral(Param);
+        for (int i = 0; i < Points.Count - 1; i++) {
+            double a = Points[i][0], b = Points[i + 1][0];
+            if (beat >= a && beat < b) {
+                double t = b - a < 1e-9 ? 1 : (beat - a) / (b - a), va = Points[i][1], vb = Points[i + 1][1];
+                if ((Param == "lp" || Param == "hp") && va > 0 && vb > 0) return Math.Exp(Math.Log(va) * (1 - t) + Math.Log(vb) * t);
+                return va + (vb - va) * t;
+            }
+        }
+        return Points[Points.Count - 1][1];
+    }
+}
+
+// Reflection helpers so the UI grid, the AI and the randomizer all share the same bounded parameter set.
+public static class PropIO {
+    public static System.Reflection.PropertyInfo Find(object o, string name) {
+        foreach (System.Reflection.PropertyInfo pi in o.GetType().GetProperties())
+            if (string.Equals(pi.Name, name, StringComparison.OrdinalIgnoreCase) && pi.CanWrite) return pi;
+        return null;
+    }
+    public static RngAttribute RangeOf(System.Reflection.PropertyInfo pi) {
+        object[] a = pi.GetCustomAttributes(typeof(RngAttribute), true);
+        return a.Length > 0 ? (RngAttribute)a[0] : null;
+    }
+    public static bool Set(object o, string name, string value) {
+        System.Reflection.PropertyInfo pi = Find(o, name);
+        if (pi == null || value == null) return false;
+        try {
+            if (pi.PropertyType.IsEnum) {
+                string v = value.Trim().ToLowerInvariant();
+                string hit = null;
+                foreach (string en in Enum.GetNames(pi.PropertyType)) if (en.ToLowerInvariant() == v) { hit = en; break; }
+                if (hit == null) {
+                    string[] names = Enum.GetNames(pi.PropertyType); Array.Sort(names, (a, b) => b.Length.CompareTo(a.Length));
+                    foreach (string en in names) {
+                        if (v.StartsWith(en.ToLowerInvariant()) || (en == "lowpass" && v == "lp") || (en == "highpass" && v == "hp") || (en == "bandpass" && v == "bp") || (en == "lowpass24" && (v == "lp24" || v == "24db")) || (en == "tri" && v.StartsWith("tri")) || (en == "square" && v == "sqr") || (en == "sh" && v.StartsWith("sample")) || (en == "pluck" && (v == "string" || v == "karplus")) || (en == "vowel" && (v == "formant" || v == "voice")) || (en == "additive" && (v == "organ" || v == "harmonic")) || (en == "bell" && (v == "modal" || v == "metal"))) { hit = en; break; }
+                    }
+                }
+                if (hit == null) return false;
+                pi.SetValue(o, Enum.Parse(pi.PropertyType, hit), null); return true;
+            }
+            if (pi.PropertyType == typeof(string)) { pi.SetValue(o, value.Trim(), null); return true; }
+            double d;
+            if (pi.PropertyType == typeof(bool)) { string bv = value.Trim().ToLowerInvariant(); pi.SetValue(o, bv == "true" || bv == "1" || bv == "yes" || bv == "on", null); return true; }
+            if (!double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out d) || double.IsNaN(d) || double.IsInfinity(d)) return false;
+            RngAttribute r = RangeOf(pi);
+            if (r != null) d = Math.Max(r.Min, Math.Min(r.Max, d));
+            pi.SetValue(o, d, null);
+            return true;
+        } catch { return false; }
+    }
+    public static string Describe(Type t) {
+        object def = Activator.CreateInstance(t);
+        System.Text.StringBuilder sb = new System.Text.StringBuilder();
+        foreach (System.Reflection.PropertyInfo pi in t.GetProperties()) {
+            if (!pi.CanWrite) continue;
+            object dv = pi.GetValue(def, null);
+            string desc = "";
+            object[] da = pi.GetCustomAttributes(typeof(DescriptionAttribute), true);
+            if (da.Length > 0) desc = ((DescriptionAttribute)da[0]).Description;
+            if (pi.PropertyType == typeof(string)) sb.AppendLine("- " + pi.Name + ": text (default \"" + dv + "\"). " + desc);
+            else if (pi.PropertyType == typeof(bool)) sb.AppendLine("- " + pi.Name + ": true or false (default " + ((bool)dv ? "true" : "false") + "). " + desc);
+            else if (pi.PropertyType.IsEnum) sb.AppendLine("- " + pi.Name + ": one of " + string.Join("|", Enum.GetNames(pi.PropertyType)) + " (default " + dv + "). " + desc);
+            else { RngAttribute r = RangeOf(pi); sb.AppendLine("- " + pi.Name + ": number " + (r == null ? "" : r.Min.ToString(CultureInfo.InvariantCulture) + " to " + r.Max.ToString(CultureInfo.InvariantCulture)) + " (default " + Convert.ToString(dv, CultureInfo.InvariantCulture) + "). " + desc); }
+        }
+        return sb.ToString();
+    }
+    // amount 0..1: how far each parameter moves toward a fresh random value (1 = fully random).
+    public static void Randomize(object o, double amount, int seed) {
+        Random rnd = new Random(seed);
+        foreach (System.Reflection.PropertyInfo pi in o.GetType().GetProperties()) {
+            if (!pi.CanWrite) continue;
+            if (pi.PropertyType.IsEnum) {
+                if (rnd.NextDouble() < amount * 0.6) { Array vals = Enum.GetValues(pi.PropertyType); pi.SetValue(o, vals.GetValue(rnd.Next(vals.Length)), null); }
+                continue;
+            }
+            RngAttribute r = RangeOf(pi);
+            if (r == null || r.NoRandom) continue;
+            double cur = Convert.ToDouble(pi.GetValue(o, null), CultureInfo.InvariantCulture), nv;
+            if (r.Min > 0 && r.Max / r.Min > 20) {
+                double lc = Math.Log(Math.Max(cur, r.Min)), lr = Math.Log(r.Min) + rnd.NextDouble() * (Math.Log(r.Max) - Math.Log(r.Min));
+                nv = Math.Exp(lc + (lr - lc) * amount);
+            } else {
+                double rv = r.Min + rnd.NextDouble() * (r.Max - r.Min);
+                // keep random values sparse for level-like parameters so patches do not turn into mud
+                if (r.Min == 0 && r.Max <= 1.5 && rnd.NextDouble() < 0.45) rv = r.Min;
+                nv = cur + (rv - cur) * amount;
+            }
+            pi.SetValue(o, Math.Max(r.Min, Math.Min(r.Max, nv)), null);
+        }
+    }
+}
+
+// A synth patch with the track's patch-parameter automation lanes applied at one moment in the song (values snap to 32 steps so notes can share renders).
+public static class PatchAuto {
+    public static Patch Resolve(Patch basePatch, List<AutoLane> lanes, double beat, out string sig) {
+        Patch pv = null; System.Text.StringBuilder sb = new System.Text.StringBuilder();
+        foreach (AutoLane al in lanes) {
+            double v = al.At(beat); if (double.IsNaN(v)) continue;
+            string name = al.Param.Substring(2);
+            System.Reflection.PropertyInfo pi = PropIO.Find(basePatch, name); if (pi == null || pi.PropertyType != typeof(double)) continue;
+            RngAttribute r = PropIO.RangeOf(pi);
+            if (r != null) { double step = (r.Max - r.Min) / 32.0; v = Math.Max(r.Min, Math.Min(r.Max, r.Min + Math.Round((v - r.Min) / step) * step)); }
+            if (pv == null) pv = basePatch.Clone();
+            pi.SetValue(pv, v, null); sb.Append(name).Append('=').Append(v.ToString("0.###", CultureInfo.InvariantCulture)).Append(';');
+        }
+        sig = sb.ToString(); return pv;
+    }
+}
+
+public class Project {
+    public double Bpm = 140; public int BeatsPerBar = 4; public int BeatUnit = 4; public int PhraseBars = 4; public int Bars = 4; public double Swing = 0;
+    public double DelayMix = 0.2, DelayBeats = 0.75, DelayFb = 0.4;
+    public int Key = 0; public string Scale = "minor";
+    public List<Track> Tracks = new List<Track>();
+    public List<Pattern> Patterns = new List<Pattern>();
+    public List<SongItem> Song = new List<SongItem>();
+    public List<Marker> Markers = new List<Marker>();
+    public MasterSettings Master = new MasterSettings();
+    public List<MixRule> Mix = new List<MixRule>();
+    public List<Bus> Buses = new List<Bus>();
+    public bool Click;   // metronome blip on every beat (accent on the downbeat)
+    public PatchGraph Graph = new PatchGraph();
+    public double BarBeats { get { return BeatsPerBar * 4.0 / Math.Max(1, BeatUnit); } }
+    public double LoopBeats { get { return Bars * BarBeats; } }
+}
+
+// A named section of the timeline (shown on the piano roll ruler and used by the producer to shape the energy curve).
+public class Marker {
+    public double Beat; public string Name = ""; public int Energy;
+    public Marker() { }
+    public Marker(double beat, string name, int energy) { Beat = beat; Name = name; Energy = energy; }
+}
+
+// A scene: the notes and mute state of every track for one section of a song.
+public class Pattern {
+    public string Name = "Pattern"; public int Bars = 4;
+    public List<List<Note>> Notes = new List<List<Note>>(); public List<bool> Mutes = new List<bool>();
+    public List<AutoLane> Auto = new List<AutoLane>();
+    public int NoteCount { get { int c = 0; foreach (List<Note> l in Notes) c += l.Count; return c; } }
+    public static Pattern Capture(Project p, string name) {
+        Pattern q = new Pattern(); q.Name = name; q.Bars = p.Bars;
+        foreach (Track t in p.Tracks) { List<Note> l = new List<Note>(); foreach (Note n in t.Notes) l.Add(n.Clone()); q.Notes.Add(l); q.Mutes.Add(t.Mute); }
+        return q;
+    }
+    public void Apply(Project p) {
+        p.Bars = Bars;
+        for (int i = 0; i < p.Tracks.Count; i++) {
+            p.Tracks[i].Notes.Clear();
+            if (i < Notes.Count) { foreach (Note n in Notes[i]) p.Tracks[i].Notes.Add(n.Clone()); p.Tracks[i].Mute = Mutes[i]; }
+        }
+    }
+    public void RemoveTrack(int i) {
+        if (i >= 0 && i < Notes.Count) { Notes.RemoveAt(i); Mutes.RemoveAt(i); }
+        Auto.RemoveAll(delegate (AutoLane a) { return a.Track == i; });
+        foreach (AutoLane a in Auto) if (a.Track > i) a.Track--;
+    }
+}
+public class SongItem { public int Pattern; public int Repeats = 1; public SongItem() { } public SongItem(int p, int r) { Pattern = p; Repeats = r; } }
+
+public static class Arranger {
+    // Lays the song out on one long timeline so the normal renderer can play it. Track settings are shared with the editor.
+    public static Project Flatten(Project p) {
+        Project q = new Project();
+        q.Bpm = p.Bpm; q.BeatsPerBar = p.BeatsPerBar; q.BeatUnit = p.BeatUnit; q.PhraseBars = p.PhraseBars; q.Swing = p.Swing; q.DelayMix = p.DelayMix; q.DelayBeats = p.DelayBeats; q.DelayFb = p.DelayFb;
+        q.Key = p.Key; q.Scale = p.Scale; q.Master = p.Master; q.Mix = p.Mix; q.Buses = p.Buses; q.Graph = p.Graph;
+        foreach (Track t in p.Tracks) {
+            Track c = new Track();
+            foreach (System.Reflection.FieldInfo fi in typeof(Track).GetFields()) if (fi.Name != "Notes") fi.SetValue(c, fi.GetValue(t));
+            c.Mute = false; c.Auto = new List<AutoLane>(); q.Tracks.Add(c);
+        }
+        double offset = 0;
+        foreach (SongItem it in p.Song) {
+            if (it.Pattern < 0 || it.Pattern >= p.Patterns.Count) continue;
+            Pattern pat = p.Patterns[it.Pattern];
+            int reps = Math.Max(1, Math.Min(128, it.Repeats));
+            for (int r = 0; r < reps; r++) {
+                for (int ti = 0; ti < q.Tracks.Count && ti < pat.Notes.Count; ti++) {
+                    if (pat.Mutes[ti]) continue;
+                    foreach (Note n in pat.Notes[ti]) q.Tracks[ti].Notes.Add(new Note(n.Pitch, n.Start + offset, n.Len, n.Vel));
+                }
+                double end = offset + pat.Bars * p.BarBeats;
+                foreach (AutoLane al in pat.Auto) {
+                    if (al.Track < 0 || al.Track >= q.Tracks.Count || al.Points.Count == 0 || al.Track >= pat.Mutes.Count || pat.Mutes[al.Track]) continue;
+                    AutoLane dst = null;
+                    foreach (AutoLane x in q.Tracks[al.Track].Auto) if (x.Param == al.Param) { dst = x; break; }
+                    if (dst == null) { dst = new AutoLane(al.Track, al.Param); q.Tracks[al.Track].Auto.Add(dst); }
+                    foreach (double[] pt in al.Points) dst.Points.Add(new double[] { offset + pt[0], pt[1] });
+                    dst.Points.Add(new double[] { end - 0.002, al.Points[al.Points.Count - 1][1] });
+                    dst.Points.Add(new double[] { end, AutoLane.Neutral(al.Param) });
+                }
+                offset = end;
+            }
+        }
+        q.Bars = Math.Max(1, (int)Math.Ceiling(offset / p.BarBeats - 1e-9));
+        return q;
+    }
+    public static double SongBeats(Project p) {
+        double b = 0;
+        foreach (SongItem it in p.Song) if (it.Pattern >= 0 && it.Pattern < p.Patterns.Count) b += p.Patterns[it.Pattern].Bars * p.BarBeats * Math.Max(1, it.Repeats);
+        return b;
+    }
+
+    static int Role(Track t) {
+        if (t.Synth == "drums") return 0;
+        if (t.Synth == "pad" || (t.Patch != null && t.Synth == "patch" && t.Patch.Attack > 0.4)) return 2;
+        if (t.Notes.Count == 0) return 3;
+        double avg = 0; foreach (Note n in t.Notes) avg += n.Pitch; avg /= t.Notes.Count;
+        return avg < 52 ? 1 : 3;
+    }
+    static List<Note> Vary(List<Note> src, Random rnd, double amount) {
+        List<Note> o = new List<Note>();
+        foreach (Note n in src) {
+            double r = rnd.NextDouble();
+            if (r < amount * 0.25) continue;
+            if (r < amount && n.Len <= 0.5) {
+                int k = rnd.Next(2, 4); double l = n.Len / k;
+                for (int i = 0; i < k; i++) o.Add(new Note(n.Pitch, n.Start + i * l, l * 0.9, Math.Max(30, n.Vel - i * 8)));
+            } else o.Add(n.Clone());
+        }
+        return o;
+    }
+    // Builds intro / build / drop / breakdown / drop B / outro scenes from the current tracks (0 drums, 1 bass, 2 pad, 3 lead).
+    public static void AutoSong(Project p, int seed) {
+        Random rnd = new Random(seed);
+        p.Patterns.Clear(); p.Song.Clear();
+        string[] names = new string[] { "Intro", "Build", "Drop", "Breakdown", "Drop B", "Outro" };
+        bool[][] use = new bool[][] { new bool[] { false, false, true, true }, new bool[] { true, true, true, false }, new bool[] { true, true, true, true },
+            new bool[] { false, false, true, true }, new bool[] { true, true, true, true }, new bool[] { true, false, true, false } };
+        double[] vary = new double[] { 0, 0, 0, 0, 0.25, 0 };
+        int[] reps = new int[] { 2, 2, 4, 2, 4, 2 };
+        for (int s = 0; s < names.Length; s++) {
+            Pattern pat = new Pattern(); pat.Name = names[s]; pat.Bars = p.Bars;
+            int active = 0;
+            foreach (Track t in p.Tracks) {
+                bool on = use[s][Role(t)] && !t.Mute && t.Notes.Count > 0;
+                List<Note> l = new List<Note>();
+                if (on) { active++; if (vary[s] > 0) l = Vary(t.Notes, rnd, Role(t) == 0 ? vary[s] : vary[s] * 0.5); else foreach (Note n in t.Notes) l.Add(n.Clone()); }
+                pat.Notes.Add(l); pat.Mutes.Add(!on);
+            }
+            if (active == 0) { pat.Notes.Clear(); pat.Mutes.Clear(); foreach (Track t in p.Tracks) { List<Note> l = new List<Note>(); foreach (Note n in t.Notes) l.Add(n.Clone()); pat.Notes.Add(l); pat.Mutes.Add(t.Mute); } }
+            p.Patterns.Add(pat); p.Song.Add(new SongItem(s, reps[s]));
+        }
+    }
+}
+
+public class MasterSettings {
+    public MasterSettings() {
+        Enabled = false; InputGain = 0; LowShelfDb = 0; LowShelfHz = 100; MidDb = 0; MidHz = 400; MidQ = 1; HighShelfDb = 0; HighShelfHz = 8000;
+        Warmth = 0; CompThreshold = -16; CompRatio = 1; CompAttack = 25; CompRelease = 180; CompKnee = 6; Width = 1; BassMonoHz = 0; OutputGain = 0;
+        Limiter = true; Ceiling = -1; LimiterRelease = 80; TargetLufs = -14;
+    }
+    [Category("0 Master"), Description("Apply the mastering chain to previews and renders.")] public bool Enabled { get; set; }
+    [Category("0 Master"), Description("Target integrated loudness in LUFS used by Auto master (streaming -14, club -9)."), Rng(-30, -5)] public double TargetLufs { get; set; }
+    [Category("1 Gain"), Description("Gain into the chain in dB (drives the compressor and limiter)."), Rng(-12, 30)] public double InputGain { get; set; }
+    [Category("2 EQ"), Description("Low shelf gain in dB."), Rng(-9, 9)] public double LowShelfDb { get; set; }
+    [Category("2 EQ"), Description("Low shelf frequency in Hz."), Rng(30, 400)] public double LowShelfHz { get; set; }
+    [Category("2 EQ"), Description("Mid bell gain in dB (cut around 300 Hz to clear mud)."), Rng(-9, 9)] public double MidDb { get; set; }
+    [Category("2 EQ"), Description("Mid bell frequency in Hz."), Rng(100, 6000)] public double MidHz { get; set; }
+    [Category("2 EQ"), Description("Mid bell Q."), Rng(0.3, 4)] public double MidQ { get; set; }
+    [Category("2 EQ"), Description("High shelf gain in dB (air)."), Rng(-9, 9)] public double HighShelfDb { get; set; }
+    [Category("2 EQ"), Description("High shelf frequency in Hz."), Rng(2000, 16000)] public double HighShelfHz { get; set; }
+    [Category("3 Colour"), Description("Soft saturation amount (analogue warmth)."), Rng(0, 1)] public double Warmth { get; set; }
+    [Category("4 Compressor"), Description("Threshold in dB."), Rng(-40, 0)] public double CompThreshold { get; set; }
+    [Category("4 Compressor"), Description("Ratio (1 = off)."), Rng(1, 10)] public double CompRatio { get; set; }
+    [Category("4 Compressor"), Description("Attack in ms."), Rng(1, 100)] public double CompAttack { get; set; }
+    [Category("4 Compressor"), Description("Release in ms."), Rng(20, 1000)] public double CompRelease { get; set; }
+    [Category("4 Compressor"), Description("Soft knee width in dB."), Rng(0, 18)] public double CompKnee { get; set; }
+    [Category("5 Stereo"), Description("Stereo width (1 = unchanged, 0 = mono)."), Rng(0, 1.6)] public double Width { get; set; }
+    [Category("5 Stereo"), Description("Make everything below this frequency mono (0 = off)."), Rng(0, 300)] public double BassMonoHz { get; set; }
+    [Category("6 Output"), Description("Gain after the compressor in dB."), Rng(-12, 12)] public double OutputGain { get; set; }
+    [Category("6 Output"), Description("Brickwall look-ahead limiter on or off.")] public bool Limiter { get; set; }
+    [Category("6 Output"), Description("True-peak-safe ceiling in dBFS."), Rng(-6, 0)] public double Ceiling { get; set; }
+    [Category("6 Output"), Description("Limiter release in ms."), Rng(10, 500)] public double LimiterRelease { get; set; }
+    public MasterSettings Clone() { return (MasterSettings)MemberwiseClone(); }
+}
+
+class Biquad {
+    double b0, b1, b2, a1, a2, z1, z2;
+    void Norm(double nb0, double nb1, double nb2, double a0, double na1, double na2) { b0 = nb0 / a0; b1 = nb1 / a0; b2 = nb2 / a0; a1 = na1 / a0; a2 = na2 / a0; }
+    public double Tick(double x) { double y = b0 * x + z1; z1 = b1 * x - a1 * y + z2; z2 = b2 * x - a2 * y; return y; }
+    public static Biquad LowShelf(double fs, double f, double g, double q) {
+        double A = Math.Pow(10, g / 40), w = 2 * Math.PI * f / fs, c = Math.Cos(w), al = Math.Sin(w) / (2 * q), sa = 2 * Math.Sqrt(A) * al; Biquad b = new Biquad();
+        b.Norm(A * ((A + 1) - (A - 1) * c + sa), 2 * A * ((A - 1) - (A + 1) * c), A * ((A + 1) - (A - 1) * c - sa), (A + 1) + (A - 1) * c + sa, -2 * ((A - 1) + (A + 1) * c), (A + 1) + (A - 1) * c - sa); return b;
+    }
+    public static Biquad HighShelf(double fs, double f, double g, double q) {
+        double A = Math.Pow(10, g / 40), w = 2 * Math.PI * f / fs, c = Math.Cos(w), al = Math.Sin(w) / (2 * q), sa = 2 * Math.Sqrt(A) * al; Biquad b = new Biquad();
+        b.Norm(A * ((A + 1) + (A - 1) * c + sa), -2 * A * ((A - 1) + (A + 1) * c), A * ((A + 1) + (A - 1) * c - sa), (A + 1) - (A - 1) * c + sa, 2 * ((A - 1) - (A + 1) * c), (A + 1) - (A - 1) * c - sa); return b;
+    }
+    public static Biquad Peak(double fs, double f, double g, double q) {
+        double A = Math.Pow(10, g / 40), w = 2 * Math.PI * f / fs, c = Math.Cos(w), al = Math.Sin(w) / (2 * q); Biquad b = new Biquad();
+        b.Norm(1 + al * A, -2 * c, 1 - al * A, 1 + al / A, -2 * c, 1 - al / A); return b;
+    }
+    public static Biquad LowPass(double fs, double f, double q) {
+        double w = 2 * Math.PI * f / fs, c = Math.Cos(w), al = Math.Sin(w) / (2 * q); Biquad b = new Biquad();
+        b.Norm((1 - c) / 2, 1 - c, (1 - c) / 2, 1 + al, -2 * c, 1 - al); return b;
+    }
+    public static Biquad HighPass(double fs, double f, double q) {
+        double w = 2 * Math.PI * f / fs, c = Math.Cos(w), al = Math.Sin(w) / (2 * q); Biquad b = new Biquad();
+        b.Norm((1 + c) / 2, -(1 + c), (1 + c) / 2, 1 + al, -2 * c, 1 - al); return b;
+    }
+}
+
+public class Analysis {
+    public double PeakDb, RmsDb, Lufs, Crest, Correlation, Seconds; public double[] Bands = new double[6];
+    public static readonly string[] BandNames = new string[] { "sub 20-60 Hz", "bass 60-250 Hz", "low-mid 250-500 Hz", "mid 500-2k Hz", "high-mid 2-6 kHz", "air 6k+ Hz" };
+    public string Report() {
+        System.Text.StringBuilder sb = new System.Text.StringBuilder();
+        CultureInfo ci = CultureInfo.InvariantCulture;
+        sb.AppendLine("Length " + Seconds.ToString("0.0", ci) + " s | peak " + PeakDb.ToString("0.0", ci) + " dBFS | RMS " + RmsDb.ToString("0.0", ci) + " dBFS");
+        sb.AppendLine("Loudness (approx.) " + Lufs.ToString("0.0", ci) + " LUFS | crest factor " + Crest.ToString("0.0", ci) + " dB | stereo correlation " + Correlation.ToString("0.00", ci));
+        sb.Append("Band levels (dBFS RMS): ");
+        for (int i = 0; i < 6; i++) sb.Append(BandNames[i] + " " + Bands[i].ToString("0.0", ci) + (i < 5 ? "; " : ""));
+        return sb.ToString();
+    }
+}
+
+public static class Mastering {
+    const int SR = Dsp.SR;
+    static double Db(double x) { return 20 * Math.Log10(Math.Max(x, 1e-9)); }
+
+    public static Analysis Analyze(float[] L, float[] R) {
+        Analysis a = new Analysis(); int n = L.Length; a.Seconds = (double)n / SR;
+        double pk = 0, ss = 0, sl = 0, sr = 0, slr = 0;
+        for (int i = 0; i < n; i++) {
+            double l = L[i], r = R[i]; pk = Math.Max(pk, Math.Max(Math.Abs(l), Math.Abs(r)));
+            ss += l * l + r * r; sl += l * l; sr += r * r; slr += l * r;
+        }
+        a.PeakDb = Db(pk); a.RmsDb = 10 * Math.Log10(Math.Max(ss / Math.Max(1, 2.0 * n), 1e-18)); a.Crest = a.PeakDb - a.RmsDb;
+        a.Correlation = (sl > 1e-12 && sr > 1e-12) ? slr / Math.Sqrt(sl * sr) : 1;
+        a.Lufs = Lufs(L, R);
+        double[] edges = new double[] { 20, 60, 250, 500, 2000, 6000, 20000 };
+        float[] mono = new float[n]; for (int i = 0; i < n; i++) mono[i] = (L[i] + R[i]) * 0.5f;
+        for (int b = 0; b < 6; b++) {
+            Biquad hp = edges[b] > 20 ? Biquad.HighPass(SR, edges[b], 0.7071) : null, lp = edges[b + 1] < 20000 ? Biquad.LowPass(SR, edges[b + 1], 0.7071) : null;
+            double e = 0;
+            for (int i = 0; i < n; i++) { double x = mono[i]; if (hp != null) x = hp.Tick(x); if (lp != null) x = lp.Tick(x); e += x * x; }
+            a.Bands[b] = 10 * Math.Log10(Math.Max(e / Math.Max(1, n), 1e-18));
+        }
+        return a;
+    }
+
+    // ITU BS.1770 style integrated loudness (K-weighting, 400 ms blocks, absolute and relative gates).
+    public static double Lufs(float[] L, float[] R) {
+        int n = L.Length; if (n == 0) return -70;
+        Biquad[] kl = new Biquad[] { Biquad.HighShelf(SR, 1681.97, 3.9998, 0.7071752), Biquad.HighPass(SR, 38.1355, 0.5003) };
+        Biquad[] kr = new Biquad[] { Biquad.HighShelf(SR, 1681.97, 3.9998, 0.7071752), Biquad.HighPass(SR, 38.1355, 0.5003) };
+        double[] cum = new double[n + 1];
+        for (int i = 0; i < n; i++) {
+            double l = kl[1].Tick(kl[0].Tick(L[i])), r = kr[1].Tick(kr[0].Tick(R[i]));
+            cum[i + 1] = cum[i] + l * l + r * r;
+        }
+        int blk = (int)(0.4 * SR), hop = (int)(0.1 * SR);
+        if (n < blk) return -0.691 + 10 * Math.Log10(Math.Max(cum[n] / n, 1e-12));
+        List<double> z = new List<double>();
+        for (int s = 0; s + blk <= n; s += hop) z.Add((cum[s + blk] - cum[s]) / blk);
+        double sum = 0; int cnt = 0;
+        foreach (double v in z) if (-0.691 + 10 * Math.Log10(Math.Max(v, 1e-12)) > -70) { sum += v; cnt++; }
+        if (cnt == 0) return -70;
+        double thr = -0.691 + 10 * Math.Log10(sum / cnt) - 10; sum = 0; cnt = 0;
+        foreach (double v in z) if (-0.691 + 10 * Math.Log10(Math.Max(v, 1e-12)) > thr) { sum += v; cnt++; }
+        return cnt == 0 ? -70 : -0.691 + 10 * Math.Log10(sum / cnt);
+    }
+
+    public static void Process(float[] L, float[] R, MasterSettings m) {
+        int n = L.Length;
+        float g = (float)Math.Pow(10, m.InputGain / 20);
+        for (int i = 0; i < n; i++) { L[i] *= g; R[i] *= g; }
+        for (int ch = 0; ch < 2; ch++) {
+            float[] x = ch == 0 ? L : R; List<Biquad> f = new List<Biquad>();
+            if (Math.Abs(m.LowShelfDb) > 0.05) f.Add(Biquad.LowShelf(SR, m.LowShelfHz, m.LowShelfDb, 0.7071));
+            if (Math.Abs(m.MidDb) > 0.05) f.Add(Biquad.Peak(SR, m.MidHz, m.MidDb, m.MidQ));
+            if (Math.Abs(m.HighShelfDb) > 0.05) f.Add(Biquad.HighShelf(SR, Math.Min(m.HighShelfHz, SR * 0.45), m.HighShelfDb, 0.7071));
+            if (f.Count == 0) continue;
+            for (int i = 0; i < n; i++) { double v = x[i]; for (int k = 0; k < f.Count; k++) v = f[k].Tick(v); x[i] = (float)v; }
+        }
+        if (m.Warmth > 0.001) {
+            double w = m.Warmth, k = 1 + 3 * w;
+            for (int i = 0; i < n; i++) { L[i] = (float)(L[i] * (1 - w) + w * Math.Tanh(L[i] * k) / k); R[i] = (float)(R[i] * (1 - w) + w * Math.Tanh(R[i] * k) / k); }
+        }
+        bool mono = m.BassMonoHz > 20, wide = Math.Abs(m.Width - 1) > 0.01;
+        if (mono || wide) {
+            Biquad h1 = mono ? Biquad.HighPass(SR, m.BassMonoHz, 0.7071) : null, h2 = mono ? Biquad.HighPass(SR, m.BassMonoHz, 0.7071) : null;
+            for (int i = 0; i < n; i++) {
+                double mid = (L[i] + R[i]) * 0.5, side = (L[i] - R[i]) * 0.5;
+                if (mono) side = h2.Tick(h1.Tick(side));
+                side *= m.Width; L[i] = (float)(mid + side); R[i] = (float)(mid - side);
+            }
+        }
+        if (m.CompRatio > 1.01) Compress(L, R, m);
+        float og = (float)Math.Pow(10, m.OutputGain / 20);
+        if (Math.Abs(og - 1) > 0.001) for (int i = 0; i < n; i++) { L[i] *= og; R[i] *= og; }
+        double ceil = Math.Pow(10, m.Ceiling / 20);
+        if (m.Limiter) Limit(L, R, ceil, m.LimiterRelease);
+        for (int i = 0; i < n; i++) {
+            if (L[i] > ceil) L[i] = (float)ceil; else if (L[i] < -ceil) L[i] = (float)-ceil;
+            if (R[i] > ceil) R[i] = (float)ceil; else if (R[i] < -ceil) R[i] = (float)-ceil;
+        }
+    }
+
+    static void Compress(float[] L, float[] R, MasterSettings m) {
+        double thr = m.CompThreshold, ratio = m.CompRatio, knee = Math.Max(0.01, m.CompKnee);
+        double atk = Math.Exp(-1.0 / (m.CompAttack * 0.001 * SR)), rel = Math.Exp(-1.0 / (m.CompRelease * 0.001 * SR)), env = 0, slope = 1 - 1 / ratio;
+        for (int i = 0; i < L.Length; i++) {
+            double over = Db(Math.Max(Math.Abs(L[i]), Math.Abs(R[i]))) - thr, gr;
+            if (2 * over < -knee) gr = 0; else if (2 * Math.Abs(over) <= knee) { double x = over + knee / 2; gr = slope * x * x / (2 * knee); } else gr = slope * over;
+            env = gr > env ? atk * env + (1 - atk) * gr : rel * env + (1 - rel) * gr;
+            float gain = (float)Math.Pow(10, -env / 20); L[i] *= gain; R[i] *= gain;
+        }
+    }
+
+    // Look-ahead brickwall: the gain curve is a moving minimum of the required gain, box-smoothed, so it can never exceed the ceiling.
+    static void Limit(float[] L, float[] R, double ceil, double relMs) {
+        int n = L.Length, la = Math.Max(2, (int)(0.005 * SR)); if (n == 0) return;
+        float[] g = new float[n];
+        for (int i = 0; i < n; i++) { double pk = Math.Max(Math.Abs(L[i]), Math.Abs(R[i])); g[i] = pk > ceil ? (float)(ceil / pk) : 1f; }
+        float[] gm = new float[n]; int[] dq = new int[n]; int head = 0, tail = 0;
+        for (int j = 0; j < n; j++) {
+            while (tail > head && g[dq[tail - 1]] >= g[j]) tail--;
+            dq[tail++] = j;
+            while (dq[head] <= j - la) head++;
+            int idx = j - la + 1; if (idx >= 0) gm[idx] = g[dq[head]];
+        }
+        float run = 1f;
+        for (int idx = n - 1; idx >= Math.Max(0, n - la + 1); idx--) { run = Math.Min(run, g[idx]); gm[idx] = run; }
+        double[] cum = new double[n + 1];
+        for (int i = 0; i < n; i++) cum[i + 1] = cum[i] + gm[i];
+        double rc = 1 - Math.Exp(-1.0 / (Math.Max(5, relMs) * 0.001 * SR)), envg = 1;
+        for (int i = 0; i < n; i++) {
+            int s = i - la + 1; double sm;
+            if (s >= 0) sm = (cum[i + 1] - cum[s]) / la; else sm = (cum[i + 1] + gm[0] * (-s)) / la;
+            envg += (1 - envg) * rc; if (envg > sm) envg = sm;
+            L[i] = (float)(L[i] * envg); R[i] = (float)(R[i] * envg);
+        }
+    }
+
+    // Rule-based assistant: measures the mix, sets EQ / compression / stereo, then trims the input gain until the target loudness is reached.
+    public static MasterSettings Auto(float[] L, float[] R, double targetLufs) {
+        Analysis a = Analyze(L, R); MasterSettings m = new MasterSettings(); m.Enabled = true; m.TargetLufs = targetLufs; m.Ceiling = -1; m.LimiterRelease = 80;
+        double bassDev = a.Bands[1] - a.Bands[3] - 4, airDev = a.Bands[5] - a.Bands[3] + 9, mudDev = a.Bands[2] - a.Bands[3] - 1;
+        if (Math.Abs(bassDev) > 2) { m.LowShelfDb = Math.Max(-3, Math.Min(3, -bassDev * 0.5)); m.LowShelfHz = 100; }
+        if (Math.Abs(airDev) > 2) { m.HighShelfDb = Math.Max(-3, Math.Min(3, -airDev * 0.4)); m.HighShelfHz = 9000; }
+        if (mudDev > 3) { m.MidDb = -Math.Min(3, mudDev * 0.5); m.MidHz = 330; m.MidQ = 1; }
+        double ratio = a.Crest > 18 ? 3 : a.Crest > 14 ? 2.2 : a.Crest > 10 ? 1.6 : 1.0;
+        if (targetLufs >= -10 && ratio > 1) ratio += 0.5;
+        m.CompRatio = ratio; m.CompThreshold = Math.Max(-40, Math.Min(0, a.RmsDb + 3)); m.CompAttack = 30; m.CompRelease = 150;
+        m.BassMonoHz = 120; m.Warmth = targetLufs >= -12 ? 0.15 : 0.08;
+        if (a.Correlation < 0.1) m.Width = 0.9; else if (a.Correlation > 0.95) m.Width = 1.15;
+        m.InputGain = Math.Max(-12, Math.Min(30, targetLufs - a.Lufs));
+        FitGain(L, R, m, targetLufs);
+        return m;
+    }
+
+    // Adjusts InputGain so the processed result lands on the target loudness (the limiter keeps peaks under the ceiling).
+    public static double FitGain(float[] L, float[] R, MasterSettings m, double targetLufs) {
+        double got = 0;
+        for (int it = 0; it < 5; it++) {
+            float[] cl = (float[])L.Clone(), cr = (float[])R.Clone(); Process(cl, cr, m);
+            got = Lufs(cl, cr);
+            if (Math.Abs(targetLufs - got) < 0.3) break;
+            m.InputGain = Math.Max(-12, Math.Min(30, m.InputGain + (targetLufs - got)));
+        }
+        return got;
+    }
+}
+
+public class Ev { public double Start, Len; public int Pitch, Vel; }
+
+public static class Scales {
+    public static readonly string[] Names = new string[] { "minor", "major", "dorian", "phrygian", "lydian", "mixolydian", "locrian", "harmonic minor", "pentatonic minor", "pentatonic major", "blues", "whole tone", "hungarian minor", "double harmonic", "chromatic" };
+    static readonly int[][] Steps = new int[][] {
+        new int[] {0,2,3,5,7,8,10}, new int[] {0,2,4,5,7,9,11}, new int[] {0,2,3,5,7,9,10}, new int[] {0,1,3,5,7,8,10},
+        new int[] {0,2,4,6,7,9,11}, new int[] {0,2,4,5,7,9,10}, new int[] {0,1,3,5,6,8,10}, new int[] {0,2,3,5,7,8,11},
+        new int[] {0,3,5,7,10}, new int[] {0,2,4,7,9}, new int[] {0,3,5,6,7,10}, new int[] {0,2,4,6,8,10},
+        new int[] {0,2,3,6,7,8,11}, new int[] {0,1,4,5,7,8,11}, new int[] {0,1,2,3,4,5,6,7,8,9,10,11} };
+    public static int[] Get(string name) {
+        for (int i = 0; i < Names.Length; i++) if (Names[i] == name) return Steps[i];
+        return Steps[0];
+    }
+    public static bool[] Mask(int key, string scale) {
+        bool[] m = new bool[12];
+        foreach (int s in Get(scale)) m[(s + key) % 12] = true;
+        return m;
+    }
+    public static int Snap(int pitch, bool[] mask) {
+        for (int d = 0; d < 7; d++) {
+            int a = pitch - d, b = pitch + d;
+            if (a >= 0 && mask[((a % 12) + 12) % 12]) return a;
+            if (b <= 127 && mask[((b % 12) + 12) % 12]) return b;
+        }
+        return pitch;
+    }
+}
+
+public static class Engine {
+    // Notes of a track with swing applied and clipped to the loop; shared by the preview renderer and the SuperCollider export.
+    public static List<Ev> Events(Project p, Track t) {
+        List<Ev> list = new List<Ev>();
+        double loop = p.LoopBeats;
+        foreach (Note n in t.Notes) {
+            double s = n.Start;
+            double q = s / 0.25; long r = (long)Math.Round(q);
+            if (Math.Abs(q - r) < 0.02 && (r % 2) != 0) s += p.Swing * 0.125;
+            if (s < 0 || s >= loop) continue;
+            Ev e = new Ev(); e.Start = s; e.Len = Math.Max(0.02, n.Len); e.Pitch = n.Pitch; e.Vel = n.Vel;
+            list.Add(e);
+        }
+        list.Sort(delegate (Ev a, Ev b) { int c = a.Start.CompareTo(b.Start); return c != 0 ? c : a.Pitch.CompareTo(b.Pitch); });
+        return list;
+    }
+}
+
+public enum SpecSnap { off, chromatic, major, minor, pentatonic, hirajoshi, wholetone, diminished }
+
+// Settings for turning a spectrogram picture into sound. Every property is bounded so the grid, the AI and the randomizer agree.
+public class SpectralSettings {
+    public SpectralSettings() { Seconds = 6; MinHz = 60; MaxHz = 9000; Snap = SpecSnap.off; Root = 0; Brightness = 0; Noisiness = 0; Contrast = 1; FadeMs = 15; Gain = 0.9; }
+    [Category("1 Time and range"), Description("Length of the sound in seconds (the picture is stretched over it)."), Rng(0.5, 30)] public double Seconds { get; set; }
+    [Category("1 Time and range"), Description("Frequency of the bottom row in Hz."), Rng(20, 2000)] public double MinHz { get; set; }
+    [Category("1 Time and range"), Description("Frequency of the top row in Hz."), Rng(1000, 20000)] public double MaxHz { get; set; }
+    [Category("1 Time and range"), Description("Play the picture backwards.")] public bool Reverse { get; set; }
+    [Category("1 Time and range"), Description("Flip the picture upside down (low and high swap).")] public bool Flip { get; set; }
+    [Category("2 Pitch"), Description("Snap every row to a musical scale so images sound tonal: off, chromatic, major, minor, pentatonic, hirajoshi, wholetone, diminished.")] public SpecSnap Snap { get; set; }
+    [Category("2 Pitch"), Description("Scale root as a pitch class (0 = C, 9 = A)."), Rng(0, 11)] public double Root { get; set; }
+    [Category("3 Timbre"), Description("Adds 2nd and 3rd harmonics to every partial (0 pure sines, 1 buzzy)."), Rng(0, 1)] public double Brightness { get; set; }
+    [Category("3 Timbre"), Description("Random pitch jitter on each partial: 0 clean sines, 1 airy noisy bands."), Rng(0, 1)] public double Noisiness { get; set; }
+    [Category("3 Timbre"), Description("Gamma on brightness: below 1 lifts faint areas, above 1 keeps only the brightest."), Rng(0.3, 3)] public double Contrast { get; set; }
+    [Category("4 Output"), Description("Fade in and out in milliseconds."), Rng(0, 200)] public double FadeMs { get; set; }
+    [Category("4 Output"), Description("Peak level of the result."), Rng(0.1, 1, NoRandom = true)] public double Gain { get; set; }
+}
+
+public class SpectralGrid {
+    public int Cols, Rows; public float[] A;
+    public SpectralGrid(int cols, int rows) { Cols = Math.Max(8, Math.Min(512, cols)); Rows = Math.Max(8, Math.Min(256, rows)); A = new float[Cols * Rows]; }
+    public float Get(int c, int r) { return A[c * Rows + r]; }
+    public void Clear() { Array.Clear(A, 0, A.Length); }
+
+    // Soft round brush in cell coordinates. Row 0 is the lowest frequency.
+    public void Dab(double cx, double cy, double radius, double amount, bool erase) {
+        radius = Math.Max(0.5, radius);
+        int x0 = Math.Max(0, (int)Math.Floor(cx - radius)), x1 = Math.Min(Cols - 1, (int)Math.Ceiling(cx + radius));
+        int y0 = Math.Max(0, (int)Math.Floor(cy - radius)), y1 = Math.Min(Rows - 1, (int)Math.Ceiling(cy + radius));
+        for (int c = x0; c <= x1; c++) for (int r = y0; r <= y1; r++) {
+            double d = Math.Sqrt((c - cx) * (c - cx) + (r - cy) * (r - cy)) / radius; if (d > 1) continue;
+            float w = (float)(1 - d * d); int i = c * Rows + r;
+            if (erase) A[i] = A[i] * (1 - w * (float)Math.Min(1, amount * 1.5)); else A[i] = Math.Max(A[i], (float)amount * w);
+        }
+    }
+    public void Line(double x0, double y0, double x1, double y1, double radius, double amount, bool erase) {
+        double len = Math.Max(Math.Abs(x1 - x0), Math.Abs(y1 - y0)); int n = Math.Max(1, (int)Math.Ceiling(len * 2));
+        for (int i = 0; i <= n; i++) { double t = (double)i / n; Dab(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, radius, amount, erase); }
+    }
+    // A harmonic stack: fundamental plus overtones from column c0 to c1, each overtone quieter by rolloff.
+    public void Harmonics(double fundHz, int c0, int c1, int count, double rolloff, double amount, double minHz, double maxHz) {
+        for (int k = 1; k <= count; k++) {
+            double row = Spectral.HzToRow(fundHz * k, minHz, maxHz, Rows);
+            if (row < 0 || row > Rows - 1) break;
+            Line(c0, row, c1, row, 0.9, amount * Math.Pow(rolloff, k - 1), false);
+        }
+    }
+    public void Invert() { for (int i = 0; i < A.Length; i++) A[i] = 1 - A[i]; }
+    public void FlipTime() { for (int c = 0; c < Cols / 2; c++) for (int r = 0; r < Rows; r++) { float t = A[c * Rows + r]; A[c * Rows + r] = A[(Cols - 1 - c) * Rows + r]; A[(Cols - 1 - c) * Rows + r] = t; } }
+    public void FlipFreq() { for (int c = 0; c < Cols; c++) for (int r = 0; r < Rows / 2; r++) { float t = A[c * Rows + r]; A[c * Rows + r] = A[c * Rows + Rows - 1 - r]; A[c * Rows + Rows - 1 - r] = t; } }
+    public void Gamma(double g) { for (int i = 0; i < A.Length; i++) A[i] = (float)Math.Pow(Math.Max(0, A[i]), g); }
+    public void Threshold(double t) { for (int i = 0; i < A.Length; i++) A[i] = A[i] >= t ? 1 : 0; }
+    public void Grain(double amount, int seed) { Random rnd = new Random(seed); for (int i = 0; i < A.Length; i++) A[i] *= (float)(1 - amount + amount * rnd.NextDouble() * 2); Clamp(); }
+    public void Clamp() { for (int i = 0; i < A.Length; i++) A[i] = Math.Max(0, Math.Min(1, A[i])); }
+    public void ShiftRows(int n) { float[] o = new float[A.Length]; for (int c = 0; c < Cols; c++) for (int r = 0; r < Rows; r++) { int rr = r + n; if (rr >= 0 && rr < Rows) o[c * Rows + rr] = A[c * Rows + r]; } A = o; }
+    public void Blur(int rc, int rr) {
+        float[] t = new float[A.Length], o = new float[A.Length];
+        for (int c = 0; c < Cols; c++) for (int r = 0; r < Rows; r++) { float s = 0; int n = 0; for (int k = -rc; k <= rc; k++) { int cc = c + k; if (cc < 0 || cc >= Cols) continue; s += A[cc * Rows + r]; n++; } t[c * Rows + r] = s / n; }
+        for (int c = 0; c < Cols; c++) for (int r = 0; r < Rows; r++) { float s = 0; int n = 0; for (int k = -rr; k <= rr; k++) { int r2 = r + k; if (r2 < 0 || r2 >= Rows) continue; s += t[c * Rows + r2]; n++; } o[c * Rows + r] = s / n; }
+        A = o;
+    }
+    // Leaves a fading trail to the right of everything bright (decay per column, 0..1).
+    public void Smear(double decay) { for (int c = 1; c < Cols; c++) for (int r = 0; r < Rows; r++) A[c * Rows + r] = Math.Max(A[c * Rows + r], (float)(A[(c - 1) * Rows + r] * decay)); }
+    public void Normalize() { float m = 0; for (int i = 0; i < A.Length; i++) m = Math.Max(m, A[i]); if (m > 1e-6f) for (int i = 0; i < A.Length; i++) A[i] /= m; }
+    public float Peak() { float m = 0; for (int i = 0; i < A.Length; i++) m = Math.Max(m, A[i]); return m; }
+
+    public void FromBitmap(Bitmap src, bool invert) {
+        using (Bitmap b = new Bitmap(src, Cols, Rows)) {
+            for (int c = 0; c < Cols; c++) for (int y = 0; y < Rows; y++) {
+                Color px = b.GetPixel(c, y); double l = (0.299 * px.R + 0.587 * px.G + 0.114 * px.B) / 255.0 * (px.A / 255.0);
+                A[c * Rows + (Rows - 1 - y)] = (float)(invert ? 1 - l : l);
+            }
+        }
+    }
+    public Bitmap ToBitmap() {
+        Bitmap b = new Bitmap(Cols, Rows);
+        for (int c = 0; c < Cols; c++) for (int r = 0; r < Rows; r++) {
+            double v = Math.Max(0, Math.Min(1, A[c * Rows + r]));
+            int R = (int)(255 * Math.Min(1, v * 2.2)), G = (int)(255 * Math.Max(0, Math.Min(1, v * 2.2 - 0.8))), B2 = (int)(200 * Math.Max(0, 1 - v * 1.5) + 255 * Math.Max(0, v - 0.85));
+            b.SetPixel(c, Rows - 1 - r, Color.FromArgb(Math.Min(255, R / 2 + (int)(B2 * 0.2)), G, Math.Min(255, B2 + R / 4)));
+        }
+        return b;
+    }
+}
+
+public static class Spectral {
+    const int SR = Dsp.SR;
+    public static double RowToHz(double row, double minHz, double maxHz, int rows) { return minHz * Math.Pow(maxHz / minHz, row / (rows - 1.0)); }
+    public static double HzToRow(double hz, double minHz, double maxHz, int rows) { return Math.Log(hz / minHz) / Math.Log(maxHz / minHz) * (rows - 1.0); }
+
+    static readonly int[][] Scales = new int[][] {
+        null, new int[] { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 }, new int[] { 0, 2, 4, 5, 7, 9, 11 }, new int[] { 0, 2, 3, 5, 7, 8, 10 },
+        new int[] { 0, 3, 5, 7, 10 }, new int[] { 0, 2, 3, 7, 8 }, new int[] { 0, 2, 4, 6, 8, 10 }, new int[] { 0, 2, 3, 5, 6, 8, 9, 11 } };
+    public static double SnapHz(double hz, SpecSnap snap, int root) {
+        if (snap == SpecSnap.off) return hz;
+        int[] sc = Scales[(int)snap]; double midi = 69 + 12 * Math.Log(hz / 440.0, 2); int best = (int)Math.Round(midi); double bd = 1e9;
+        for (int m = (int)Math.Round(midi) - 6; m <= (int)Math.Round(midi) + 6; m++) {
+            int pc = (((m - root) % 12) + 12) % 12; bool ok = false; foreach (int s in sc) if (s == pc) ok = true;
+            if (ok && Math.Abs(m - midi) < bd) { bd = Math.Abs(m - midi); best = m; }
+        }
+        return 440.0 * Math.Pow(2, (best - 69) / 12.0);
+    }
+
+    // Additive resynthesis: each grid row is a sine partial whose loudness follows the picture over time.
+    public static float[] Render(SpectralGrid g, SpectralSettings s) {
+        int N = (int)(Math.Max(0.5, Math.Min(30, s.Seconds)) * SR), rows = g.Rows, cols = g.Cols;
+        float[] o = new float[N]; Random rnd = new Random(7);
+        double minHz = Math.Min(s.MinHz, s.MaxHz * 0.5), maxHz = s.MaxHz, colScale = (cols - 1) / (double)Math.Max(1, N - 1), contrast = Math.Max(0.1, s.Contrast);
+        float[] env = new float[cols];
+        for (int r = 0; r < rows; r++) {
+            int src = s.Flip ? rows - 1 - r : r; bool any = false;
+            for (int c = 0; c < cols; c++) { float v = g.A[c * rows + src]; env[c] = (float)Math.Pow(Math.Max(0, v), contrast); if (env[c] > 0.003f) any = true; }
+            if (!any) continue;
+            double hz = SnapHz(RowToHz(r, minHz, maxHz, rows), s.Snap, (int)s.Root);
+            if (hz > SR * 0.45) continue;
+            double w = 2 * Math.PI * hz / SR, ph = rnd.NextDouble() * 6.2832, jt = 0, jn = 0, jit = s.Noisiness * 0.08;
+            for (int n = 0; n < N; n++) {
+                double x = (s.Reverse ? (N - 1 - n) : n) * colScale; int c0 = (int)x; int c1 = Math.Min(cols - 1, c0 + 1); double fr = x - c0;
+                double a = env[c0] + (env[c1] - env[c0]) * fr;
+                if (jit > 0) { int k = n & 63; if (k == 0) { jt = jn; jn = rnd.NextDouble() * 2 - 1; } ph += w * (1 + jit * (jt + (jn - jt) * (k / 64.0))); } else ph += w;
+                if (a < 1e-4) continue;
+                double v = Math.Sin(ph);
+                if (s.Brightness > 0) v += s.Brightness * (0.5 * Math.Sin(2 * ph) + 0.25 * Math.Sin(3 * ph));
+                o[n] += (float)(a * v);
+            }
+        }
+        int fade = Math.Min(N / 2, (int)(s.FadeMs * SR / 1000.0));
+        for (int i = 0; i < fade; i++) { float k = (float)i / fade; o[i] *= k; o[N - 1 - i] *= k; }
+        Dsp.Normalize(o, (float)s.Gain);
+        return o;
+    }
+
+    static void Fft(double[] re, double[] im) {
+        int n = re.Length;
+        for (int i = 1, j = 0; i < n; i++) { int bit = n >> 1; for (; (j & bit) != 0; bit >>= 1) j ^= bit; j ^= bit; if (i < j) { double t = re[i]; re[i] = re[j]; re[j] = t; t = im[i]; im[i] = im[j]; im[j] = t; } }
+        for (int len = 2; len <= n; len <<= 1) {
+            double ang = -2 * Math.PI / len, wr = Math.Cos(ang), wi = Math.Sin(ang);
+            for (int i = 0; i < n; i += len) {
+                double cr = 1, ci = 0;
+                for (int k = 0; k < len / 2; k++) {
+                    int a = i + k, b = i + k + len / 2; double xr = re[b] * cr - im[b] * ci, xi = re[b] * ci + im[b] * cr;
+                    re[b] = re[a] - xr; im[b] = im[a] - xi; re[a] += xr; im[a] += xi;
+                    double ncr = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = ncr;
+                }
+            }
+        }
+    }
+
+    // Spectrogram of a sample into the grid, so you can reshape a sound by painting on it and resynthesise.
+    public static void FromSample(SpectralGrid g, float[] s, double minHz, double maxHz) {
+        const int FN = 4096; double[] re = new double[FN], im = new double[FN], win = new double[FN];
+        for (int i = 0; i < FN; i++) win[i] = 0.5 - 0.5 * Math.Cos(2 * Math.PI * i / (FN - 1));
+        double binHz = (double)SR / FN, gmax = 1e-9;
+        for (int c = 0; c < g.Cols; c++) {
+            int center = (int)((c + 0.5) / g.Cols * s.Length);
+            for (int i = 0; i < FN; i++) { int p = center - FN / 2 + i; re[i] = (p >= 0 && p < s.Length ? s[p] : 0) * win[i]; im[i] = 0; }
+            Fft(re, im);
+            for (int r = 0; r < g.Rows; r++) {
+                double f0 = RowToHz(r - 0.5, minHz, maxHz, g.Rows), f1 = RowToHz(r + 0.5, minHz, maxHz, g.Rows);
+                int b0 = Math.Max(1, (int)Math.Floor(f0 / binHz)), b1 = Math.Min(FN / 2 - 1, Math.Max(b0, (int)Math.Ceiling(f1 / binHz))); double m = 0;
+                for (int b = b0; b <= b1; b++) m = Math.Max(m, Math.Sqrt(re[b] * re[b] + im[b] * im[b]));
+                double db = 20 * Math.Log10(m / (FN / 4.0) + 1e-9); double v = Math.Max(0, Math.Min(1, (db + 75) / 75.0));
+                g.A[c * g.Rows + r] = (float)v; if (v > gmax) gmax = v;
+            }
+        }
+        g.Normalize();
+    }
+}
+
+public enum MetaPath { tour, pingpong, circle, wander }
+public enum MetaChord { single, octaves, fifth, minor, major, sus2, cluster }
+
+public class MetaSettings {
+    public MetaSettings() { Seconds = 8; Steps = 24; Pitch = 48; Path = MetaPath.tour; Chord = MetaChord.single; HoldSustain = true; Seed = 1; X = 0.5; Y = 0.5; }
+    [Category("1 Morph"), Description("Morph position left (A, C) to right (B, D)."), Rng(0, 1, NoRandom = true)] public double X { get; set; }
+    [Category("1 Morph"), Description("Morph position top (A, B) to bottom (C, D)."), Rng(0, 1, NoRandom = true)] public double Y { get; set; }
+    [Category("2 Evolving sound"), Description("Length of the evolving sound in seconds."), Rng(1, 30)] public double Seconds { get; set; }
+    [Category("2 Evolving sound"), Description("Number of morph steps (more = smoother, slower to render)."), Rng(4, 64)] public double Steps { get; set; }
+    [Category("2 Evolving sound"), Description("MIDI pitch of the sound."), Rng(24, 96)] public double Pitch { get; set; }
+    [Category("2 Evolving sound"), Description("Journey through the four patches: tour (A to B to C to D), pingpong (A to B and back), circle, wander (smooth random).")] public MetaPath Path { get; set; }
+    [Category("2 Evolving sound"), Description("Stack extra notes: single, octaves, fifth, minor, major, sus2, cluster.")] public MetaChord Chord { get; set; }
+    [Category("2 Evolving sound"), Description("Keep each step sustaining so the morph sounds continuous.")] public bool HoldSustain { get; set; }
+    [Category("2 Evolving sound"), Description("Random seed for wander."), Rng(0, 9999, NoRandom = true)] public double Seed { get; set; }
+}
+
+// Morphs between up to four patches. Numbers blend (cutoff-like ranges blend in octaves), choices switch halfway.
+public static class MetaSynth {
+    public static Patch Morph(Patch a, Patch b, double t) {
+        Patch r = new Patch(); t = Math.Max(0, Math.Min(1, t));
+        foreach (System.Reflection.PropertyInfo pi in typeof(Patch).GetProperties()) {
+            if (!pi.CanWrite) continue;
+            object va = pi.GetValue(a, null), vb = pi.GetValue(b, null);
+            if (pi.PropertyType.IsEnum) { pi.SetValue(r, t < 0.5 ? va : vb, null); continue; }
+            object[] at = pi.GetCustomAttributes(typeof(RngAttribute), true); RngAttribute rg = at.Length > 0 ? (RngAttribute)at[0] : null;
+            double x = Convert.ToDouble(va, CultureInfo.InvariantCulture), y = Convert.ToDouble(vb, CultureInfo.InvariantCulture), v;
+            if (rg != null && rg.Min > 0 && rg.Max / rg.Min > 20) v = Math.Exp(Math.Log(Math.Max(x, rg.Min)) * (1 - t) + Math.Log(Math.Max(y, rg.Min)) * t);
+            else v = x + (y - x) * t;
+            if (pi.Name == "Unison") v = Math.Round(v);
+            if (rg != null) v = Math.Max(rg.Min, Math.Min(rg.Max, v));
+            pi.SetValue(r, v, null);
+        }
+        return r;
+    }
+    public static Patch Bilinear(Patch[] s, double x, double y) { return Morph(Morph(s[0], s[1], x), Morph(s[2], s[3], x), y); }
+
+    public static void PathPoint(MetaPath m, double u, int seed, out double x, out double y) {
+        u = Math.Max(0, Math.Min(1, u));
+        switch (m) {
+            case MetaPath.pingpong: x = u < 0.5 ? u * 2 : 2 - u * 2; y = 0; break;
+            case MetaPath.circle: x = 0.5 + 0.5 * Math.Cos(2 * Math.PI * u + Math.PI); y = 0.5 + 0.5 * Math.Sin(2 * Math.PI * u + Math.PI); break;
+            case MetaPath.wander: {
+                Random rnd = new Random(seed); double a1 = rnd.NextDouble() * 6.28, a2 = rnd.NextDouble() * 6.28, a3 = rnd.NextDouble() * 6.28, a4 = rnd.NextDouble() * 6.28;
+                x = 0.5 + 0.5 * (0.6 * Math.Sin(2 * Math.PI * u * 1.3 + a1) + 0.4 * Math.Sin(2 * Math.PI * u * 3.1 + a2));
+                y = 0.5 + 0.5 * (0.6 * Math.Sin(2 * Math.PI * u * 1.7 + a3) + 0.4 * Math.Sin(2 * Math.PI * u * 2.9 + a4)); break; }
+            default: {
+                double[][] pts = new double[][] { new double[] { 0, 0 }, new double[] { 1, 0 }, new double[] { 0, 1 }, new double[] { 1, 1 } };
+                double f = u * 3; int i = Math.Min(2, (int)f); double t = f - i; x = pts[i][0] + (pts[i + 1][0] - pts[i][0]) * t; y = pts[i][1] + (pts[i + 1][1] - pts[i][1]) * t; break; }
+        }
+    }
+    static int[] ChordTones(MetaChord c) {
+        switch (c) {
+            case MetaChord.octaves: return new int[] { 0, 12, -12 };
+            case MetaChord.fifth: return new int[] { 0, 7 };
+            case MetaChord.minor: return new int[] { 0, 3, 7 };
+            case MetaChord.major: return new int[] { 0, 4, 7 };
+            case MetaChord.sus2: return new int[] { 0, 2, 7 };
+            case MetaChord.cluster: return new int[] { 0, 1, 2, 5 };
+            default: return new int[] { 0 };
+        }
+    }
+    static Patch Prep(Patch p, MetaSettings m) {
+        if (!m.HoldSustain) return p;
+        Patch q = p.Clone(); q.Sustain = Math.Max(q.Sustain, 0.85); q.Attack = Math.Min(q.Attack, 0.02); return q;
+    }
+    public static float[] Evolve(Patch[] slots, MetaSettings m) {
+        int steps = Math.Max(4, Math.Min(64, (int)m.Steps)); double hop = Math.Max(1, m.Seconds) / steps; int hopN = (int)(hop * Dsp.SR), winN = hopN * 2;
+        float[] o = new float[hopN * (steps + 1)]; int[] tones = ChordTones(m.Chord);
+        for (int i = 0; i < steps; i++) {
+            double x, y; PathPoint(m.Path, steps == 1 ? 0 : (double)i / (steps - 1), (int)m.Seed, out x, out y);
+            Patch p = Prep(Bilinear(slots, x, y), m);
+            foreach (int tone in tones) {
+                float[] n = PatchSynth.Render(p, Math.Max(0, Math.Min(127, (int)m.Pitch + tone)), hop * 2.2);
+                for (int k = 0; k < winN && k < n.Length; k++) {
+                    double w = 0.5 - 0.5 * Math.Cos(2 * Math.PI * k / (winN - 1));
+                    if (i == 0 && k < winN / 2) w = 1; if (i == steps - 1 && k >= winN / 2) w = 1;
+                    int idx = i * hopN + k; if (idx < o.Length) o[idx] += (float)(n[k] * w / tones.Length);
+                }
+            }
+        }
+        Dsp.Normalize(o, 0.89f);
+        return o;
+    }
+}
+
+public enum MixKind { sidechain, highpass, lowpass, peak, lowshelf, highshelf, gain, pan, width, saturate, monobass }
+
+// One mixing move applied to one or more tracks before they are summed. Bounded like every other parameter class.
+public class MixRule {
+    public MixRule() { Enabled = true; Kind = MixKind.sidechain; Target = "*"; Source = ""; Depth = 0.7; AttackMs = 3; ReleaseMs = 160; FreqHz = 120; Db = 0; Q = 0.8; Width = 1; Pan = 0; }
+    [Category("1 What"), Description("Turn this rule on or off.")] public bool Enabled { get; set; }
+    [Category("1 What"), Description("sidechain (duck targets from the source track), highpass, lowpass, peak (EQ bell), lowshelf, highshelf, gain, pan, width, saturate, monobass (collapse low frequencies to mono).")] public MixKind Kind { get; set; }
+    [Category("1 What"), Description("Which tracks it affects: * for all, or track names / synth names separated by commas (for example: bass, pad).")] public string Target { get; set; }
+    [Category("1 What"), Description("Sidechain only: the track that triggers the ducking, usually the kick (matched by name). Works even if that track is muted.")] public string Source { get; set; }
+    [Category("2 Sidechain and drive"), Description("Sidechain: how far the targets duck (1 = fully silent on each hit). Saturate: drive amount."), Rng(0, 1)] public double Depth { get; set; }
+    [Category("2 Sidechain and drive"), Description("Sidechain: how fast it ducks, in milliseconds."), Rng(0.5, 100)] public double AttackMs { get; set; }
+    [Category("2 Sidechain and drive"), Description("Sidechain: how long it takes to recover, in milliseconds. Short = tight pump, long = swell."), Rng(20, 1000)] public double ReleaseMs { get; set; }
+    [Category("3 Filter and level"), Description("Frequency in Hz for filters, EQ bell, shelves and monobass."), Rng(20, 20000)] public double FreqHz { get; set; }
+    [Category("3 Filter and level"), Description("Gain in dB for peak, shelves and gain."), Rng(-24, 12)] public double Db { get; set; }
+    [Category("3 Filter and level"), Description("Filter resonance / bell width."), Rng(0.2, 8)] public double Q { get; set; }
+    [Category("3 Filter and level"), Description("Stereo width for kind width (1 = unchanged, 0 = mono, 2 = very wide)."), Rng(0, 2)] public double Width { get; set; }
+    [Category("3 Filter and level"), Description("Pan position for kind pan, -1 left to 1 right."), Rng(-1, 1)] public double Pan { get; set; }
+}
+
+public static class MixEngine {
+    static bool Any(string spec) { return string.IsNullOrEmpty(spec) || spec.Trim() == "*" || spec.Trim().ToLowerInvariant() == "all"; }
+    public static bool Matches(Track t, string spec) {
+        if (Any(spec)) return true;
+        string nm = (t.Name ?? "").ToLowerInvariant(), sy = (t.Synth ?? "").ToLowerInvariant();
+        foreach (string part in spec.Split(new char[] { ',', ';', '+', '&' })) {
+            string s = part.Trim().ToLowerInvariant(); if (s.Length == 0) continue;
+            if (s == "*" || s == "all" || nm.Contains(s) || sy == s) return true;
+        }
+        return false;
+    }
+    static Track FindSource(List<Track> ts, string spec) {
+        if (string.IsNullOrEmpty(spec) || Any(spec)) return null;
+        foreach (Track t in ts) if (Matches(t, spec)) return t;
+        return null;
+    }
+    public static bool IsSource(Project p, Track t) {
+        if (p.Mix == null) return false;
+        foreach (MixRule r in p.Mix) if (r != null && r.Enabled && r.Kind == MixKind.sidechain && FindSource(p.Tracks, r.Source) == t) return true;
+        return false;
+    }
+
+    static float[] Envelope(float[] sl, float[] sr, double atkMs, double relMs, bool loop) {
+        int n = sl.Length; float[] env = new float[n];
+        double a = Math.Exp(-1.0 / Math.Max(1, atkMs * Dsp.SR / 1000.0)), r = Math.Exp(-1.0 / Math.Max(1, relMs * Dsp.SR / 1000.0)), e = 0;
+        for (int pass = 0; pass < (loop ? 2 : 1); pass++)
+            for (int i = 0; i < n; i++) { double x = (Math.Abs(sl[i]) + Math.Abs(sr[i])) * 0.5, c = x > e ? a : r; e = c * e + (1 - c) * x; env[i] = (float)e; }
+        return env;
+    }
+
+    public static void Apply(Project p, List<Track> ts, List<float[]> TL, List<float[]> TR, List<bool> ghost, bool loop, double spb) {
+        if (p.Mix == null) return;
+        foreach (MixRule r in p.Mix) {
+            if (r == null || !r.Enabled) continue;
+            int si = -1;
+            if (r.Kind == MixKind.sidechain) {
+                Track src = FindSource(p.Tracks, r.Source); if (src == null) continue;
+                si = ts.IndexOf(src); if (si < 0) continue;
+            }
+            float[] env = null; double pk = 0;
+            if (si >= 0) { env = Envelope(TL[si], TR[si], r.AttackMs, r.ReleaseMs, loop); foreach (float v in env) pk = Math.Max(pk, v); if (pk < 1e-6) continue; }
+            for (int k = 0; k < ts.Count; k++) {
+                if (ghost[k] || k == si || !Matches(ts[k], r.Target)) continue;
+                float[] L = TL[k], R = TR[k]; int n = L.Length;
+                switch (r.Kind) {
+                    case MixKind.sidechain:
+                        for (int i = 0; i < n; i++) { float g = (float)(1 - r.Depth * Math.Min(1.0, env[i] / (pk * 0.6))); L[i] *= g; R[i] *= g; }
+                        break;
+                    case MixKind.gain: { float g = (float)Math.Pow(10, r.Db / 20); for (int i = 0; i < n; i++) { L[i] *= g; R[i] *= g; } break; }
+                    case MixKind.pan: {
+                        double pl = Math.Cos((r.Pan + 1) * Math.PI / 4) / Math.Cos(Math.PI / 4), pr = Math.Sin((r.Pan + 1) * Math.PI / 4) / Math.Sin(Math.PI / 4);
+                        for (int i = 0; i < n; i++) { double m = (L[i] + R[i]) * 0.5; L[i] = (float)(m * pl); R[i] = (float)(m * pr); }
+                        break; }
+                    case MixKind.width:
+                        for (int i = 0; i < n; i++) { double m = (L[i] + R[i]) * 0.5, s = (L[i] - R[i]) * 0.5 * r.Width; L[i] = (float)(m + s); R[i] = (float)(m - s); }
+                        break;
+                    case MixKind.saturate: {
+                        double dr = 1 + r.Depth * 8, norm = 1 + (dr - 1) * 0.5;
+                        for (int i = 0; i < n; i++) { L[i] = (float)(Math.Tanh(L[i] * dr) / norm); R[i] = (float)(Math.Tanh(R[i] * dr) / norm); }
+                        break; }
+                    case MixKind.monobass: {
+                        Biquad lp = Biquad.LowPass(Dsp.SR, r.FreqHz, 0.707);
+                        for (int i = 0; i < n; i++) { double m = (L[i] + R[i]) * 0.5, s = (L[i] - R[i]) * 0.5; s -= lp.Tick(s); L[i] = (float)(m + s); R[i] = (float)(m - s); }
+                        break; }
+                    default: {
+                        Biquad bl, br;
+                        double f = Math.Min(r.FreqHz, Dsp.SR * 0.45);
+                        if (r.Kind == MixKind.highpass) { bl = Biquad.HighPass(Dsp.SR, f, r.Q); br = Biquad.HighPass(Dsp.SR, f, r.Q); }
+                        else if (r.Kind == MixKind.lowpass) { bl = Biquad.LowPass(Dsp.SR, f, r.Q); br = Biquad.LowPass(Dsp.SR, f, r.Q); }
+                        else if (r.Kind == MixKind.lowshelf) { bl = Biquad.LowShelf(Dsp.SR, f, r.Db, 0.707); br = Biquad.LowShelf(Dsp.SR, f, r.Db, 0.707); }
+                        else if (r.Kind == MixKind.highshelf) { bl = Biquad.HighShelf(Dsp.SR, f, r.Db, 0.707); br = Biquad.HighShelf(Dsp.SR, f, r.Db, 0.707); }
+                        else { bl = Biquad.Peak(Dsp.SR, f, r.Db, r.Q); br = Biquad.Peak(Dsp.SR, f, r.Db, r.Q); }
+                        for (int i = 0; i < n; i++) { L[i] = (float)bl.Tick(L[i]); R[i] = (float)br.Tick(R[i]); }
+                        break; }
+                }
+            }
+        }
+    }
+}
+
+// A rotary control: drag up/down (hold Shift for fine), mouse wheel, double-click to reset.
+public class Knob : Control {
+    public double Min = 0, Max = 1, Default = 0; public bool Log; public string Caption = "";
+    public event EventHandler ValueChanged;
+    double val; int dragY; double dragT; bool drag;
+    public Knob() { SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true); Size = new Size(70, 92); Cursor = Cursors.SizeNS; }
+    public double Value { get { return val; } set { double v = Math.Max(Min, Math.Min(Max, value)); if (v == val) return; val = v; Invalidate(); } }
+    double ToT(double v) { if (Max <= Min) return 0; return Log ? Math.Log(Math.Max(v, Min) / Min) / Math.Log(Max / Min) : (v - Min) / (Max - Min); }
+    double FromT(double t) { t = Math.Max(0, Math.Min(1, t)); return Log ? Min * Math.Pow(Max / Min, t) : Min + t * (Max - Min); }
+    void Fire(double v) { Value = v; if (ValueChanged != null) ValueChanged(this, EventArgs.Empty); }
+    protected override void OnMouseDown(MouseEventArgs e) { base.OnMouseDown(e); if (e.Button == MouseButtons.Left) { drag = true; dragY = e.Y; dragT = ToT(val); Capture = true; } }
+    protected override void OnMouseMove(MouseEventArgs e) { base.OnMouseMove(e); if (drag) Fire(FromT(dragT + (dragY - e.Y) / ((ModifierKeys & Keys.Shift) != 0 ? 600.0 : 150.0))); }
+    protected override void OnMouseUp(MouseEventArgs e) { base.OnMouseUp(e); drag = false; Capture = false; }
+    protected override void OnMouseWheel(MouseEventArgs e) { base.OnMouseWheel(e); Fire(FromT(ToT(val) + Math.Sign(e.Delta) * ((ModifierKeys & Keys.Shift) != 0 ? 0.005 : 0.03))); }
+    protected override void OnDoubleClick(EventArgs e) { base.OnDoubleClick(e); Fire(Default); }
+    string Fmt() { double a = Math.Abs(val); return val.ToString(a >= 1000 ? "0" : a >= 100 ? "0.#" : a >= 10 ? "0.0" : "0.00", CultureInfo.InvariantCulture); }
+    protected override void OnPaint(PaintEventArgs e) {
+        Graphics g = e.Graphics; g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias; g.Clear(BackColor);
+        int d = Math.Min(Width - 16, Height - 42); if (d < 14) d = 14;
+        Rectangle rc = new Rectangle((Width - d) / 2, 4, d, d);
+        int textY = d + 7, capY = d + 21;
+        double t = ToT(val);
+        using (Pen bg = new Pen(Color.FromArgb(60, 66, 84), 5)) g.DrawArc(bg, rc, 135, 270);
+        using (Pen fg = new Pen(ForeColor, 5)) { if (t > 0.002) g.DrawArc(fg, rc, 135, (float)(270 * t)); }
+        using (SolidBrush b = new SolidBrush(Color.FromArgb(34, 38, 50))) g.FillEllipse(b, rc.X + 7, rc.Y + 7, d - 14, d - 14);
+        double ang = (135 + 270 * t) * Math.PI / 180; float cx = rc.X + d / 2f, cy = rc.Y + d / 2f, rr = d / 2f - 9;
+        using (Pen pt = new Pen(Color.White, 2)) g.DrawLine(pt, cx, cy, cx + (float)Math.Cos(ang) * rr, cy + (float)Math.Sin(ang) * rr);
+        using (StringFormat sf = new StringFormat()) {
+            sf.Alignment = StringAlignment.Center; sf.Trimming = StringTrimming.EllipsisCharacter; sf.FormatFlags = StringFormatFlags.NoWrap;
+            using (SolidBrush tb = new SolidBrush(Color.White)) g.DrawString(Fmt(), Font, tb, new RectangleF(0, textY, Width, 15), sf);
+            using (SolidBrush cb = new SolidBrush(Color.FromArgb(150, 158, 180))) g.DrawString(Caption, Font, cb, new RectangleF(0, capY, Width, 15), sf);
+        }
+    }
+}
+
+// Builds a wall of knobs (plus drop-downs and check boxes) for any [Rng] parameter object, in step with the property grid.
+public static class KnobPanel {
+    static System.Collections.Generic.HashSet<string> ModuleProps(string module) {
+        System.Collections.Generic.HashSet<string> s = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (module != null) {
+            string m = module.ToLowerInvariant();
+            if (m == "filter") { s.Add("Filter"); s.Add("Cutoff"); s.Add("Resonance"); s.Add("FilterLfoRate"); s.Add("FilterLfoDepth"); }
+            else if (m == "drive") { s.Add("Drive"); }
+            else if (m == "crush") { s.Add("Bits"); s.Add("Downsample"); }
+            else if (m == "ring") { s.Add("RingMix"); s.Add("RingFreq"); }
+            else if (m == "stutter") { s.Add("StutterBeats"); s.Add("StutterDiv"); s.Add("StutterChance"); }
+            else if (m == "chorus") { s.Add("Chorus"); s.Add("ChorusRate"); s.Add("ChorusDepth"); }
+            else if (m == "delay") { s.Add("DelayMix"); s.Add("DelayBeats"); s.Add("DelayFeedback"); }
+            else if (m == "reverb") { s.Add("ReverbMix"); s.Add("ReverbSize"); }
+            else if (m == "phaser") { s.Add("PhaserMix"); s.Add("PhaserRate"); s.Add("PhaserDepth"); s.Add("PhaserStages"); }
+            else if (m == "flanger") { s.Add("FlangerMix"); s.Add("FlangerRate"); s.Add("FlangerDepth"); s.Add("FlangerFb"); }
+            else if (m == "tapestop") { s.Add("TapeStop"); s.Add("TapeStopRate"); }
+            else if (m == "tapedelay") { s.Add("TapeDelayMix"); s.Add("TapeDelayTime"); s.Add("TapeDelayFb"); s.Add("TapeDelayWow"); }
+            else if (m == "plate") { s.Add("PlateMix"); s.Add("PlateSize"); s.Add("PlateDamping"); }
+            else if (m == "vinyl") { s.Add("VinylCrackle"); s.Add("TapeHiss"); s.Add("TapeWow"); }
+            else if (m == "comp") { s.Add("CompThresh"); s.Add("CompRatio"); s.Add("CompAttack"); s.Add("CompRelease"); s.Add("CompMakeup"); s.Add("SidechainSource"); s.Add("SidechainMix"); s.Add("SidechainAttack"); s.Add("SidechainRelease"); }
+            else if (m == "eq") { s.Add("LowShelf"); s.Add("HighShelf"); s.Add("MidPeak"); s.Add("Width"); s.Add("PitchShift"); }
+            s.Add("Gain");
+        }
+        return s;
+    }
+    public static void Build(object o, FlowLayoutPanel host, EventHandler changed, Color back, Color fore, Color accent, string moduleFilter = null) {
+        foreach (Control c in new List<Control>(host.Controls.Cast<Control>())) { host.Controls.Remove(c); c.Dispose(); }
+        if (o == null) return;
+        object def = Activator.CreateInstance(o.GetType()); ToolTip tip = new ToolTip();
+        string cat = null; host.SuspendLayout();
+        foreach (System.Reflection.PropertyInfo pi in o.GetType().GetProperties()) {
+            if (!pi.CanWrite) continue;
+            object[] ra = pi.GetCustomAttributes(typeof(RngAttribute), true); RngAttribute r = ra.Length > 0 ? (RngAttribute)ra[0] : null;
+            bool isEnum = pi.PropertyType.IsEnum, isBool = pi.PropertyType == typeof(bool), isNum = r != null && !isEnum && !isBool && pi.PropertyType != typeof(string);
+            if (!isEnum && !isBool && !isNum) continue;
+            if (moduleFilter != null && o is Fx) { if (!ModuleProps(moduleFilter).Contains(pi.Name)) { if (!string.Equals(pi.Name, "Gain", StringComparison.OrdinalIgnoreCase)) { continue; } } }
+            object[] ca = pi.GetCustomAttributes(typeof(CategoryAttribute), true); string c2 = ca.Length > 0 ? ((CategoryAttribute)ca[0]).Category : "";
+            object[] da = pi.GetCustomAttributes(typeof(DescriptionAttribute), true); string desc = da.Length > 0 ? ((DescriptionAttribute)da[0]).Description : "";
+            if (c2 != cat) {
+                cat = c2; Label hl = new Label(); hl.Text = cat; hl.ForeColor = accent; hl.BackColor = back; hl.AutoSize = false; hl.Size = new Size(Math.Max(300, host.ClientSize.Width - 30), 20); hl.Margin = new Padding(2, 6, 0, 0);
+                host.Controls.Add(hl); host.SetFlowBreak(hl, true);
+            }
+            System.Reflection.PropertyInfo prop = pi; object target = o;
+            if (isNum) {
+                Knob k = new Knob(); k.BackColor = back; k.ForeColor = accent; k.Min = r.Min; k.Max = r.Max; k.Log = r.Min > 0 && r.Max / r.Min > 20; k.Caption = pi.Name;
+                k.Default = Convert.ToDouble(pi.GetValue(def, null), CultureInfo.InvariantCulture); k.Value = Convert.ToDouble(pi.GetValue(o, null), CultureInfo.InvariantCulture);
+                k.Font = host.Font; tip.SetToolTip(k, pi.Name + ": " + desc);
+                k.ValueChanged += delegate(object s, EventArgs ev) { prop.SetValue(target, Convert.ChangeType(((Knob)s).Value, prop.PropertyType, CultureInfo.InvariantCulture), null); if (changed != null) changed(s, ev); };
+                host.Controls.Add(k);
+            } else {
+                Panel cell = new Panel(); cell.Size = new Size(118, 56); cell.BackColor = back; cell.Margin = new Padding(3);
+                Label l = new Label(); l.Text = pi.Name; l.ForeColor = Color.FromArgb(150, 158, 180); l.SetBounds(2, 30, 114, 16); l.Font = host.Font; cell.Controls.Add(l);
+                if (isEnum) {
+                    ComboBox cb = new ComboBox(); cb.DropDownStyle = ComboBoxStyle.DropDownList; cb.FlatStyle = FlatStyle.Flat; cb.BackColor = Color.FromArgb(30, 34, 46); cb.ForeColor = fore;
+                    foreach (string n in Enum.GetNames(pi.PropertyType)) cb.Items.Add(n);
+                    cb.SelectedItem = pi.GetValue(o, null).ToString(); cb.SetBounds(2, 4, 112, 24);
+                    cb.SelectedIndexChanged += delegate(object s, EventArgs ev) { prop.SetValue(target, Enum.Parse(prop.PropertyType, (string)((ComboBox)s).SelectedItem), null); if (changed != null) changed(s, ev); };
+                    tip.SetToolTip(cb, pi.Name + ": " + desc); cell.Controls.Add(cb);
+                } else {
+                    CheckBox ck = new CheckBox(); ck.Text = "on"; ck.ForeColor = fore; ck.Checked = (bool)pi.GetValue(o, null); ck.SetBounds(4, 6, 100, 22);
+                    ck.CheckedChanged += delegate(object s, EventArgs ev) { prop.SetValue(target, ((CheckBox)s).Checked, null); if (changed != null) changed(s, ev); };
+                    tip.SetToolTip(ck, pi.Name + ": " + desc); cell.Controls.Add(ck);
+                }
+                host.Controls.Add(cell);
+            }
+        }
+        host.ResumeLayout();
+    }
+}
+
+// -----------------------------------------------------------------------------------
+// Eurorack-style patch graph: modules (tracks, FX units, bus/mixer amps, the master out)
+// are wired jack-to-jack. Unpatched tracks and orphaned modules still reach the speakers,
+// so a fresh graph sounds exactly like an unpatched mixer.
+// -----------------------------------------------------------------------------------
+public class PatchNode {
+    public string Id = Guid.NewGuid().ToString("N");
+    public string Kind = "fx";       // track | fx | bus | out
+    public string Type = "filter";   // fx: module type, bus: bus label base, track: track, out: out
+    public string Label = "";        // fallback label (fx/bus/out); track nodes resolve live by TrackUid
+    public double X = 60, Y = 60;
+    public string TrackUid;          // Kind == track: uid of the linked Track
+    [Category("1 Module"), Description("Module output gain (bus modules only). 0 = silent, 1 = unity, 2 = hot."), Rng(0, 2)] public double Gain { get; set; }
+    [Category("1 Module"), Description("Pan of this bus module (bus modules only). -1 left, 0 centre, +1 right."), Rng(-1, 1)] public double Pan { get; set; }
+    [Category("1 Module"), Description("Bypass this module: the signal passes through untouched.")] public bool Bypass { get; set; }
+    [Browsable(false)] public Fx Fx = new Fx();   // Kind == fx: the module's own effect chain
+    [Browsable(false)] public List<AutoLane> Auto = new List<AutoLane>();
+}
+
+public class PatchLink {
+    public string From, To;   // node ids: an OUT jack feeds any number of IN jacks; ins are summed
+    public PatchLink() { }
+    public PatchLink(string from, string to) { From = from; To = to; }
+}
+
+public class PatchGroup {
+    public string Id = Guid.NewGuid().ToString("N");
+    public string Name = "Group";
+    public string NodeId;                       // the group's master bus node in the graph
+    public List<string> Members = new List<string>();
+    public bool Collapsed;
+    public int ColorIndex;
+}
+
+public class PatchGraph {
+    public List<PatchNode> Nodes = new List<PatchNode>();
+    public List<PatchLink> Links = new List<PatchLink>();
+    public List<PatchGroup> Groups = new List<PatchGroup>();
+    public double PanX, PanY;
+    public bool Initialized;
+    public PatchNode Find(string id) { foreach (PatchNode n in Nodes) if (n.Id == id) return n; return null; }
+    public PatchNode OutNode() { foreach (PatchNode n in Nodes) if (n.Kind == "out") return n; return null; }
+    public List<PatchLink> LinksTo(string id) { List<PatchLink> o = new List<PatchLink>(); foreach (PatchLink l in Links) if (l.To == id) o.Add(l); return o; }
+    public List<PatchLink> LinksFrom(string id) { List<PatchLink> o = new List<PatchLink>(); foreach (PatchLink l in Links) if (l.From == id) o.Add(l); return o; }
+    public bool HasLink(string from, string to) { foreach (PatchLink l in Links) if (l.From == from && l.To == to) return true; return false; }
+}
+
+public static class PatchRender {
+    public static bool Active(Project p) { return p != null && p.Graph != null && p.Graph.Initialized && p.Graph.Nodes.Count > 0; }
+    // True when the graph contains a module that owns this FX instance. RenderStereo uses this to
+    // decide whether the track's FX is processed by a graph module (once) or by the legacy mixer path.
+    public static bool HasFxNode(Project p, Fx fx) {
+        if (p == null || p.Graph == null || fx == null) return false;
+        foreach (PatchNode n in p.Graph.Nodes) if (n.Kind == "fx" && ReferenceEquals(n.Fx, fx)) return true;
+        return false;
+    }
+    // Track/bus FX objects are occasionally replaced (AI design, preset clear). Point the graph's
+    // trackfx/busfx modules at the live objects again so the graph always processes the current FX.
+    public static void BindFxNodes(Project p) {
+        if (p == null || p.Graph == null) return;
+        PatchGraph g = p.Graph;
+        foreach (PatchNode n in g.Nodes) {
+            if (n.Kind != "fx" || n.Type == null) continue;
+            if (string.Equals(n.Type, "trackfx", StringComparison.OrdinalIgnoreCase)) {
+                foreach (PatchLink l in g.Links) {
+                    if (l.To != n.Id) continue;
+                    PatchNode up = g.Find(l.From);
+                    if (up == null || up.Kind != "track") continue;
+                    Track t = null; foreach (Track x in p.Tracks) if (x.Uid == up.TrackUid) { t = x; break; }
+                    if (t != null) { n.Fx = t.Fx; n.Auto = t.Auto; }
+                    break;
+                }
+            } else if (string.Equals(n.Type, "busfx", StringComparison.OrdinalIgnoreCase)) {
+                string lab = n.Label ?? "";
+                if (lab.StartsWith("BUS ") && lab.Length >= 5) {
+                    int bi = lab[4] - 'A' + 1;
+                    if (bi >= 1 && bi <= p.Buses.Count) { n.Fx = p.Buses[bi - 1].Fx; n.Auto = p.Buses[bi - 1].Auto; }
+                }
+            }
+        }
+    }
+
+    // Resolves the track index for a track node (by uid), -1 when the track was deleted.
+    static int TrackIndex(List<Track> ts, string uid) {
+        if (string.IsNullOrEmpty(uid)) return -1;
+        for (int i = 0; i < ts.Count; i++) if (ts[i].Uid == uid) return i;
+        return -1;
+    }
+
+    public static void Run(Project p, List<Track> allT, List<float[]> allL, List<float[]> allR, List<bool> ghost, bool loop, double spb, float[] sinkL, float[] sinkR, int N) {
+        PatchGraph g = p.Graph;
+        Dictionary<string, PatchNode> byId = new Dictionary<string, PatchNode>();
+        foreach (PatchNode n in g.Nodes) byId[n.Id] = n;
+        Dictionary<string, float[]> memoL = new Dictionary<string, float[]>(), memoR = new Dictionary<string, float[]>();
+        Dictionary<string, bool> gotInput = new Dictionary<string, bool>();
+        Dictionary<string, int> mark = new Dictionary<string, int>();
+
+        Func<PatchNode, float[][]> eval = null;
+        eval = delegate(PatchNode node) {
+            if (memoL.ContainsKey(node.Id)) return new float[][] { memoL[node.Id], memoR[node.Id] };
+            int m; mark.TryGetValue(node.Id, out m);
+            if (m == 1) return null;                 // dependency cycle: this branch is muted
+            mark[node.Id] = 1;
+            float[] sL, sR;
+            if (node.Kind == "track") {
+                int ti = TrackIndex(allT, node.TrackUid);
+                if (ti >= 0 && !ghost[ti]) { sL = allL[ti]; sR = allR[ti]; }
+                else { sL = new float[N]; sR = new float[N]; }
+            } else {
+                sL = new float[N]; sR = new float[N]; bool any = false;
+                foreach (PatchLink link in g.LinksTo(node.Id)) {
+                    PatchNode src; byId.TryGetValue(link.From, out src);
+                    if (src == null) continue;
+                    float[][] s = eval(src);
+                    if (s == null) continue;
+                    for (int i = 0; i < N; i++) { sL[i] += s[0][i]; sR[i] += s[1][i]; }
+                    any = true;
+                }
+                gotInput[node.Id] = any;
+                if (node.Kind == "fx") {
+                    if (!node.Bypass && node.Fx != null) { float[] cL = (float[])sL.Clone(), cR = (float[])sR.Clone(); if (node.Auto != null && node.Auto.Count > 0) AutoFx.ApplyLanes(node.Auto, node.Fx, cL, cR, spb); if (node.Fx.Active) FxProc.Process(node.Fx, cL, cR, loop, spb); sL = cL; sR = cR; }
+                } else if (node.Kind == "bus" || node.Kind == "group") {
+                    if (!node.Bypass) {
+                        // Group masters are buses too: they can process their own FX and trim/pan the group sum.
+                        if (node.Kind == "group" && node.Fx != null) { float[] cL = (float[])sL.Clone(), cR = (float[])sR.Clone(); if (node.Auto != null && node.Auto.Count > 0) AutoFx.ApplyLanes(node.Auto, node.Fx, cL, cR, spb); if (node.Fx.Active) FxProc.Process(node.Fx, cL, cR, loop, spb); sL = cL; sR = cR; }
+                        double pan = Math.Max(-1, Math.Min(1, node.Pan));
+                        float pl = (float)Math.Cos((pan + 1) * Math.PI / 4), pr = (float)Math.Sin((pan + 1) * Math.PI / 4), gGain = (float)node.Gain;
+                        float[] tL = new float[N], tR = new float[N];
+                        for (int i = 0; i < N; i++) { tL[i] = (float)(sL[i] * pl * gGain); tR[i] = (float)(sR[i] * pr * gGain); }
+                        sL = tL; sR = tR;
+                    }
+                }
+            }
+            memoL[node.Id] = sL; memoR[node.Id] = sR; mark[node.Id] = 2;
+            return new float[][] { sL, sR };
+        };
+
+        PatchNode outNode = g.OutNode();
+        if (outNode != null) { float[][] s = eval(outNode); if (s != null) for (int i = 0; i < N; i++) { sinkL[i] += s[0][i]; sinkR[i] += s[1][i]; } }
+
+        // Auto-route: a track that has no outgoing wires still sounds, so an unpatched session is
+        // audible. FX and bus modules do NOT auto-route: they are heard only when actually wired
+        // to an output. Otherwise a module dropped on the canvas but never connected would bleed
+        // into the master and appear to affect every track.
+        foreach (PatchNode node in g.Nodes) {
+            if (node.Kind != "track") continue;
+            if (g.LinksFrom(node.Id).Count != 0) continue;
+            float[][] s = eval(node); if (s == null) continue;
+            for (int i = 0; i < N; i++) { sinkL[i] += s[0][i]; sinkR[i] += s[1][i]; }
+        }
+        // Out nodes that are not the primary out still count (multiple outputs fan out fine).
+        foreach (PatchNode node in g.Nodes) {
+            if (node.Kind != "out" || ReferenceEquals(node, outNode)) continue;
+            float[][] s = eval(node); if (s == null) continue;
+            for (int i = 0; i < N; i++) { sinkL[i] += s[0][i]; sinkR[i] += s[1][i]; }
+        }
+    }
+}
+
+public class PatchGraphControl : Control {
+    Project proj;
+    PatchNode dragNode;
+    readonly List<PatchNode> dragNodes = new List<PatchNode>();
+    readonly List<double> dragOffsX = new List<double>(), dragOffsY = new List<double>();
+    readonly List<string> selIds = new List<string>();
+    bool panning; int panStartX, panStartY; double panBaseX, panBaseY;
+    PatchNode wireFrom; PatchNode wireHoverJack; Point wireMouse;
+    PatchNode gainDrag;
+    PatchNode hover;
+    public event EventHandler SelectionChanged;
+    public event EventHandler GraphChanged;
+    public event EventHandler<PatchLink> LinkMade;   // fired whenever a new wire (or rewire) completes, so PowerShell can offer AI review
+    public PatchNode Selected { get; private set; }
+    public List<string> Selection { get { return selIds; } }
+    const int NW = 150, TH = 66, FH = 92, BH = 96, OH = 56, GH = 108;   // track/fx/bus/out/group heights
+    static readonly Font HeaderFont = new Font("Segoe UI", 8.5f, FontStyle.Bold);
+    static readonly SolidBrush RedBrush = new SolidBrush(Color.FromArgb(230, 80, 90));
+
+    public PatchGraphControl() {
+        SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+        BackColor = Color.FromArgb(18, 20, 26); Font = new Font("Segoe UI", 8);
+        TabStop = true; Cursor = Cursors.Default;
+    }
+    public Project Proj { get { return proj; } set { proj = value; Selected = null; selIds.Clear(); Invalidate(); } }
+    PatchGraph Graph { get { return (proj != null && proj.Graph != null) ? proj.Graph : null; } }
+
+    // ---- geometry ---------------------------------------------------------
+    int NodeH(PatchNode n) { return n.Kind == "track" ? TH : n.Kind == "fx" ? FH : n.Kind == "group" ? GH : n.Kind == "bus" ? BH : OH; }
+    double panX() { return Graph != null ? Graph.PanX : 0; }
+    double panY() { return Graph != null ? Graph.PanY : 0; }
+    Point NodePos(PatchNode n) { return new Point((int)(n.X + panX()), (int)(n.Y + panY())); }
+    Rectangle NodeRect(PatchNode n) { Point p = NodePos(n); return new Rectangle(p.X, p.Y, NW, NodeH(n)); }
+    Point OutJack(PatchNode n) { Rectangle r = NodeRect(n); return new Point(r.Right, r.Top + 30); }
+    Point InJack(PatchNode n) { Rectangle r = NodeRect(n); return new Point(r.Left, r.Top + 30); }
+    Rectangle GainRow(PatchNode n) { Rectangle r = NodeRect(n); return new Rectangle(r.Left + 12, r.Top + 54, r.Width - 24, 16); }
+    PatchNode HitNode(Point p) { PatchGraph g = Graph; if (g == null) return null; for (int i = g.Nodes.Count - 1; i >= 0; i--) { PatchNode n = g.Nodes[i]; if (NodeVisible(n) && NodeRect(n).Contains(p)) return n; } return null; }
+    // Jack circles half-overhang the node edge, so hit-test the jack itself, not the enclosing rect.
+    PatchNode HitOutJack(Point p) { PatchGraph g = Graph; if (g == null) return null; for (int i = g.Nodes.Count - 1; i >= 0; i--) { PatchNode n = g.Nodes[i]; if (!NodeVisible(n)) continue; if (n.Kind == "out" || !KindHasOut(n)) continue; Point o = OutJack(n); if (Dist2(p, o) <= 100) return n; } return null; }
+    PatchNode HitInJack(Point p) { PatchGraph g = Graph; if (g == null) return null; for (int i = g.Nodes.Count - 1; i >= 0; i--) { PatchNode n = g.Nodes[i]; if (!NodeVisible(n)) continue; if (n.Kind == "track") continue; Point o = InJack(n); if (Dist2(p, o) <= 100) return n; } return null; }
+    static double Dist2(Point a, Point b) { double dx = a.X - b.X, dy = a.Y - b.Y; return dx * dx + dy * dy; }
+    static bool KindHasOut(PatchNode n) { return n.Kind != "out"; }
+
+    // ---- groups -----------------------------------------------------------
+    PatchGroup GroupByNodeId(string nodeId) { PatchGraph g = Graph; if (g == null) return null; foreach (PatchGroup pg in g.Groups) if (pg.NodeId == nodeId) return pg; return null; }
+    PatchGroup GroupOf(string nodeId) { PatchGraph g = Graph; if (g == null) return null; foreach (PatchGroup pg in g.Groups) if (pg.Members.Contains(nodeId)) return pg; return null; }
+    bool GroupVisible(PatchGroup pg) { return GroupVisible(pg, 0); }
+    bool GroupVisible(PatchGroup pg, int depth) {
+        if (pg == null || depth > 32) return true;
+        PatchGraph g = Graph; if (g == null) return true;
+        foreach (PatchGroup parent in g.Groups) {
+            if (!parent.Members.Contains(pg.NodeId)) continue;
+            if (parent.Collapsed || !GroupVisible(parent, depth + 1)) return false;
+        }
+        return true;
+    }
+    bool NodeVisible(PatchNode n) {
+        if (Graph == null || n == null) return false;
+        if (n.Kind == "group") { PatchGroup own = GroupByNodeId(n.Id); return own == null || GroupVisible(own); }
+        PatchGroup g = GroupOf(n.Id);
+        return g == null || (!g.Collapsed && GroupVisible(g));
+    }
+    PatchNode Proxy(PatchNode n) { return Proxy(n, 0); }
+    PatchNode Proxy(PatchNode n, int depth) {
+        if (Graph == null || n == null || depth > 32) return n;
+        if (n.Kind == "group") {
+            PatchGroup own = GroupByNodeId(n.Id);
+            if (own == null || GroupVisible(own)) return n;
+            PatchGroup parent = GroupOf(n.Id);
+            return parent == null ? n : Proxy(Graph.Find(parent.NodeId), depth + 1);
+        }
+        PatchGroup g = GroupOf(n.Id);
+        if (g == null) return n;
+        if (!g.Collapsed && GroupVisible(g)) return n;
+        return Proxy(Graph.Find(g.NodeId), depth + 1);
+    }
+    Point OutPoint(PatchNode n) { PatchNode p = Proxy(n); return OutJack(p == null ? n : p); }
+    Point InPoint(PatchNode n) { PatchNode p = Proxy(n); return InJack(p == null ? n : p); }
+    bool WireDrawn(PatchLink l) { PatchGraph g = Graph; if (g == null) return false; PatchNode a = g.Find(l.From), b = g.Find(l.To); if (a == null || b == null) return false; PatchNode pa = Proxy(a), pb = Proxy(b); return pa != null && pb != null && pa.Id != pb.Id; }
+    bool IsSelected(PatchNode n) { return n != null && selIds.Contains(n.Id); }
+    void SetSelection(PatchNode n, bool toggle) {
+        if (n == null) return;
+        if (toggle) { if (selIds.Contains(n.Id)) { selIds.Remove(n.Id); if (Selected == n) Selected = selIds.Count > 0 ? Graph.Find(selIds[selIds.Count - 1]) : null; } else selIds.Add(n.Id); }
+        else { selIds.Clear(); selIds.Add(n.Id); }
+        Selected = n;
+        Invalidate(); if (SelectionChanged != null) SelectionChanged(this, EventArgs.Empty);
+    }
+    int NextGroupNumber() { PatchGraph g = Graph; int n = 1; if (g != null) { foreach (PatchGroup pg in g.Groups) if (pg.Name == "Group " + n) n++; } return Math.Max(1, g == null ? 1 : g.Groups.Count + 1); }
+    public PatchGroup CreateGroupFromSelection(string name) {
+        PatchGraph g = Graph; if (g == null || selIds.Count == 0) return null;
+        List<PatchNode> picked = new List<PatchNode>();
+        foreach (string id in selIds) { PatchNode n = g.Find(id); if (n != null) picked.Add(n); }
+        if (picked.Count == 0) return null;
+        // one group per node: remove the picked nodes from any other group first
+        foreach (PatchGroup old in g.Groups) old.Members.RemoveAll(delegate(string id) { return selIds.Contains(id); });
+        int minX = int.MaxValue, minY = int.MaxValue, maxX = int.MinValue;
+        foreach (PatchNode n in picked) { Rectangle r = NodeRect(n); if (r.Left < minX) minX = r.Left; if (r.Top < minY) minY = r.Top; if (r.Right > maxX) maxX = r.Right; }
+        PatchGroup pg = new PatchGroup(); pg.Name = string.IsNullOrEmpty(name) ? ("Group " + NextGroupNumber()) : name; pg.ColorIndex = g.Groups.Count % 6;
+        PatchNode gn = new PatchNode { Kind = "group", Label = pg.Name, X = maxX + 90 - panX(), Y = minY - panY(), Gain = 1, Pan = 0 };
+        pg.NodeId = gn.Id; pg.Members = new List<string>(selIds);
+        g.Nodes.Add(gn); g.Groups.Add(pg);
+        selIds.Clear(); selIds.Add(gn.Id); Selected = gn;
+        Changed(); if (SelectionChanged != null) SelectionChanged(this, EventArgs.Empty);
+        return pg;
+    }
+    public void ToggleGroup(PatchGroup pg) { if (pg != null) { pg.Collapsed = !pg.Collapsed; Changed(); } }
+    public void Ungroup(PatchGroup pg) {
+        PatchGraph g = Graph; if (g == null || pg == null) return;
+        PatchNode gn = g.Find(pg.NodeId);
+        if (gn != null) { gn.Kind = "bus"; gn.Label = (pg.Name ?? "GROUP").ToUpperInvariant(); }
+        g.Groups.Remove(pg);
+        Changed(); if (SelectionChanged != null) SelectionChanged(this, EventArgs.Empty);
+    }
+    public void RenameGroup(PatchGroup pg, string name) { if (pg == null || string.IsNullOrEmpty(name)) return; pg.Name = name.Trim(); PatchGraph g = Graph; if (g != null) { PatchNode n = g.Find(pg.NodeId); if (n != null) n.Label = pg.Name; } Changed(); }
+    public void RemoveGroupsForNode(PatchNode n) { PatchGraph g = Graph; if (g == null || n == null) return; if (n.Kind == "group") g.Groups.RemoveAll(delegate(PatchGroup pg) { return pg.NodeId == n.Id; }); foreach (PatchGroup pg in g.Groups) pg.Members.Remove(n.Id); }
+    public void ExpandAllGroups(bool collapsed) { PatchGraph g = Graph; if (g == null) return; foreach (PatchGroup pg in g.Groups) pg.Collapsed = collapsed; Changed(); }
+    public bool AddNodeToGroup(PatchNode n, PatchGroup target) {
+        PatchGraph g = Graph; if (g == null || n == null || target == null) return false;
+        if (n.Id == target.NodeId) return false;
+        if (n.Kind == "group") {
+            PatchGroup src = GroupByNodeId(n.Id);
+            if (src != null) { PatchGroup walk = target; int depth = 0; while (walk != null && depth < 32) { if (walk == src) return false; walk = GroupOf(walk.NodeId); depth++; } }
+        }
+        foreach (PatchGroup pg in g.Groups) pg.Members.Remove(n.Id);
+        if (!target.Members.Contains(n.Id)) target.Members.Add(n.Id);
+        Changed(); if (SelectionChanged != null) SelectionChanged(this, EventArgs.Empty);
+        return true;
+    }
+    // Connects only members that have no outgoing wire yet - existing cables are never touched.
+    public void WireGroupMembers(PatchGroup pg) {
+        PatchGraph g = Graph; if (g == null || pg == null) return;
+        HashSet<string> ids = new HashSet<string>(); CollectGroupIds(pg, ids, 0);
+        foreach (string id in ids) {
+            PatchNode n = g.Find(id); if (n == null || id == pg.NodeId) continue;
+            if (g.LinksFrom(n.Id).Count == 0 && !g.HasLink(n.Id, pg.NodeId)) g.Links.Add(new PatchLink(n.Id, pg.NodeId));
+        }
+        Changed();
+    }
+    bool InGroupTree(PatchNode n, PatchGroup target) {
+        if (n == null || target == null) return false;
+        string id = n.Id; int depth = 0;
+        while (!string.IsNullOrEmpty(id) && depth < 32) {
+            PatchGroup own = GroupOf(id); if (own == null) return false;
+            if (own == target) return true;
+            id = own.NodeId; depth++;
+        }
+        return false;
+    }
+    void CollectGroupIds(PatchGroup pg, HashSet<string> ids, int depth) {
+        if (pg == null || depth > 32) return;
+        foreach (string id in pg.Members) {
+            if (!ids.Add(id)) continue;
+            PatchNode n = Graph == null ? null : Graph.Find(id);
+            if (n != null && n.Kind == "group") { PatchGroup child = GroupByNodeId(id); if (child != null) CollectGroupIds(child, ids, depth + 1); }
+        }
+    }
+    int CountGroupTree(PatchGroup pg) { HashSet<string> ids = new HashSet<string>(); CollectGroupIds(pg, ids, 0); return ids.Count; }
+    string PromptGroupName(string title, string def) { try { return Microsoft.VisualBasic.Interaction.InputBox("Group name:", title, def).Trim(); } catch { return def; } }
+    void CreateGroupUi() {
+        if (selIds.Count == 0) return;
+        string def = "Group " + NextGroupNumber();
+        string nm = PromptGroupName("Create group", def); if (string.IsNullOrEmpty(nm)) nm = def;
+        CreateGroupFromSelection(nm);
+    }
+    public void GroupSelectionInteractive() { CreateGroupUi(); }
+    // Distance from a point to a wire (cubic bezier), sampled coarsely - fine for interaction.
+    public static double BezierDist(Point a, Point c1, Point c2, Point b, Point p) {
+        double best = double.MaxValue;
+        for (int i = 0; i <= 48; i++) {
+            double t = i / 48.0, u = 1 - t;
+            double x = u * u * u * a.X + 3 * u * u * t * c1.X + 3 * u * t * t * c2.X + t * t * t * b.X;
+            double y = u * u * u * a.Y + 3 * u * u * t * c1.Y + 3 * u * t * t * c2.Y + t * t * t * b.Y;
+            double d = (x - p.X) * (x - p.X) + (y - p.Y) * (y - p.Y);
+            if (d < best) best = d;
+        }
+        return Math.Sqrt(best);
+    }
+    Point WireMid(PatchNode from, PatchNode to) { Point a = OutPoint(from), b = InPoint(to); float dx = Math.Max(60, Math.Abs(b.X - a.X) * 0.5f); double t = 0.5, u = 1 - t; int x = (int)(u * u * u * a.X + 3 * u * u * t * (a.X + dx) + 3 * u * t * t * (b.X - dx) + t * t * t * b.X); int y = (int)(u * u * u * a.Y + 3 * u * u * t * a.Y + 3 * u * t * t * b.Y + t * t * t * b.Y); return new Point(x, y); }
+
+    // ---- view helpers -----------------------------------------------------
+    // Moves the pan so the whole patch sits at the top-left of the canvas with a small margin.
+    public void FrameAll() {
+        PatchGraph g = Graph; if (g == null) { return; }
+        if (g.Nodes.Count == 0) { g.PanX = 0; g.PanY = 0; Invalidate(); return; }
+        int minX = int.MaxValue, minY = int.MaxValue; bool any = false;
+        foreach (PatchNode n in g.Nodes) { if (!NodeVisible(n)) continue; Rectangle r = NodeRect(n); if (r.Left < minX) minX = r.Left; if (r.Top < minY) minY = r.Top; any = true; }
+        if (!any) foreach (PatchNode n in g.Nodes) { Rectangle r = NodeRect(n); if (r.Left < minX) minX = r.Left; if (r.Top < minY) minY = r.Top; }
+        g.PanX += 30 - minX; g.PanY += 30 - minY;
+        Invalidate();
+    }
+    // A saved pan (or a stray drag) can leave every module off-screen. Fit the view when that happens.
+    public void EnsureVisible() {
+        PatchGraph g = Graph; if (g == null || g.Nodes.Count == 0) { return; }
+        Rectangle view = new Rectangle(0, 0, Math.Max(1, Width), Math.Max(1, Height));
+        foreach (PatchNode n in g.Nodes) if (NodeVisible(n) && view.IntersectsWith(NodeRect(n))) return;
+        FrameAll();
+    }
+    // Re-lays the modules out in signal-flow columns (tracks > FX/buses > master out) without touching the wiring.
+    public void Tidy() {
+        PatchGraph g = Graph; if (g == null || g.Nodes.Count == 0) { return; }
+        Dictionary<string, int> lvl = new Dictionary<string, int>();
+        foreach (PatchNode n in g.Nodes) lvl[n.Id] = (n.Kind == "track") ? 0 : 1;
+        int guard = g.Nodes.Count + 4;
+        for (int pass = 0; pass < guard; pass++) {
+            bool moved = false;
+            foreach (PatchLink l in g.Links) {
+                PatchNode f = g.Find(l.From), t = g.Find(l.To);
+                if (f == null || t == null || t.Kind == "out") continue;
+                int fl, tl; lvl.TryGetValue(f.Id, out fl); lvl.TryGetValue(t.Id, out tl);
+                if (tl <= fl) { lvl[t.Id] = fl + 1; moved = true; }
+            }
+            if (!moved) break;
+        }
+        int maxL = 0; foreach (KeyValuePair<string, int> kv in lvl) if (kv.Value > maxL) maxL = kv.Value;
+        PatchNode outN = g.OutNode(); if (outN != null) lvl[outN.Id] = maxL + 1;
+        SortedDictionary<int, List<PatchNode>> cols = new SortedDictionary<int, List<PatchNode>>();
+        foreach (PatchNode n in g.Nodes) {
+            int lv; lvl.TryGetValue(n.Id, out lv);
+            List<PatchNode> list; if (!cols.TryGetValue(lv, out list)) { list = new List<PatchNode>(); cols[lv] = list; }
+            list.Add(n);
+        }
+        foreach (KeyValuePair<int, List<PatchNode>> col in cols) {
+            List<PatchNode> list = col.Value;
+            list.Sort(delegate(PatchNode a, PatchNode b) { return a.Y.CompareTo(b.Y); });
+            double y = 30;
+            foreach (PatchNode n in list) { n.X = 30 + col.Key * 330; n.Y = y; y += NodeH(n) + 26; }
+        }
+        FrameAll();
+    }
+    // Loaded projects can contain track modules for tracks that no longer exist (or duplicates).
+    // Drop them, plus any wires that pointed at them, so the graph matches the real track list.
+    public static int PruneTrackNodes(Project p) {
+        if (p == null || p.Graph == null) return 0;
+        PatchGraph g = p.Graph;
+        HashSet<string> uids = new HashSet<string>();
+        if (p.Tracks != null) foreach (Track t in p.Tracks) if (!string.IsNullOrEmpty(t.Uid)) uids.Add(t.Uid);
+        HashSet<string> seen = new HashSet<string>();
+        List<string> dead = new List<string>();
+        foreach (PatchNode n in g.Nodes) {
+            if (n.Kind != "track") continue;
+            if (string.IsNullOrEmpty(n.TrackUid) || !uids.Contains(n.TrackUid) || !seen.Add(n.TrackUid)) dead.Add(n.Id);
+        }
+        if (dead.Count == 0) return 0;
+        HashSet<string> ids = new HashSet<string>(dead);
+        g.Nodes.RemoveAll(delegate(PatchNode n) { return ids.Contains(n.Id); });
+        g.Links.RemoveAll(delegate(PatchLink l) { return ids.Contains(l.From) || ids.Contains(l.To); });
+        foreach (PatchGroup pg in g.Groups) pg.Members.RemoveAll(delegate(string id) { return ids.Contains(id); });
+        g.Groups.RemoveAll(delegate(PatchGroup pg) { return string.IsNullOrEmpty(pg.NodeId) || g.Find(pg.NodeId) == null; });
+        return dead.Count;
+    }
+    PatchLink HitWire(Point p) {
+        PatchGraph g = Graph; if (g == null) return null;
+        PatchLink best = null; double bestD = 8;
+        foreach (PatchLink l in g.Links) {
+            PatchNode from = g.Find(l.From), to = g.Find(l.To); if (from == null || to == null) continue;
+            if (!WireDrawn(l)) continue;
+            Point a = OutPoint(from), b = InPoint(to); float dx = Math.Max(60, Math.Abs(b.X - a.X) * 0.5f);
+            double d = BezierDist(a, new Point((int)(a.X + dx), a.Y), new Point((int)(b.X - dx), b.Y), b, p);
+            if (d < bestD) { bestD = d; best = l; }
+        }
+        return best;
+    }
+    // Inserts n into link's chain: from -> n -> to. Only modules with both an input and an output may be spliced.
+    public static bool SpliceNode(PatchGraph g, PatchNode n, PatchLink link) {
+        if (g == null || n == null || link == null) return false;
+        if (n.Kind != "fx" && n.Kind != "bus") return false;
+        if (link.From == n.Id || link.To == n.Id) return false;
+        if (!g.Nodes.Contains(n) || !g.Links.Contains(link)) return false;
+        string from = link.From, to = link.To;
+        g.Links.Remove(link);
+        if (!g.HasLink(from, n.Id)) g.Links.Add(new PatchLink(from, n.Id));
+        if (!g.HasLink(n.Id, to)) g.Links.Add(new PatchLink(n.Id, to));
+        return true;
+    }
+
+    // ---- painting -----------------------------------------------------------
+    Color KindColor(PatchNode n) { return n.Kind == "track" ? Color.FromArgb(28, 110, 92) : n.Kind == "fx" ? Color.FromArgb(150, 95, 35) : n.Kind == "group" ? Color.FromArgb(120, 80, 170) : n.Kind == "bus" ? Color.FromArgb(55, 95, 150) : Color.FromArgb(150, 55, 70); }
+    static readonly Color[] GroupColors = new Color[] { Color.FromArgb(40, 200, 170), Color.FromArgb(90, 150, 240), Color.FromArgb(230, 150, 70), Color.FromArgb(220, 90, 140), Color.FromArgb(150, 200, 80), Color.FromArgb(180, 130, 220) };
+    Color GroupColor(PatchGroup pg) { int i = pg == null ? 0 : pg.ColorIndex; return GroupColors[(i % GroupColors.Length + GroupColors.Length) % GroupColors.Length]; }
+    string NodeTitle(PatchNode n) {
+        if (n.Kind == "track" && proj != null) { for (int i = 0; i < proj.Tracks.Count; i++) if (proj.Tracks[i].Uid == n.TrackUid) return (proj.Tracks[i].Name ?? "track").ToUpperInvariant(); return "(MISSING)"; }
+        if (n.Kind == "group" || n.Kind == "bus") return (n.Label ?? (n.Kind == "group" ? "GROUP" : "BUS")).ToUpperInvariant();
+        if (n.Kind == "out") return "MASTER OUT";
+        return (n.Label ?? n.Type ?? "FX").ToUpperInvariant();
+    }
+    void DrawJack(Graphics g, Point p, bool input) {
+        using (SolidBrush b = new SolidBrush(Color.FromArgb(230, 190, 90))) g.FillEllipse(b, p.X - 6, p.Y - 6, 12, 12);
+        using (SolidBrush b = new SolidBrush(Color.FromArgb(18, 20, 26))) g.FillEllipse(b, p.X - 3, p.Y - 3, 6, 6);
+    }
+    protected override void OnPaint(PaintEventArgs e) {
+        Graphics g = e.Graphics; g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        g.Clear(BackColor);
+        using (Pen dot = new Pen(Color.FromArgb(35, 38, 48), 1)) for (int x = 20; x < Width; x += 24) for (int y = 14; y < Height; y += 24) g.DrawRectangle(dot, x, y, 0, 0);
+        PatchGraph gp = Graph;
+        if (gp == null) {
+            using (SolidBrush b = new SolidBrush(Color.FromArgb(90, 96, 115))) g.DrawString("No project loaded.", Font, b, 20, 20);
+            return;
+        }
+        // group boundaries (behind the modules)
+        foreach (PatchGroup pg in gp.Groups) {
+            if (pg.Collapsed || !GroupVisible(pg)) continue;
+            int minX = int.MaxValue, minY = int.MaxValue, maxX = int.MinValue, maxY = int.MinValue; bool any = false;
+            foreach (PatchNode n in gp.Nodes) {
+                if (!NodeVisible(n) || !InGroupTree(n, pg)) continue;
+                Rectangle r = NodeRect(n);
+                if (r.Left < minX) minX = r.Left; if (r.Top < minY) minY = r.Top; if (r.Right > maxX) maxX = r.Right; if (r.Bottom > maxY) maxY = r.Bottom; any = true;
+            }
+            PatchNode gn0 = gp.Find(pg.NodeId);
+            if (gn0 != null && NodeVisible(gn0)) { Rectangle r = NodeRect(gn0); if (r.Left < minX) minX = r.Left; if (r.Top < minY) minY = r.Top; if (r.Right > maxX) maxX = r.Right; if (r.Bottom > maxY) maxY = r.Bottom; any = true; }
+            if (!any) continue;
+            Rectangle box = Rectangle.FromLTRB(minX - 18, minY - 30, maxX + 18, maxY + 18);
+            Color gc = GroupColor(pg);
+            using (SolidBrush gb = new SolidBrush(Color.FromArgb(26, gc))) g.FillRectangle(gb, box);
+            using (Pen gp2 = new Pen(Color.FromArgb(150, gc), 2f) { DashStyle = System.Drawing.Drawing2D.DashStyle.Dash }) g.DrawRectangle(gp2, box);
+            using (SolidBrush head = new SolidBrush(Color.FromArgb(210, gc))) g.FillRectangle(head, box.Left, box.Top, Math.Min(box.Width, 190), 22);
+            using (SolidBrush htxt = new SolidBrush(Color.FromArgb(20, 22, 28))) g.DrawString((pg.Name ?? "GROUP").ToUpperInvariant() + "  ·  " + CountGroupTree(pg) + " modules", HeaderFont, htxt, new RectangleF(box.Left + 8, box.Top + 2, 300, 18));
+        }
+        // wires
+        foreach (PatchLink l in gp.Links) {
+            PatchNode from = gp.Find(l.From), to = gp.Find(l.To); if (from == null || to == null) continue;
+            if (!WireDrawn(l)) continue;
+            Point a = OutPoint(from), b = InPoint(to);
+            float dx = Math.Max(60, Math.Abs(b.X - a.X) * 0.5f);
+            using (Pen wp = new Pen(Color.FromArgb(220, 180, 80), 3f)) g.DrawBezier(wp, a, new Point(a.X + (int)dx, a.Y), new Point(b.X - (int)dx, b.Y), b);
+        }
+        if (wireFrom != null) {
+            Point a = OutPoint(wireFrom), b = wireMouse; float dx = Math.Max(60, Math.Abs(b.X - a.X) * 0.5f);
+            using (Pen wp = new Pen(Color.FromArgb(255, 220, 120), 3f) { DashStyle = System.Drawing.Drawing2D.DashStyle.Dash }) g.DrawBezier(wp, a, new Point(a.X + (int)dx, a.Y), new Point(b.X - (int)dx, b.Y), b);
+        }
+        // nodes
+        using (SolidBrush nb = new SolidBrush(Color.FromArgb(30, 33, 44)))
+        using (Pen sel = new Pen(Color.FromArgb(40, 200, 170), 2))
+        using (Pen norm = new Pen(Color.FromArgb(60, 66, 84), 1))
+        using (SolidBrush headerTxt = new SolidBrush(Color.White))
+        using (SolidBrush sub = new SolidBrush(Color.FromArgb(150, 158, 180)))
+        using (StringFormat sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center, Trimming = StringTrimming.EllipsisCharacter, FormatFlags = StringFormatFlags.NoWrap }) {
+            foreach (PatchNode n in gp.Nodes) {
+                if (!NodeVisible(n)) continue;
+                Rectangle r = NodeRect(n); bool isSel = IsSelected(n);
+                using (System.Drawing.Drawing2D.GraphicsPath path = RoundRect(r, 7)) {
+                    g.FillPath(nb, path);
+                    using (SolidBrush hd = new SolidBrush(KindColor(n))) { using (System.Drawing.Drawing2D.GraphicsPath hp = RoundRect(new Rectangle(r.X, r.Y, r.Width, 22), 7)) { g.FillPath(hd, hp); } g.FillRectangle(hd, r.X, r.Y + 12, r.Width, 10); }
+                    g.DrawPath(isSel ? sel : norm, path);
+                }
+                g.DrawString(NodeTitle(n), HeaderFont, headerTxt, new RectangleF(r.X + 6, r.Y + 2, r.Width - 12, 20), sf);
+                if (n.Kind != "track") DrawJack(g, InJack(n), true);
+                if (KindHasOut(n)) DrawJack(g, OutJack(n), false);
+                if (n.Kind == "track" && proj != null) { for (int i = 0; i < proj.Tracks.Count; i++) if (proj.Tracks[i].Uid == n.TrackUid) { g.DrawString(proj.Tracks[i].Synth.ToUpperInvariant(), Font, sub, new RectangleF(r.X + 8, r.Y + 30, r.Width - 16, 24), sf); if (proj.Tracks[i].Mute) g.DrawString("MUTED", Font, RedBrush, new RectangleF(r.X + 8, r.Y + TH - 22, r.Width - 16, 16), sf); } }
+                else if (n.Kind == "fx") { g.DrawString(n.Bypass ? "BYPASSED" : FxTag(n.Fx), Font, n.Bypass ? RedBrush : sub, new RectangleF(r.X + 8, r.Y + 34, r.Width - 16, 40), sf); }
+                else if (n.Kind == "bus") { Rectangle gr = GainRow(n); using (Pen bg = new Pen(Color.FromArgb(60, 66, 84), 3)) g.DrawLine(bg, gr.Left, gr.Top + 8, gr.Right, gr.Top + 8); int dotw = (int)((Math.Max(0, Math.Min(2, n.Gain)) / 2.0) * (gr.Width - 12)); using (SolidBrush lb = new SolidBrush(Color.FromArgb(40, 200, 170))) g.FillEllipse(lb, gr.Left + dotw - 6, gr.Top + 2, 12, 12); using (SolidBrush lb2 = new SolidBrush(Color.FromArgb(150, 158, 180))) { g.DrawString("GAIN", Font, lb2, new RectangleF(gr.Left, gr.Top - 2, gr.Width, 12), sf); } g.DrawString("PAN " + n.Pan.ToString("0.00"), Font, sub, new RectangleF(r.X + 8, r.Y + 72, r.Width - 16, 16), sf); }
+                else if (n.Kind == "group") {
+                    PatchGroup pg = GroupByNodeId(n.Id);
+                    Rectangle gr = GainRow(n);
+                    using (Pen bg = new Pen(Color.FromArgb(60, 66, 84), 3)) g.DrawLine(bg, gr.Left, gr.Top + 8, gr.Right, gr.Top + 8);
+                    int dotw = (int)((Math.Max(0, Math.Min(2, n.Gain)) / 2.0) * (gr.Width - 12)); using (SolidBrush lb = new SolidBrush(GroupColor(pg))) g.FillEllipse(lb, gr.Left + dotw - 6, gr.Top + 2, 12, 12);
+                    g.DrawString("GAIN", Font, sub, new RectangleF(gr.Left, gr.Top - 2, gr.Width, 12), sf);
+                    g.DrawString("PAN " + n.Pan.ToString("0.00"), Font, sub, new RectangleF(r.X + 8, r.Y + 72, r.Width - 16, 16), sf);
+                    string state = (pg != null && pg.Collapsed) ? "CONDENSED COMPONENT" : "GROUP MASTER";
+                    g.DrawString(state + " · " + (pg == null ? 0 : CountGroupTree(pg)) + " modules", Font, sub, new RectangleF(r.X + 8, r.Y + 26, r.Width - 16, 18), sf);
+                    g.DrawString((pg != null && pg.Collapsed) ? "double-click to expand" : "double-click to condense", Font, sub, new RectangleF(r.X + 8, r.Y + 88, r.Width - 16, 16), sf);
+                }
+                else if (n.Kind == "out") { g.DrawString("master chain", Font, sub, new RectangleF(r.X + 8, r.Y + 26, r.Width - 16, 20), sf); }
+            }
+        }
+        if (wireHoverJack != null) { PatchNode n = wireHoverJack; Point o = InJack(n); using (Pen hi = new Pen(Color.FromArgb(80, 255, 140), 3)) g.DrawEllipse(hi, o.X - 10, o.Y - 10, 20, 20); }
+        if (wireFrom != null) { using (SolidBrush b = new SolidBrush(Color.FromArgb(150, 158, 180))) g.DrawString("release on an IN jack to patch > green = good target, or drop onto a wire to splice", Font, b, 12, Height - 22); }
+    }
+    static string FxTag(Fx fx) {
+        if (fx == null) return "(empty module)";
+        List<string> on = new List<string>();
+        if (fx.Filter != FilterMode.off) on.Add("FILTER"); if (fx.Drive > 0) on.Add("DRIVE"); if (fx.Bits < 16 || fx.Downsample > 1) on.Add("CRUSH"); if (fx.RingMix > 0) on.Add("RING"); if (fx.StutterBeats > 0) on.Add("STUTTER"); if (fx.Chorus > 0) on.Add("CHORUS"); if (fx.DelayMix > 0) on.Add("DELAY"); if (fx.ReverbMix > 0) on.Add("REVERB");
+        return on.Count == 0 ? "(empty module)" : string.Join(" | ", on.ToArray());
+    }
+    static System.Drawing.Drawing2D.GraphicsPath RoundRect(Rectangle r, int rad) {
+        System.Drawing.Drawing2D.GraphicsPath p = new System.Drawing.Drawing2D.GraphicsPath(); int d = rad * 2;
+        p.AddArc(r.X, r.Y, d, d, 180, 90); p.AddArc(r.X + r.Width - d, r.Y, d, d, 270, 90); p.AddArc(r.X + r.Width - d, r.Y + r.Height - d, d, d, 0, 90); p.AddArc(r.X, r.Y + r.Height - d, d, d, 90, 90); p.CloseFigure();
+        return p;
+    }
+
+    // ---- interaction --------------------------------------------------------
+    void Changed() { Invalidate(); if (GraphChanged != null) GraphChanged(this, EventArgs.Empty); }
+    void LinkFired(PatchNode from, PatchNode to) { if (LinkMade != null) LinkMade(this, new PatchLink(from.Id, to.Id)); }
+    bool OverGainRow(Point p) { PatchNode n = HitNode(p); if (n != null && (n.Kind == "bus" || n.Kind == "group")) return GainRow(n).Contains(p); return false; }
+    protected override void OnMouseDown(MouseEventArgs e) {
+        base.OnMouseDown(e); if (e.Button == MouseButtons.Right) return;
+        PatchGraph g = Graph; if (g == null) return;
+        Focus();
+        PatchNode outJack = HitOutJack(e.Location);
+        if (outJack != null) { wireFrom = outJack; wireHoverJack = null; wireMouse = e.Location; Cursor = Cursors.Cross; Capture = true; return; }
+        PatchNode inJack = HitInJack(e.Location);
+        if (inJack != null) {
+            PatchLink existing = null; foreach (PatchLink l in g.LinksTo(inJack.Id)) { existing = l; break; }
+            if (existing != null) { g.Links.Remove(existing); PatchNode src = g.Find(existing.From); Changed(); wireFrom = src; wireHoverJack = null; wireMouse = e.Location; Cursor = Cursors.Cross; Capture = true; }
+            return;
+        }
+        PatchNode over = HitNode(e.Location);
+        if (over != null && OverGainRow(e.Location)) { gainDrag = over; Capture = true; SetGainFromX(e.X); return; }
+        if (over != null) {
+            bool ctrl = (Control.ModifierKeys & Keys.Control) == Keys.Control;
+            if (ctrl) SetSelection(over, true);
+            else if (!IsSelected(over)) SetSelection(over, false);
+            else { Selected = over; Invalidate(); if (SelectionChanged != null) SelectionChanged(this, EventArgs.Empty); }
+            dragNodes.Clear(); dragOffsX.Clear(); dragOffsY.Clear();
+            if (IsSelected(over)) {
+                foreach (string id in selIds) {
+                    PatchNode sn = g.Find(id); if (sn == null || !NodeVisible(sn)) continue;
+                    Rectangle sr = NodeRect(sn);
+                    dragNodes.Add(sn); dragOffsX.Add(e.X - sr.X); dragOffsY.Add(e.Y - sr.Y);
+                }
+            }
+            // Dragging a group component moves the whole group, including modules hidden inside it.
+            if (over.Kind == "group") {
+                PatchGroup dg = GroupByNodeId(over.Id);
+                if (dg != null) {
+                    HashSet<string> gids = new HashSet<string>(); CollectGroupIds(dg, gids, 0); gids.Add(over.Id);
+                    foreach (string id in gids) {
+                        PatchNode sn = g.Find(id); if (sn == null || dragNodes.Contains(sn)) continue;
+                        Rectangle sr = NodeRect(sn);
+                        dragNodes.Add(sn); dragOffsX.Add(e.X - sr.X); dragOffsY.Add(e.Y - sr.Y);
+                    }
+                }
+            }
+            dragNode = IsSelected(over) ? over : null; Capture = true; return;
+        }
+        if (!((Control.ModifierKeys & Keys.Control) == Keys.Control)) { selIds.Clear(); Selected = null; }
+        panning = true; panStartX = e.X; panStartY = e.Y; panBaseX = g.PanX; panBaseY = g.PanY; Capture = true; Cursor = Cursors.SizeAll;
+    }
+    void SetGainFromX(int x) { if (gainDrag == null) return; Rectangle gr = GainRow(gainDrag); double t = (x - gr.Left) / (double)(gr.Width - 12); gainDrag.Gain = Math.Max(0, Math.Min(2, t * 2)); Changed(); }
+    protected override void OnMouseMove(MouseEventArgs e) {
+        base.OnMouseMove(e);
+        PatchGraph g = Graph; if (g == null) return;
+        if (wireFrom != null) { wireMouse = e.Location; wireHoverJack = HitInJack(e.Location); Cursor = wireHoverJack != null ? Cursors.SizeAll : Cursors.Cross; Invalidate(); return; }
+        if (gainDrag != null) { SetGainFromX(e.X); return; }
+        if (dragNodes.Count > 0) {
+            for (int i = 0; i < dragNodes.Count; i++) {
+                PatchNode dn = dragNodes[i];
+                dn.X = e.X - dragOffsX[i] - panX(); dn.Y = e.Y - dragOffsY[i] - panY();
+            }
+            Invalidate(); return;
+        }
+        if (panning) { g.PanX = panBaseX + (e.X - panStartX); g.PanY = panBaseY + (e.Y - panStartY); Invalidate(); return; }
+        PatchNode h = HitNode(e.Location);
+        if (!ReferenceEquals(h, hover)) { hover = h; Cursor = h != null ? Cursors.Hand : Cursors.Default; }
+    }
+    protected override void OnMouseUp(MouseEventArgs e) {
+        base.OnMouseUp(e);
+        PatchGraph g = Graph;
+        if (wireFrom != null && g != null) {
+            PatchNode target = HitInJack(e.Location);
+            if (target != null && !ReferenceEquals(target, wireFrom) && target.Kind != "track" && !g.HasLink(wireFrom.Id, target.Id)) {
+                g.Links.Add(new PatchLink(wireFrom.Id, target.Id)); Changed(); LinkFired(wireFrom, target);
+            } else Invalidate();
+            wireFrom = null; wireHoverJack = null; Cursor = Cursors.Default; Capture = false; return;
+        }
+        PatchLink w = (dragNode != null && g != null) ? HitWire(e.Location) : null;
+        if (w != null) {
+            string fromId = w.From, toId = w.To;
+            if (SpliceNode(g, dragNode, w)) { Changed(); PatchNode f = g.Find(fromId), t = g.Find(toId); if (f != null && t != null) { LinkFired(f, dragNode); LinkFired(dragNode, t); } }
+        }
+        gainDrag = null; dragNode = null; dragNodes.Clear(); dragOffsX.Clear(); dragOffsY.Clear(); panning = false; Capture = false; Cursor = Cursors.Default;
+    }
+    protected override void OnMouseWheel(MouseEventArgs e) { base.OnMouseWheel(e); }
+    protected override void OnMouseDoubleClick(MouseEventArgs e) {
+        base.OnMouseDoubleClick(e);
+        if (e.Button != MouseButtons.Left) return;
+        PatchNode n = HitNode(e.Location);
+        if (n == null || n.Kind != "group") return;
+        PatchGroup pg = GroupByNodeId(n.Id); if (pg == null) return;
+        ToggleGroup(pg);
+        if (SelectionChanged != null) SelectionChanged(this, EventArgs.Empty);
+    }
+    public void DeleteSelected() {
+        PatchGraph g = Graph; if (g == null) return;
+        List<string> ids = new List<string>(selIds);
+        if (ids.Count == 0 && Selected != null) ids.Add(Selected.Id);
+        if (ids.Count == 0) return;
+        foreach (string id in ids) {
+            PatchNode n = g.Find(id); if (n == null) continue;
+            if (n.Kind == "group") g.Groups.RemoveAll(delegate(PatchGroup pg) { return pg.NodeId == n.Id; });
+            foreach (PatchGroup pg in g.Groups) pg.Members.Remove(id);
+            g.Nodes.Remove(n);
+            g.Links.RemoveAll(delegate(PatchLink l) { return l.From == id || l.To == id; });
+        }
+        selIds.Clear(); Selected = null; Changed();
+        if (SelectionChanged != null) SelectionChanged(this, EventArgs.Empty);
+    }
+    protected override void OnKeyDown(KeyEventArgs e) {
+        base.OnKeyDown(e); PatchGraph g = Graph; if (g == null) return;
+        if (e.KeyCode == Keys.Delete && Selected != null) { DeleteSelected(); e.Handled = true; }
+        else if (e.KeyCode == Keys.Escape && wireFrom != null) { wireFrom = null; wireHoverJack = null; Invalidate(); }
+    }
+    protected override void OnMouseClick(MouseEventArgs e) {
+        base.OnMouseClick(e); if (e.Button != MouseButtons.Right) return; PatchGraph g = Graph; if (g == null) return;
+        ContextMenuStrip menu = new ContextMenuStrip(); menu.BackColor = Color.FromArgb(32, 35, 44); menu.ForeColor = Color.FromArgb(224, 228, 236);
+        PatchNode over = HitNode(e.Location);
+        Point world = new Point((int)(e.X - panX()), (int)(e.Y - panY()));
+        if (over != null) {
+            if (!IsSelected(over)) { selIds.Clear(); selIds.Add(over.Id); Selected = over; Invalidate(); }
+            PatchGroup overGroup = GroupByNodeId(over.Id);
+            if (overGroup != null) {
+                ToolStripMenuItem tog = new ToolStripMenuItem(overGroup.Collapsed ? "Expand group" : "Condense to component node"); tog.Click += delegate { ToggleGroup(overGroup); if (SelectionChanged != null) SelectionChanged(this, EventArgs.Empty); }; menu.Items.Add(tog);
+                ToolStripMenuItem wireG = new ToolStripMenuItem("Wire unconnected members to this master"); wireG.Click += delegate { WireGroupMembers(overGroup); }; menu.Items.Add(wireG);
+                ToolStripMenuItem ren = new ToolStripMenuItem("Rename group..."); ren.Click += delegate { string nm = PromptGroupName("Rename group", overGroup.Name); RenameGroup(overGroup, nm); }; menu.Items.Add(ren);
+                ToolStripMenuItem un = new ToolStripMenuItem("Ungroup (keep the bus)"); un.Click += delegate { Ungroup(overGroup); }; menu.Items.Add(un);
+                menu.Items.Add(new ToolStripSeparator());
+            }
+            PatchGroup memberOf = GroupOf(over.Id);
+            if (memberOf != null) {
+                ToolStripMenuItem rm = new ToolStripMenuItem("Remove from group '" + memberOf.Name + "'"); rm.Click += delegate { memberOf.Members.Remove(over.Id); Changed(); if (SelectionChanged != null) SelectionChanged(this, EventArgs.Empty); }; menu.Items.Add(rm);
+            }
+            if (g.Groups.Count > 0) {
+                ToolStripMenuItem addTo = new ToolStripMenuItem("Add to group >");
+                foreach (PatchGroup pg in g.Groups) {
+                    if (pg.Members.Contains(over.Id)) continue;
+                    PatchGroup target = pg;
+                    ToolStripMenuItem mi = new ToolStripMenuItem(pg.Name);
+                    mi.Click += delegate { if (!AddNodeToGroup(over, target)) MessageBox.Show("That would put a group inside itself.", "Patch groups", MessageBoxButtons.OK, MessageBoxIcon.Information); };
+                    addTo.DropDownItems.Add(mi);
+                }
+                if (addTo.DropDownItems.Count > 0) menu.Items.Add(addTo);
+            }
+            ToolStripMenuItem mk = new ToolStripMenuItem("Group selected nodes..."); mk.Click += delegate { CreateGroupUi(); }; menu.Items.Add(mk);
+            menu.Items.Add(new ToolStripSeparator());
+            ToolStripMenuItem del = new ToolStripMenuItem(over.Kind == "track" ? "Delete track module (track stays)" : (over.Kind == "group" ? "Delete group (members stay)" : "Delete module")); del.Click += delegate { selIds.Clear(); selIds.Add(over.Id); Selected = over; DeleteSelected(); }; menu.Items.Add(del);
+            if (over.Kind != "out") { ToolStripMenuItem bp = new ToolStripMenuItem(over.Bypass ? "Enable module" : "Bypass module"); bp.Click += delegate { over.Bypass = !over.Bypass; Changed(); }; menu.Items.Add(bp); }
+            PatchNode outNode = g.OutNode();
+            if (over.Kind != "out") { ToolStripMenuItem toOut = new ToolStripMenuItem("Wire to Master Out"); toOut.Click += delegate { if (outNode != null && !g.HasLink(over.Id, outNode.Id)) { g.Links.Add(new PatchLink(over.Id, outNode.Id)); Changed(); } }; menu.Items.Add(toOut); }
+        } else {
+            if (selIds.Count > 0) {
+                ToolStripMenuItem mk = new ToolStripMenuItem("Group selected nodes (" + selIds.Count + ")..."); mk.Click += delegate { CreateGroupUi(); }; menu.Items.Add(mk);
+                menu.Items.Add(new ToolStripSeparator());
+            }
+            ToolStripMenuItem expAll = new ToolStripMenuItem("Expand all groups"); expAll.Click += delegate { ExpandAllGroups(false); }; menu.Items.Add(expAll);
+            ToolStripMenuItem colAll = new ToolStripMenuItem("Condense all groups"); colAll.Click += delegate { ExpandAllGroups(true); }; menu.Items.Add(colAll);
+            menu.Items.Add(new ToolStripSeparator());
+            PatchLink overWire = HitWire(e.Location);
+            if (overWire != null) {
+                PatchNode fromNode = g.Find(overWire.From), toNode = g.Find(overWire.To);
+                Point mid = (fromNode != null && toNode != null) ? WireMid(fromNode, toNode) : new Point(world.X, world.Y);
+                ToolStripMenuItem ins = new ToolStripMenuItem("Insert FX module into this wire >");
+                foreach (string[] mod in new string[][] { new[] { "Filter", "filter" }, new[] { "Drive", "drive" }, new[] { "Crush", "crush" }, new[] { "Ring mod", "ring" }, new[] { "Stutter", "stutter" }, new[] { "Chorus", "chorus" }, new[] { "Delay", "delay" }, new[] { "Reverb", "reverb" }, new[] { "Phaser", "phaser" }, new[] { "Flanger", "flanger" }, new[] { "Tape stop", "tapestop" }, new[] { "Tape delay", "tapedelay" }, new[] { "Plate", "plate" }, new[] { "Vinyl", "vinyl" }, new[] { "Compressor", "comp" }, new[] { "EQ + width", "eq" } }) { string label = mod[0], type = mod[1]; ToolStripMenuItem mi = new ToolStripMenuItem(label); mi.Click += delegate { PatchNode n = NewFxNode(type, mid.X - NW / 2, mid.Y - FH / 2); g.Nodes.Add(n); if (SpliceNode(g, n, overWire)) { Changed(); PatchNode f = g.Find(overWire.From), t = g.Find(overWire.To); if (f != null && t != null) { LinkFired(f, n); LinkFired(n, t); } } }; ins.DropDownItems.Add(mi); }
+                menu.Items.Add(ins);
+                ToolStripMenuItem insBus = new ToolStripMenuItem("Insert Bus amp into this wire >"); insBus.Click += delegate { PatchNode n = new PatchNode { Kind = "bus", Label = "BUS " + (CountKind(g, "bus") + 1), X = mid.X - NW / 2, Y = mid.Y - BH / 2, Gain = 1, Pan = 0 }; g.Nodes.Add(n); if (SpliceNode(g, n, overWire)) { Changed(); PatchNode f = g.Find(overWire.From), t = g.Find(overWire.To); if (f != null && t != null) { LinkFired(f, n); LinkFired(n, t); } } }; menu.Items.Add(insBus);
+                if (fromNode != null && toNode != null) { ToolStripMenuItem disc = new ToolStripMenuItem("Disconnect this wire (" + NodeTitle(fromNode) + " -> " + NodeTitle(toNode) + " -> "); disc.Click += delegate { g.Links.Remove(overWire); Changed(); }; menu.Items.Add(disc); }
+            }
+            ToolStripMenuItem addFx = new ToolStripMenuItem("Add FX module"); 
+            foreach (string[] mod in new string[][] { new[] { "Filter", "filter" }, new[] { "Drive", "drive" }, new[] { "Crush", "crush" }, new[] { "Ring mod", "ring" }, new[] { "Stutter", "stutter" }, new[] { "Chorus", "chorus" }, new[] { "Delay", "delay" }, new[] { "Reverb", "reverb" }, new[] { "Phaser", "phaser" }, new[] { "Flanger", "flanger" }, new[] { "Tape stop", "tapestop" }, new[] { "Tape delay", "tapedelay" }, new[] { "Plate", "plate" }, new[] { "Vinyl", "vinyl" }, new[] { "Compressor", "comp" }, new[] { "EQ + width", "eq" } }) { string label = mod[0], type = mod[1]; ToolStripMenuItem mi = new ToolStripMenuItem(label); mi.Click += delegate { g.Nodes.Add(NewFxNode(type, world.X, world.Y)); Changed(); }; addFx.DropDownItems.Add(mi); }
+            menu.Items.Add(addFx);
+            ToolStripMenuItem addBus = new ToolStripMenuItem("Add Bus (gain + pan)"); addBus.Click += delegate { PatchNode n = new PatchNode { Kind = "bus", Label = "BUS " + (CountKind(g, "bus") + 1), X = world.X, Y = world.Y, Gain = 1, Pan = 0 }; g.Nodes.Add(n); Changed(); }; menu.Items.Add(addBus);
+            ToolStripMenuItem addOut = new ToolStripMenuItem("Add Master Out"); addOut.Click += delegate { g.Nodes.Add(new PatchNode { Kind = "out", Label = "out", X = world.X, Y = world.Y }); Changed(); }; menu.Items.Add(addOut);
+        }
+        menu.Show(this, e.Location);
+    }
+    static int CountKind(PatchGraph g, string kind) { int c = 0; foreach (PatchNode n in g.Nodes) if (n.Kind == kind) c++; return c; }
+    public static PatchNode NewFxNode(string type, int x, int y) {
+        PatchNode n = new PatchNode(); n.Kind = "fx"; n.Type = type; n.Label = type.ToUpperInvariant(); n.X = x; n.Y = y;
+        Fx fx = n.Fx;
+        switch (type) {
+            case "filter": fx.Filter = FilterMode.lowpass; fx.Cutoff = 1200; fx.Resonance = 0.4; break;
+            case "drive": fx.Drive = 0.4; break;
+            case "crush": fx.Bits = 6; fx.Downsample = 2; break;
+            case "ring": fx.RingMix = 0.5; fx.RingFreq = 200; break;
+            case "stutter": fx.StutterBeats = 0.25; fx.StutterDiv = 4; fx.StutterChance = 0.3; break;
+            case "chorus": fx.Chorus = 0.35; fx.ChorusRate = 0.6; fx.ChorusDepth = 0.5; break;
+            case "delay": fx.DelayMix = 0.3; fx.DelayBeats = 0.75; break;
+            case "reverb": fx.ReverbMix = 0.35; fx.ReverbSize = 0.6; break;
+            case "phaser": fx.PhaserMix = 0.4; fx.PhaserRate = 0.5; fx.PhaserDepth = 0.6; fx.PhaserStages = 4; break;
+            case "flanger": fx.FlangerMix = 0.4; fx.FlangerRate = 0.8; fx.FlangerDepth = 0.6; fx.FlangerFb = 0.4; break;
+            case "tapestop": fx.TapeStop = 0.8; fx.TapeStopRate = 1.2; break;
+            case "tapedelay": fx.TapeDelayMix = 0.3; fx.TapeDelayTime = 280; fx.TapeDelayFb = 0.45; fx.TapeDelayWow = 0.3; break;
+            case "plate": fx.PlateMix = 0.35; fx.PlateSize = 0.6; fx.PlateDamping = 0.5; break;
+            case "vinyl": fx.VinylCrackle = 0.4; fx.TapeHiss = 0.2; fx.TapeWow = 0.3; break;
+            case "comp": fx.CompThresh = -18; fx.CompRatio = 3; fx.CompAttack = 10; fx.CompRelease = 120; fx.CompMakeup = 3; break;
+            case "eq": fx.LowShelf = 2; fx.HighShelf = 2; fx.Width = 1.05; break;
+        }
+        return n;
+    }
+    // Project-to-patch: every track becomes a node in one modular network. A track sent to a legacy
+    // bus gets its own FX module node that references the LIVE shared bus FX instance (all tracks on
+    // a bus share that one instance). A track with no bus gets a dedicated FX module node that
+    // references the LIVE track FX instance, so enabling/tweaking effects on the track applies.
+    // Unpatched sessions therefore sound exactly like the mixer they replace, through the graph.
+    public static void AutoPatch(Project p) {
+        PatchGraph g = p.Graph; g.Nodes.Clear(); g.Links.Clear(); g.Groups.Clear();
+        double y = 40;
+        PatchNode outNode = new PatchNode { Kind = "out", Label = "out", X = 1080, Y = 160 }; g.Nodes.Add(outNode);
+        Dictionary<int, PatchNode> busFx = new Dictionary<int, PatchNode>();
+        for (int i = 0; i < p.Tracks.Count; i++) { Track t = p.Tracks[i]; PatchNode tn = new PatchNode { Kind = "track", Label = t.Name, TrackUid = t.Uid, X = 40, Y = y }; g.Nodes.Add(tn);
+            PatchNode fx = null; bool viaBus = false;
+            if (t.Bus >= 1 && t.Bus <= 4 && p.Buses != null && t.Bus <= p.Buses.Count && p.Buses[t.Bus - 1].Enabled) {
+                int bIdx = t.Bus;
+                if (!busFx.TryGetValue(bIdx, out fx)) {
+                    Bus bus = p.Buses[bIdx - 1];
+                    fx = new PatchNode { Kind = "fx", Type = "busfx", Label = "BUS " + (char)(64 + bIdx), X = 560, Y = y };
+                    fx.Fx = bus.Fx; fx.Auto = bus.Auto;             // LIVE shared instance - one FX per bus, heard by all its tracks
+                    g.Nodes.Add(fx); busFx[bIdx] = fx;
+                }
+                viaBus = true;
+            } else {
+                fx = new PatchNode { Kind = "fx", Type = "trackfx", Label = t.Name + " FX", X = 560, Y = y };
+                fx.Fx = t.Fx;                                  // LIVE instance owned by the track
+                g.Nodes.Add(fx);
+            }
+            g.Links.Add(new PatchLink(tn.Id, fx.Id));
+            if (!viaBus) { g.Links.Add(new PatchLink(fx.Id, outNode.Id)); }
+            y += 96;
+        }
+        foreach (KeyValuePair<int, PatchNode> kv in busFx) g.Links.Add(new PatchLink(kv.Value.Id, outNode.Id));
+        g.Initialized = true;
+    }
+    // Appends one new track (and its FX module) to an already-initialized graph without wiping
+    // the user's wiring. Safe to call when the graph is uninitialized (no-op).
+    public static void AddTrackNode(Project p, Track t) {
+        if (p == null || t == null) return;
+        PatchGraph g = p.Graph;
+        if (g == null || !g.Initialized) return;
+        // skip if this track already has a node
+        foreach (PatchNode n in g.Nodes) if (n.Kind == "track" && n.TrackUid == t.Uid) return;
+        double maxY = 40;
+        PatchNode outNode = null;
+        foreach (PatchNode n in g.Nodes) {
+            if (n.Y > maxY) maxY = n.Y;
+            if (n.Kind == "out") outNode = n;
+        }
+        double y = maxY + 96;
+        if (outNode == null) { outNode = new PatchNode { Kind = "out", Label = "out", X = 1080, Y = 160 }; g.Nodes.Add(outNode); }
+        PatchNode tn = new PatchNode { Kind = "track", Label = t.Name, TrackUid = t.Uid, X = 40, Y = y };
+        g.Nodes.Add(tn);
+        PatchNode fx = null; bool viaBus = false;
+        if (t.Bus >= 1 && t.Bus <= 4 && p.Buses != null && t.Bus <= p.Buses.Count && p.Buses[t.Bus - 1].Enabled) {
+            int bIdx = t.Bus;
+            // reuse existing busfx node if it exists
+            foreach (PatchNode n in g.Nodes) if (n.Kind == "fx" && n.Type == "busfx" && n.Label == "BUS " + (char)(64 + bIdx)) fx = n;
+            if (fx == null) {
+                Bus bus = p.Buses[bIdx - 1];
+                fx = new PatchNode { Kind = "fx", Type = "busfx", Label = "BUS " + (char)(64 + bIdx), X = 560, Y = y };
+                fx.Fx = bus.Fx;
+                fx.Auto = bus.Auto;
+                g.Nodes.Add(fx);
+            }
+            viaBus = true;
+        } else {
+            fx = new PatchNode { Kind = "fx", Type = "trackfx", Label = t.Name + " FX", X = 560, Y = y };
+            fx.Fx = t.Fx;
+            g.Nodes.Add(fx);
+        }
+        g.Links.Add(new PatchLink(tn.Id, fx.Id));
+        if (!viaBus) g.Links.Add(new PatchLink(fx.Id, outNode.Id));
+    }
+}
+
+public class DrumKitParams {
+    public double KickPitch = 150, KickDecay = 7, KickLen = 0.45, KickDrive = 0, KickClick = 0.5, KickSub = 0.4, KickSnap = 0.7;
+    public double SnareTone = 190, SnareDecay = 18, SnareNoise = 0.9, SnareBody = 0.7, SnareSnap = 0.6, SnareTight = 0;
+    public double ClapDecay = 30, RimFreq = 820, HatDecay = 60, OpenDecay = 9, HatOpen = 0.5;
+    public double CrashLen = 1.2, CrashBright = 1, RideCha = 0.15, RidePing = 0.5, TomDecay = 10, ShakerDecay = 32, PercDecay = 12;
+    public double HatBright = 1, DrumDrive = 0, DrumCrush = 16, Room = 0, Humanize = 0.25, VelCurve = 1.0;
+}
+
+public static class DrumKits {
+    public static DrumKitParams For(string name) {
+        var p = new DrumKitParams();
+        if (name == null) return p;
+        switch (name) {
+            case "808":
+                p.KickPitch = 110; p.KickDecay = 3.5; p.KickLen = 1.1; p.KickClick = 0.15; p.KickSub = 0.9; p.KickSnap = 0.4; p.SnareDecay = 9; p.SnareTone = 150; p.SnareNoise = 0.6; p.HatDecay = 30; p.HatBright = 0.6; p.OpenDecay = 4; p.CrashLen = 0.5; p.TomDecay = 6; p.DrumDrive = 0.15; p.Room = 0.1; break;
+            case "909":
+                p.KickPitch = 155; p.KickDecay = 6; p.KickLen = 0.38; p.KickDrive = 0.35; p.KickClick = 0.9; p.KickSub = 0.35; p.SnareTone = 215; p.SnareSnap = 0.9; p.HatBright = 1.5; p.HatDecay = 85; p.OpenDecay = 12; p.CrashBright = 1.3; p.TomDecay = 11; p.Room = 0.08; break;
+            case "Acoustic":
+                p.KickPitch = 78; p.KickDecay = 13; p.KickLen = 0.28; p.KickClick = 1.1; p.KickSub = 0.3; p.SnareTone = 172; p.SnareNoise = 1.2; p.SnareBody = 0.8; p.SnareSnap = 0.9; p.HatBright = 0.9; p.HatDecay = 42; p.OpenDecay = 8; p.Room = 0.55; p.TomDecay = 14; break;
+            case "Lo-Fi":
+                p.KickPitch = 92; p.KickDecay = 9; p.SnareDecay = 24; p.SnareTone = 148; p.SnareNoise = 1.0; p.HatDecay = 26; p.HatBright = 0.45; p.DrumCrush = 7; p.DrumDrive = 0.45; p.Room = 0.25; p.Humanize = 0.5; break;
+            case "Jazz":
+                p.KickPitch = 72; p.KickDecay = 15; p.KickLen = 0.2; p.KickClick = 1.2; p.SnareTone = 185; p.RimFreq = 980; p.SnareSnap = 0.8; p.HatBright = 1.15; p.HatDecay = 48; p.Room = 0.6; p.RideCha = 0.45; p.RidePing = 0.7; p.Humanize = 0.45; break;
+            case "Rock":
+                p.KickPitch = 98; p.KickDrive = 0.4; p.KickClick = 1.0; p.SnareTone = 168; p.SnareNoise = 1.05; p.SnareSnap = 0.85; p.HatBright = 0.85; p.OpenDecay = 7; p.Room = 0.4; p.TomDecay = 13; break;
+            case "Techno":
+                p.KickPitch = 135; p.KickDecay = 5.5; p.KickDrive = 0.6; p.KickClick = 0.7; p.KickSub = 0.5; p.SnareTone = 205; p.SnareSnap = 0.7; p.HatBright = 1.35; p.HatDecay = 72; p.OpenDecay = 10; p.Room = 0.06; break;
+            case "House":
+                p.KickPitch = 138; p.KickDecay = 4.5; p.KickDrive = 0.2; p.KickClick = 0.5; p.SnareTone = 222; p.SnareNoise = 0.8; p.HatBright = 1.25; p.HatDecay = 58; p.OpenDecay = 11; p.Room = 0.12; break;
+            case "Hip-Hop":
+                p.KickPitch = 86; p.KickDecay = 8; p.KickLen = 0.5; p.KickClick = 0.6; p.SnareTone = 142; p.SnareDecay = 21; p.SnareNoise = 0.95; p.HatDecay = 44; p.HatBright = 0.8; p.Room = 0.3; p.Humanize = 0.4; break;
+            case "Trap":
+                p.KickPitch = 58; p.KickDecay = 2.5; p.KickLen = 0.8; p.KickClick = 0.3; p.KickSub = 1.0; p.SnareTone = 208; p.HatDecay = 95; p.HatBright = 1.6; p.HatOpen = 0.7; p.Room = 0.05; p.VelCurve = 0.85; break;
+            case "DnB":
+                p.KickPitch = 112; p.KickDecay = 9; p.KickClick = 0.8; p.KickSub = 0.45; p.SnareTone = 195; p.SnareNoise = 1.0; p.SnareSnap = 0.75; p.HatDecay = 78; p.HatBright = 1.25; p.Room = 0.38; p.Humanize = 0.35; break;
+            case "Jungle":
+                p.KickPitch = 102; p.KickDecay = 10; p.KickClick = 0.9; p.SnareTone = 200; p.SnareNoise = 1.3; p.SnareSnap = 1.0; p.SnareTight = 0.4; p.HatDecay = 68; p.Room = 0.5; p.Humanize = 0.55; break;
+            case "Industrial":
+                p.KickPitch = 108; p.KickDrive = 0.7; p.KickClick = 1.3; p.DrumDrive = 0.65; p.DrumCrush = 8; p.SnareTone = 245; p.SnareNoise = 1.25; p.HatBright = 1.7; p.HatDecay = 55; p.OpenDecay = 6; p.Room = 0.22; p.Humanize = 0.3; break;
+            case "Electro":
+                p.KickPitch = 122; p.KickDrive = 0.35; p.KickClick = 0.65; p.SnareTone = 228; p.SnareSnap = 0.55; p.HatBright = 1.45; p.HatDecay = 62; p.HatOpen = 0.35; p.Room = 0.08; break;
+            case "Latin":
+                p.KickPitch = 88; p.KickDecay = 11; p.KickClick = 0.95; p.SnareTone = 152; p.RimFreq = 610; p.RimFreq = 610; p.HatBright = 1.0; p.Room = 0.38; p.Humanize = 0.4; p.PercDecay = 8; break;
+            case "Ambient":
+                p.KickPitch = 68; p.KickDecay = 16; p.KickClick = 0.4; p.KickSub = 0.6; p.SnareTone = 138; p.SnareNoise = 0.5; p.SnareBody = 0.5; p.HatDecay = 28; p.HatBright = 0.55; p.Room = 0.85; p.CrashLen = 2.2; p.CrashBright = 0.6; break;
+        }
+        // kits get distinct saturation/crush defaults
+        if (name == "808" || name == "Ambient" || name == "Jazz") p.DrumCrush = Math.Max(p.DrumCrush, 12);
+        if (name == "Industrial") p.DrumCrush = 7;
+        return p;
+    }
+    public static string[] Names = new string[] { "Standard", "808", "909", "Acoustic", "Lo-Fi", "Jazz", "Rock", "Techno", "House", "Hip-Hop", "Trap", "DnB", "Jungle", "Industrial", "Electro", "Latin", "Ambient" };
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// AI one-shot libraries (rendered offline with Stable Audio). Reads 16/24/32-bit PCM or 32-bit float WAV
+// into mono float, trims the dead air and hands the samples to the drum engine and the instrument importer.
+// ---------------------------------------------------------------------------------------------------------------
+public static class WavIn {
+    // Mono, 44.1 kHz (Dsp.ReadWav already mixes and resamples); returns null instead of throwing.
+    public static float[] ReadMono(string path, out int rate) {
+        rate = Dsp.SR;
+        try {
+            if (!File.Exists(path)) return null;
+            float[] s = Dsp.ReadWav(path);
+            if (s == null || s.Length < 16) return null;
+            return s;
+        } catch { return null; }
+    }
+
+    public static float Peak(float[] s) { float p = 0; if (s == null) return 0; for (int i = 0; i < s.Length; i++) { float a = Math.Abs(s[i]); if (a > p) p = a; } return p; }
+
+    // Drops the leading/trailing silence a generated one-shot usually has, with short fades so nothing clicks.
+    public static float[] Trim(float[] s) {
+        if (s == null || s.Length < 64) return s;
+        int first = 0, last = s.Length - 1;
+        while (first < s.Length && Math.Abs(s[first]) < 0.002f) first++;
+        while (last > first && Math.Abs(s[last]) < 0.002f) last--;
+        if (last - first < 32) return null;
+        first = Math.Max(0, first - (int)(Dsp.SR * 0.003));
+        last = Math.Min(s.Length - 1, last + (int)(Dsp.SR * 0.02));
+        float[] o = new float[last - first + 1];
+        Array.Copy(s, first, o, 0, o.Length);
+        int fin = Math.Min(o.Length / 4, (int)(Dsp.SR * 0.002));
+        for (int i = 0; i < fin; i++) o[i] *= (float)i / fin;
+        int fout = Math.Min(o.Length / 2, (int)(Dsp.SR * 0.02));
+        for (int i = 0; i < fout; i++) o[o.Length - 1 - i] *= (float)i / fout;
+        return o;
+    }
+
+    public static float[] Resample(float[] s, int from, int to) {
+        if (s == null || s.Length < 2 || from <= 0 || from == to) return s;
+        int n = Math.Max(2, (int)((long)s.Length * to / from));
+        float[] o = new float[n];
+        double step = (double)from / to; int w = 0;
+        for (int i = 0; i < n; i++) {
+            double pos = i * step; int a = (int)pos;
+            if (a >= s.Length - 1) break;
+            double fr = pos - a;
+            o[i] = (float)(s[a] * (1 - fr) + s[a + 1] * fr); w++;
+        }
+        if (w >= n) return o;
+        float[] t = new float[Math.Max(2, w)]; Array.Copy(o, t, t.Length); return t;
+    }
+
+    // Library hits are rendered one file at a time, so their level wanders several dB (a chain rattle peaks at
+    // 0.42 where a kick peaks at 1.0). Peak-normalize on load, with a capped boost, so switching instruments
+    // does not jump the mix and quiet one-shots stay usable.
+    public static float[] NormalizePeak(float[] s, float target) {
+        if (s == null || s.Length < 16) return s;
+        double pk = 0;
+        for (int i = 0; i < s.Length; i++) { double a = Math.Abs(s[i]); if (a > pk) pk = a; }
+        if (pk < 0.01 || pk >= target) return s;
+        double g = Math.Min(target / pk, 4.0);
+        float[] o = new float[s.Length];
+        for (int i = 0; i < s.Length; i++) {
+            double v = s[i] * g;
+            o[i] = (float)(v > 1.0 ? 1.0 : (v < -1.0 ? -1.0 : v));
+        }
+        return o;
+    }
+
+    // Stable Audio likes to continue a beat, so a "one shot" often arrives with a second hit further in.
+    // Keep the first transient, stop before the next one and taper the end, so the sampler gets a real one-shot.
+    public static double MaxSeconds(string piece) {
+        switch (piece) {
+            case "kick": return 0.90;
+            case "snare": return 0.55;
+            case "clap": return 0.45;
+            case "rim": return 0.28;
+            case "chat": return 0.20;
+            case "ohat": return 0.80;
+            case "crash": return 2.20;
+            case "ride": return 1.50;
+            case "tomlo": return 0.72;
+            case "tommhi": return 0.66;
+            default: return 0.30;
+        }
+    }
+
+    public static float[] ExtractHit(float[] s, string piece) { return ExtractHit(s, MaxSeconds(piece)); }
+
+    // Keeps the whole trimmed one-shot (natural tail included) and simply caps the length with a short fade.
+    // Used for musical hits, where a transient detector would mistake ensemble beating for a second hit.
+    public static float[] TrimTail(float[] s, double maxSeconds) {
+        if (s == null || s.Length < 16) return null;
+        int n = Math.Min(s.Length, (int)(maxSeconds * Dsp.SR));
+        if (n < 16) return null;
+        float[] o = new float[n];
+        Array.Copy(s, o, n);
+        int fade = Math.Min(n, Math.Max(64, (int)(Dsp.SR * 0.04)));
+        for (int i = 0; i < fade; i++) {
+            double g = 0.5 - 0.5 * Math.Cos(Math.PI * (double)i / fade);
+            o[n - 1 - i] *= (float)(1 - g);
+        }
+        return o;
+    }
+
+    // Same isolation pass with an explicit ceiling, used for the drum kits and the foley one-shots.
+    // Works on a 5 ms RMS envelope: find the loudest hit, back up to the start of its attack, and only cut
+    // before a later hit when there is a real gap (40 ms under 12 % of the peak) followed by a fresh attack.
+    // The old sample-peak detector mistook beating and reverb dips for second hits and cut musical tails short.
+    public static float[] ExtractHit(float[] s, double maxSeconds) {
+        if (s == null || s.Length < 64) return s;
+        int win = Math.Max(16, (int)(Dsp.SR * 0.005));
+        int frames = s.Length / win;
+        if (frames < 4) return null;
+        float[] env = new float[frames];
+        float peakEnv = 0;
+        for (int f = 0; f < frames; f++) {
+            float sum = 0; int b = f * win;
+            for (int k = 0; k < win; k++) { float v = s[b + k]; sum += v * v; }
+            env[f] = (float)Math.Sqrt(sum / win);
+            if (env[f] > peakEnv) peakEnv = env[f];
+        }
+        if (peakEnv < 1e-5f) return null;
+        int scanF = Math.Min(frames, (int)(1.2 * Dsp.SR) / win);
+        int bestF = 0; float best = 0;
+        for (int f = 0; f < scanF; f++) if (env[f] > best) { best = env[f]; bestF = f; }
+        int startF = bestF;
+        while (startF > 0 && env[startF - 1] > best * 0.12f) startF--;
+        int cutF = frames;
+        int quiet = 0, quietStart = -1;
+        for (int f = bestF + 1; f < frames; f++) {
+            if (env[f] < best * 0.12f) {
+                if (quiet == 0) quietStart = f;
+                quiet++;
+            } else {
+                if (quiet >= 8 && env[f] > best * 0.5f) { cutF = quietStart; break; }
+                quiet = 0; quietStart = -1;
+            }
+        }
+        int startI = startF * win;
+        int end = Math.Min(s.Length, startI + (int)(maxSeconds * Dsp.SR));
+        int cut = Math.Min(end, cutF * win);
+        if (cut - startI < (int)(0.02 * Dsp.SR)) cut = end;
+        int n = cut - startI;
+        if (n < 16) return null;
+        float[] o = new float[n];
+        Array.Copy(s, startI, o, 0, n);
+        int fade = Math.Max(64, Math.Min(n / 2, (int)(Dsp.SR * 0.03)));
+        for (int i = 0; i < fade; i++) {
+            double g = 0.5 - 0.5 * Math.Cos(Math.PI * (double)i / fade);
+            o[n - 1 - i] *= (float)(1 - g);
+        }
+        return o;
+    }
+
+    // First-hit isolation for foley: recorded object hits often contain two to five knocks or rattles.
+    // Cut at the first point where the envelope drops under a quarter of the peak and stays down for
+    // three frames, so the sampler gets one clean knock instead of a little rhythm.
+    public static float[] ExtractFirstHit(float[] s, double maxSeconds) {
+        if (s == null || s.Length < 64) return s;
+        int win = Math.Max(16, (int)(Dsp.SR * 0.020));
+        int frames = s.Length / win;
+        if (frames < 6) return null;
+        float[] env = new float[frames];
+        for (int f = 0; f < frames; f++) {
+            float sum = 0; int b = f * win;
+            for (int k = 0; k < win; k++) { float v = s[b + k]; sum += v * v; }
+            env[f] = (float)Math.Sqrt(sum / win);
+        }
+        float best = 0; int bestF = 0;
+        int scanF = Math.Min(frames, (int)(1.0 * Dsp.SR) / win);
+        for (int f = 0; f < scanF; f++) if (env[f] > best) { best = env[f]; bestF = f; }
+        if (best < 1e-5f) return null;
+        int startF = bestF;
+        while (startF > 0 && env[startF - 1] > best * 0.1f) startF--;
+        // A dip only counts as the end of the hit when another loud attack follows it. A single hit
+        // simply decays through the same level, so its natural tail survives untouched.
+        int lookAhead = Math.Max(4, (int)(0.30 * Dsp.SR) / win);
+        int minDip = bestF + Math.Max(6, (int)(0.08 * Dsp.SR) / win);
+        int cutF = frames;
+        for (int f = minDip; f < frames - 3; f++) {
+            if (env[f] > best * 0.30f) continue;
+            if (env[f + 1] > best * 0.45f || env[f + 2] > best * 0.45f) continue;
+            int lim = Math.Min(frames - 1, f + lookAhead);
+            bool reattack = false;
+            for (int g = f + 3; g <= lim; g++) { if (env[g] > best * 0.45f) { reattack = true; break; } }
+            if (reattack) { cutF = f; break; }
+        }
+        int startI = startF * win;
+        int end = Math.Min(s.Length, startI + (int)(maxSeconds * Dsp.SR));
+        int cut = Math.Min(end, cutF * win);
+        if (cut - startI < (int)(0.03 * Dsp.SR)) cut = end;
+        int n = cut - startI;
+        if (n < 16) return null;
+        float[] o = new float[n];
+        Array.Copy(s, startI, o, 0, n);
+        int fade = Math.Max(64, Math.Min(n / 2, (int)(Dsp.SR * 0.025)));
+        for (int i = 0; i < fade; i++) {
+            double g = 0.5 - 0.5 * Math.Cos(Math.PI * (double)i / fade);
+            o[n - 1 - i] *= (float)(1 - g);
+        }
+        return o;
+    }
+}
+
+// Drum kits rendered as three velocity layers per piece. When a kit folder is present the sampler takes over
+// from the procedural Drum() synth, which stays as the fallback for missing kits/pieces.
+public static class DrumSamples {
+    public static bool Enabled = true;
+    public static readonly List<string> Roots = new List<string>();
+    static readonly Dictionary<string, float[][]> Cache = new Dictionary<string, float[][]>();
+    static readonly Dictionary<string, bool> Missing = new Dictionary<string, bool>();
+    static readonly object Gate = new object();
+
+    public static void AddRoot(string dir) {
+        if (String.IsNullOrWhiteSpace(dir)) return;
+        try { dir = Path.GetFullPath(dir).TrimEnd('\\'); } catch { return; }
+        lock (Gate) { if (!Roots.Contains(dir)) Roots.Add(dir); }
+    }
+
+    public static void Reset() { lock (Gate) { Cache.Clear(); Missing.Clear(); } }
+
+    public static int LayerFor(int vel) { return vel >= 92 ? 2 : (vel >= 52 ? 1 : 0); }
+    static string LayerName(int i) { return i == 0 ? "soft" : (i == 1 ? "mid" : "loud"); }
+
+    public static string PieceFor(int pitch) {
+        switch (pitch) {
+            case 35: case 36: return "kick";
+            case 38: case 40: return "snare";
+            case 39: return "clap";
+            case 37: return "rim";
+            case 42: case 44: return "chat";
+            case 46: return "ohat";
+            case 49: case 55: case 57: return "crash";
+            case 51: case 53: case 59: return "ride";
+            case 41: case 43: return "tomlo";
+            case 45: case 47: case 48: case 50: return "tommhi";
+            case 54: case 56: case 58: return "perc";
+            default:
+                if (pitch >= 72) return "perc";
+                if (pitch >= 60) return "tommhi";
+                return "perc";
+        }
+    }
+
+    static string FindFile(string kit, string file) {
+        foreach (string r in Roots) {
+            string a = Path.Combine(r, kit, file + ".wav");
+            if (File.Exists(a)) return a;
+            string b = Path.Combine(r, "DrumKits", kit, file + ".wav");
+            if (File.Exists(b)) return b;
+        }
+        return null;
+    }
+
+    // One shared gain across the three layers keeps the soft / mid / loud dynamics intact while still
+    // matching the level of the procedural kits.
+    public static float[] Get(string kit, int pitch, int vel) {
+        if (!Enabled || String.IsNullOrEmpty(kit)) return null;
+        string id = kit + "|" + PieceFor(pitch);
+        float[][] layers;
+        lock (Gate) {
+            if (Cache.TryGetValue(id, out layers)) { }
+            else if (Missing.ContainsKey(id)) return null;
+            else {
+                layers = new float[3][];
+                bool ok = true;
+                for (int i = 0; i < 3 && ok; i++) {
+                    string f = FindFile(kit, PieceFor(pitch) + "-" + LayerName(i));
+                    if (f == null) { ok = false; break; }
+                    int rate; float[] s = WavIn.ReadMono(f, out rate);
+                    if (s == null) { ok = false; break; }
+                    s = WavIn.Trim(s);
+                    if (s == null) { ok = false; break; }
+                    s = WavIn.ExtractHit(s, PieceFor(pitch));
+                    if (s == null) { ok = false; break; }
+                    if (rate != Dsp.SR) s = WavIn.Resample(s, rate, Dsp.SR);
+                    layers[i] = s;
+                }
+                if (!ok) { Missing[id] = true; return null; }
+                float peak = WavIn.Peak(layers[1]);
+                if (peak < 1e-4f) peak = WavIn.Peak(layers[2]);
+                float g = peak > 1e-4f ? Math.Min(6f, 0.85f / peak) : 1f;
+                for (int i = 0; i < 3; i++) for (int k = 0; k < layers[i].Length; k++) layers[i][k] *= g;
+                if (Cache.Count > 96) Cache.Clear();
+                Cache[id] = layers;
+            }
+        }
+        if (layers == null) return null;
+        float[] src = layers[LayerFor(vel)];
+        // a little pitch spread so repeated toms / hats do not sound machine-stamped
+        double ratio = 1;
+        int anchor = 0;
+        if (PieceFor(pitch) == "tomlo") anchor = 42; else if (PieceFor(pitch) == "tommhi") anchor = 47;
+        else if (PieceFor(pitch) == "chat") anchor = 42;
+        if (anchor > 0) ratio = Math.Pow(2, (pitch - anchor) / 12.0 * 0.7);
+        if (Math.Abs(ratio - 1) < 0.002) return (float[])src.Clone();
+        int n = Math.Max(2, (int)(src.Length / ratio));
+        float[] o = new float[n]; int w = 0;
+        for (int i = 0; i < n; i++) {
+            double pos = i * ratio; int a = (int)pos;
+            if (a >= src.Length - 1) break;
+            double fr = pos - a;
+            o[i] = (float)(src[a] * (1 - fr) + src[a + 1] * fr); w++;
+        }
+        if (w >= n) return o;
+        float[] t = new float[Math.Max(2, w)]; Array.Copy(o, t, t.Length); return t;
+    }
+}
+
+public static class Dsp {
+    public const int SR = 44100;
+
+    public static short[] Render(Project p, bool loop) { return Render(p, loop, true); }
+
+    // Mixes the current pattern (loop) or the whole arrangement (song) to float stereo, before mastering.
+    public static void Mix(Project p, bool song, bool loop, out float[] L, out float[] R) {
+        if (song && p.Song.Count > 0) RenderStereo(Arranger.Flatten(p), false, out L, out R);
+        else RenderStereo(p, loop, out L, out R);
+    }
+
+    public static short[] ToPcm(float[] L, float[] R, bool mastered) {
+        int N = L.Length; short[] pcm = new short[N * 2];
+        for (int i = 0; i < N; i++) {
+            double a = mastered ? L[i] : Math.Tanh(L[i]), b = mastered ? R[i] : Math.Tanh(R[i]), sc = mastered ? 32767 : 30000;
+            pcm[2 * i] = (short)Math.Max(-32767, Math.Min(32767, Math.Round(a * sc)));
+            pcm[2 * i + 1] = (short)Math.Max(-32767, Math.Min(32767, Math.Round(b * sc)));
+        }
+        return pcm;
+    }
+
+    public static short[] Render(Project p, bool loop, bool master) {
+        float[] L, R; RenderStereo(p, loop, out L, out R);
+        bool m = master && p.Master != null && p.Master.Enabled;
+        if (m) Mastering.Process(L, R, p.Master);
+        return ToPcm(L, R, m);
+    }
+
+    // Per-block render: synthesizes the loop (or song) and returns only the frames in [fromFrame, toFrame) as interleaved stereo PCM.
+    // When loop is true the range wraps (a looping buffer is periodic), so callers can ask for [F, F+N) to get the seamless window starting at F.
+    public static short[] Render(Project p, bool loop, bool master, int fromFrame, int toFrame) {
+        short[] full = Render(p, loop, master);
+        int n = full.Length / 2;
+        int f = Math.Max(0, Math.Min(fromFrame, n));
+        int span = Math.Max(0, toFrame - fromFrame);
+        short[] outPcm = new short[Math.Max(0, span * 2)];
+        for (int i = 0; i < span; i++) {
+            int src = f + i; if (loop) src %= n;
+            if (src >= 0 && src * 2 + 2 <= full.Length) { Array.Copy(full, src * 2, outPcm, i * 2, 2); }
+        }
+        return outPcm;
+    }
+
+    public static short[] RenderSong(Project p, bool master) {
+        float[] L, R; Mix(p, true, false, out L, out R);
+        bool m = master && p.Master != null && p.Master.Enabled;
+        if (m) Mastering.Process(L, R, p.Master);
+        return ToPcm(L, R, m);
+    }
+
+    public static void RenderStereo(Project p, bool loop, out float[] outL, out float[] outR) {
+        double spb = 60.0 / p.Bpm;
+        int loopN = (int)Math.Round(p.LoopBeats * spb * SR);
+        int N = loop ? loopN : loopN + SR * 2;
+        float[] L = new float[N], R = new float[N];
+        Random rnd = new Random(1234);
+        List<float[]> allL = new List<float[]>(), allR = new List<float[]>(); List<Track> allT = new List<Track>(); List<bool> ghost = new List<bool>();
+        bool anySolo = false; foreach (Track solot in p.Tracks) if (solot.Solo) { anySolo = true; break; }
+        // When the patch graph drives the mix, the graph's own FX modules process the audio.
+        // Applying the track FX here as well would run each effect twice (once dry, once in the graph).
+        bool patchOn = PatchRender.Active(p);
+        if (patchOn) PatchRender.BindFxNodes(p);
+        foreach (Track t in p.Tracks) {
+            bool isSrc = MixEngine.IsSource(p, t);
+            bool offBySolo = anySolo && !t.Solo && !isSrc;
+            if (t.Mute && !isSrc) continue;
+            if (offBySolo) continue;
+            double pl = Math.Cos((t.Pan + 1) * Math.PI / 4), pr = Math.Sin((t.Pan + 1) * Math.PI / 4);
+            float[] TL = new float[N], TR = new float[N];
+            Dictionary<string, float[]> cache = new Dictionary<string, float[]>();
+            bool isPatch = (t.Synth ?? "").ToLowerInvariant() == "patch" && t.Patch != null;
+            bool isDrums = (t.Synth ?? "").ToLowerInvariant() == "drums";
+            bool pctx = isPatch && t.Patch.NeedsContext();
+            List<AutoLane> planes = null;
+            if (isPatch && t.Auto != null) foreach (AutoLane al in t.Auto) if (al.Param.StartsWith("p:") && al.Points.Count > 0) { if (planes == null) planes = new List<AutoLane>(); planes.Add(al); }
+            int evi = 0;
+            foreach (Ev e in Engine.Events(p, t)) {
+                evi++;
+                int s0 = (int)Math.Round(e.Start * spb * SR);
+                float amp = (float)(t.Vol * e.Vel / 127.0 * 0.5);
+                string key = e.Pitch + "|" + Math.Round(e.Len * spb, 3).ToString(CultureInfo.InvariantCulture);
+                if (isDrums && DrumSamples.Enabled) key += "|v" + DrumSamples.LayerFor(e.Vel);
+                float[] buf;
+                if (isPatch && (pctx || planes != null)) {
+                    int variant = t.Patch.Variation > 0 ? evi % 4 : 0, velB = pctx ? Math.Min(127, (e.Vel / 8) * 8 + 4) : 100; string psig = "";
+                    Patch pv = planes != null ? PatchAuto.Resolve(t.Patch, planes, e.Start, out psig) : null;
+                    key += "|v" + velB + "|r" + variant + "|" + psig;
+                    if (!cache.TryGetValue(key, out buf)) { buf = PatchSynth.Render(pv ?? t.Patch, e.Pitch, e.Len * spb, velB, variant); cache[key] = buf; }
+                } else if (!cache.TryGetValue(key, out buf)) {
+                    buf = NoteBuffer(t, e.Pitch, e.Len * spb, rnd, e.Vel);
+                    cache[key] = buf;
+                }
+                for (int i = 0; i < buf.Length; i++) {
+                    int idx = s0 + i;
+                    if (idx >= N) { if (loop) idx %= N; else break; }
+                    float v = buf[i] * amp;
+                    TL[idx] += (float)(v * pl); TR[idx] += (float)(v * pr);
+                }
+            }
+            if (t.Fx != null && t.Fx.Active && (!patchOn || !PatchRender.HasFxNode(p, t.Fx))) FxProc.Process(t.Fx, TL, TR, loop, spb);
+            if (t.Auto != null && t.Auto.Count > 0 && (!patchOn || !PatchRender.HasFxNode(p, t.Fx))) AutoFx.Apply(t, TL, TR, spb);
+            allT.Add(t); allL.Add(TL); allR.Add(TR); ghost.Add(t.Mute || offBySolo);
+        }
+        // Per-track compressor sidechain + makeup gain (duck from a named source track)
+        for (int k = 0; k < allT.Count; k++) {
+            Track t = allT[k]; if (t == null || t.Fx == null) continue;
+            Fx fx = t.Fx;
+            string srcName = fx.SidechainSource;
+            if (!String.IsNullOrEmpty(srcName) && fx.SidechainMix > 0) {
+                int si = -1;
+                for (int q = 0; q < allT.Count; q++) if (allT[q] != null && allT[q].Name == srcName) { si = q; break; }
+                if (si >= 0 && si != k) {
+                    float[] sl = allL[si], sr = allR[si]; float[] oL = allL[k], oR = allR[k];
+                    double aCoef = Math.Exp(-1 / Math.Max(1, fx.SidechainAttack / 1000.0 * SR)), rCoef = Math.Exp(-1 / Math.Max(1, fx.SidechainRelease / 1000.0 * SR));
+                    double env = 0;
+                    for (int i = 0; i < N; i++) {
+                        double x = Math.Max(Math.Abs(sl[i]), Math.Abs(sr[i])); env = Math.Max(x, env * rCoef + (x - env) * (x > env ? 1 - aCoef : 1 - rCoef));
+                        double duck = 1 - Math.Min(1, Math.Max(0, env * 2)) * fx.SidechainMix;
+                        oL[i] = (float)(oL[i] * duck); oR[i] = (float)(oR[i] * duck);
+                    }
+                }
+            }
+            if (fx.CompMakeup != 0) { float g = (float)Math.Pow(10, fx.CompMakeup / 20.0); float[] oL2 = allL[k], oR2 = allR[k]; for (int i = 0; i < N; i++) { oL2[i] *= g; oR2[i] *= g; } }
+        }
+        MixEngine.Apply(p, allT, allL, allR, ghost, loop, spb);
+        if (patchOn) { PatchRender.Run(p, allT, allL, allR, ghost, loop, spb, L, R, N); }
+        else {
+        float[][] busL = new float[5][], busR = new float[5][];
+        for (int b = 1; b <= 4; b++) { busL[b] = new float[N]; busR[b] = new float[N]; }
+        for (int k = 0; k < allT.Count; k++) {
+            if (ghost[k]) continue;
+            float[] TL = allL[k], TR = allR[k];
+            int b = allT[k].Bus;
+            float[] dL = (b >= 1 && b <= 4) ? busL[b] : L, dR = (b >= 1 && b <= 4) ? busR[b] : R;
+            for (int i = 0; i < N; i++) { dL[i] += TL[i]; dR[i] += TR[i]; }
+        }
+        for (int b = 1; b <= 4; b++) {
+            Bus bus = (p.Buses != null && b <= p.Buses.Count) ? p.Buses[b - 1] : null;
+            if (bus != null && bus.Enabled && bus.Fx != null) { if (bus.Auto != null && bus.Auto.Count > 0) AutoFx.ApplyLanes(bus.Auto, bus.Fx, busL[b], busR[b], spb); if (bus.Fx.Active) FxProc.Process(bus.Fx, busL[b], busR[b], loop, spb); }
+            for (int i = 0; i < N; i++) { L[i] += busL[b][i]; R[i] += busR[b][i]; }
+        }
+        }
+        int d = (int)Math.Round(p.DelayBeats * spb * SR);
+        if (p.DelayMix > 0.001 && d > 0 && d < N) {
+            float[] wl = new float[N], wr = new float[N];
+            int passes = loop ? 4 : 1;
+            for (int pass = 0; pass < passes; pass++) {
+                for (int i = 0; i < N; i++) {
+                    int j = i - d;
+                    if (j < 0) { if (loop) j += N; else continue; }
+                    // ping-pong: left feeds right and back
+                    wr[i] = L[j] + (float)p.DelayFb * wl[j];
+                    wl[i] = R[j] + (float)p.DelayFb * wr[j];
+                }
+            }
+            for (int i = 0; i < N; i++) { L[i] += (float)p.DelayMix * wl[i]; R[i] += (float)p.DelayMix * wr[i]; }
+        }
+        if (p.Click) {
+            double spbB = 60.0 / p.Bpm;
+            double step = 4.0 / Math.Max(1, p.BeatUnit);
+            int idx = 0;
+            for (double bPos = 0; bPos < p.LoopBeats + 1e-9; bPos += step, idx++) {
+                int s0 = (int)Math.Round(bPos * spbB * SR);
+                if (s0 >= N) break;
+                bool downbeat = (idx % Math.Max(1, p.BeatsPerBar)) == 0;
+                double freq = downbeat ? 1520.0 : 960.0;
+                int len = Math.Min((int)(0.035 * SR), N - s0);
+                for (int i = 0; i < len; i++) {
+                    double env = Math.Exp(-i / (0.0075 * SR));
+                    float v = (float)(Math.Sin(2 * Math.PI * freq * i / SR) * env * 0.28);
+                    L[s0 + i] += v; R[s0 + i] += v;
+                }
+            }
+        }
+        outL = L; outR = R;
+    }
+
+    static float[] NoteBuffer(Track t, int pitch, double dur, Random rnd, int vel) {
+        string syn = (t.Synth ?? "").ToLowerInvariant();
+        if (syn == "drums") return Drum(pitch, rnd, t.DrumKit, vel);
+        if (syn == "patch") return t.Patch == null ? new float[1] : PatchSynth.Render(t.Patch, pitch, dur);
+        if (syn == "sample") return SampleVoice(t, pitch, dur);
+        return Voice(t, pitch, dur, rnd);
+    }
+
+    static float[] SampleVoice(Track t, int pitch, double dur) {
+        if (t.Sample == null || t.Sample.Length < 2) return new float[1];
+        double ratio = t.SampleMode == 1 ? 1.0 : Math.Pow(2, (pitch - t.SampleRoot) / 12.0);
+        int n;
+        if (t.SampleMode == 2) n = Math.Max(1, (int)((dur + Math.Max(0.005, t.Rel)) * SR));
+        else { n = (int)(t.Sample.Length / ratio); if (t.SampleGate) n = Math.Min(n, (int)((dur + Math.Max(0.005, t.Rel)) * SR)); }
+        n = Math.Max(1, Math.Min(n, SR * 30));
+        float[] o = new float[n];
+        for (int i = 0; i < n; i++) {
+            double pos = i * ratio;
+            if (t.SampleMode == 2) pos = pos % Math.Max(1, t.Sample.Length - 1);
+            else if (pos >= t.Sample.Length - 1) break;
+            int a = (int)pos;
+            double fr = pos - a;
+            double x = t.Sample[a] * (1 - fr) + t.Sample[Math.Min(a + 1, t.Sample.Length - 1)] * fr;
+            if (t.SampleGate) { double tm = (double)i / SR; if (tm > dur) x *= Math.Max(0, 1 - (tm - dur) / Math.Max(0.005, t.Rel)); }
+            if (i < 40) x *= i / 40.0;
+            o[i] = (float)x;
+        }
+        return o;
+    }
+
+    // Render one note of a track (synth, patch, sample or drum, with its effect chain) to a mono, trimmed, normalized sample.
+    public static float[] RenderSample(Track t, int pitch, double seconds, bool normalize) {
+        Project p = new Project(); p.Bpm = 60; p.BeatsPerBar = 1; p.Bars = Math.Max(1, (int)Math.Ceiling(seconds)); p.DelayMix = 0;
+        Track c = new Track();
+        c.Name = t.Name; c.Synth = t.Synth; c.Vol = 1; c.Pan = 0; c.Cutoff = t.Cutoff; c.Res = t.Res; c.EnvAmt = t.EnvAmt; c.Atk = t.Atk; c.Rel = t.Rel; c.Crush = t.Crush;
+        c.Patch = t.Patch; c.Fx = t.Fx; c.Sample = t.Sample; c.SampleRoot = t.SampleRoot; c.SampleGate = t.SampleGate; c.DrumKit = t.DrumKit; c.InstrumentName = t.InstrumentName; c.SampleMode = t.SampleMode;
+        c.Notes.Add(new Note(pitch, 0, seconds, 110)); p.Tracks.Add(c);
+        short[] pcm = Render(p, false);
+        float[] m = new float[pcm.Length / 2];
+        int last = 0; float peak = 0;
+        for (int i = 0; i < m.Length; i++) {
+            m[i] = (pcm[2 * i] + pcm[2 * i + 1]) / 65536f;
+            float a = Math.Abs(m[i]); if (a > peak) peak = a;
+            if (a > 0.0015f) last = i;
+        }
+        int len = Math.Min(m.Length, last + SR / 50);
+        float[] o = new float[Math.Max(2, len)];
+        Array.Copy(m, o, Math.Min(len, m.Length));
+        int fade = Math.Min(o.Length / 2, SR / 100);
+        for (int i = 0; i < fade; i++) o[o.Length - 1 - i] *= (float)i / fade;
+        if (normalize) Normalize(o, 0.89f);
+        return o;
+    }
+
+    public static void Normalize(float[] s, float target) {
+        float peak = 0; for (int i = 0; i < s.Length; i++) { float a = Math.Abs(s[i]); if (a > peak) peak = a; }
+        if (peak < 1e-6f) return;
+        float g = target / peak; for (int i = 0; i < s.Length; i++) s[i] *= g;
+    }
+
+    public static void WriteWavMono(string path, float[] s) {
+        using (FileStream fs = new FileStream(path, FileMode.Create))
+        using (BinaryWriter w = new BinaryWriter(fs)) {
+            int bytes = s.Length * 2;
+            w.Write(new char[] { 'R', 'I', 'F', 'F' }); w.Write(36 + bytes); w.Write(new char[] { 'W', 'A', 'V', 'E', 'f', 'm', 't', ' ' });
+            w.Write(16); w.Write((short)1); w.Write((short)1); w.Write(SR); w.Write(SR * 2); w.Write((short)2); w.Write((short)16);
+            w.Write(new char[] { 'd', 'a', 't', 'a' }); w.Write(bytes);
+            for (int i = 0; i < s.Length; i++) w.Write((short)Math.Max(-32767, Math.Min(32767, (int)Math.Round(s[i] * 32767.0))));
+        }
+    }
+
+    // Reads 16/24-bit PCM or 32-bit float WAV, mixes to mono and resamples to 44.1 kHz.
+    public static float[] ReadWav(string path) {
+        byte[] b = File.ReadAllBytes(path);
+        if (b.Length < 44 || b[0] != 'R' || b[1] != 'I' || b[2] != 'F' || b[3] != 'F') throw new InvalidDataException("Not a WAV file.");
+        int pos = 12, fmt = 1, ch = 1, rate = SR, bits = 16, dataPos = -1, dataLen = 0;
+        while (pos + 8 <= b.Length) {
+            string id = System.Text.Encoding.ASCII.GetString(b, pos, 4); int len = BitConverter.ToInt32(b, pos + 4);
+            if (id == "fmt ") { fmt = BitConverter.ToInt16(b, pos + 8); ch = BitConverter.ToInt16(b, pos + 10); rate = BitConverter.ToInt32(b, pos + 12); bits = BitConverter.ToInt16(b, pos + 22); if (fmt == 65534 && len >= 26) fmt = BitConverter.ToInt16(b, pos + 32); }
+            else if (id == "data") { dataPos = pos + 8; dataLen = Math.Min(len, b.Length - dataPos); break; }
+            pos += 8 + len + (len & 1);
+        }
+        if (dataPos < 0) throw new InvalidDataException("No audio data in the WAV file.");
+        int bps = bits / 8; if (ch < 1 || bps < 2) throw new InvalidDataException("Unsupported WAV format.");
+        int frames = dataLen / (bps * ch);
+        float[] mono = new float[frames];
+        for (int i = 0; i < frames; i++) {
+            double sum = 0;
+            for (int c = 0; c < ch; c++) {
+                int o = dataPos + (i * ch + c) * bps; double v;
+                if (fmt == 3 && bps == 4) v = BitConverter.ToSingle(b, o);
+                else if (bps == 2) v = BitConverter.ToInt16(b, o) / 32768.0;
+                else if (bps == 3) v = (((b[o + 2] << 24) | (b[o + 1] << 16) | (b[o] << 8)) >> 8) / 8388608.0;
+                else if (bps == 4) v = BitConverter.ToInt32(b, o) / 2147483648.0;
+                else throw new InvalidDataException("Unsupported WAV bit depth.");
+                sum += v;
+            }
+            mono[i] = (float)(sum / ch);
+        }
+        if (rate == SR || rate < 1000) return mono;
+        double ratio = (double)rate / SR; int n = (int)(frames / ratio);
+        float[] o2 = new float[n];
+        for (int i = 0; i < n; i++) { double ps = i * ratio; int a = (int)ps; if (a >= frames - 1) break; double fr = ps - a; o2[i] = (float)(mono[a] * (1 - fr) + mono[a + 1] * fr); }
+        return o2;
+    }
+
+    public static string SampleToBase64(float[] s) {
+        byte[] bytes = new byte[s.Length * 2];
+        for (int i = 0; i < s.Length; i++) { short v = (short)Math.Max(-32767, Math.Min(32767, (int)Math.Round(s[i] * 32767.0))); bytes[2 * i] = (byte)(v & 0xFF); bytes[2 * i + 1] = (byte)((v >> 8) & 0xFF); }
+        return Convert.ToBase64String(bytes);
+    }
+    public static float[] SampleFromBase64(string b64) {
+        byte[] bytes = Convert.FromBase64String(b64);
+        float[] s = new float[bytes.Length / 2];
+        for (int i = 0; i < s.Length; i++) s[i] = BitConverter.ToInt16(bytes, 2 * i) / 32768f;
+        return s;
+    }
+
+    static double Osc(string shape, double ph) {
+        switch (shape) {
+            case "square": return ph < 0.5 ? 1 : -1;
+            case "sine": return Math.Sin(2 * Math.PI * ph);
+            case "tri": return 4 * Math.Abs(ph - 0.5) - 1;
+            default: return 2 * ph - 1;
+        }
+    }
+
+    static float[] Voice(Track t, int pitch, double dur, Random rnd) {
+        string syn = (t.Synth ?? "saw").ToLowerInvariant();
+        double f = 440 * Math.Pow(2, (pitch - 69) / 12.0);
+        double atk = Math.Max(0.001, t.Atk), rel = Math.Max(0.005, t.Rel);
+        if (syn == "pad") { atk = Math.Max(atk, 0.15); rel = Math.Max(rel, 0.4); }
+        int n = (int)((dur + rel) * SR) + 1; if (n > SR * 12) n = SR * 12;
+        float[] o = new float[n];
+        double ph1 = 0, ph2 = rnd.NextDouble(), lo = 0, bd = 0;
+        double inc = f / SR;
+        float[] ks = null; int kn = 0, kp = 0;
+        if (syn == "pluck") { kn = Math.Max(2, (int)(SR / f)); ks = new float[kn]; for (int i = 0; i < kn; i++) ks[i] = (float)(rnd.NextDouble() * 2 - 1); }
+        string shape = (syn == "square" || syn == "sine" || syn == "tri") ? syn : "saw";
+        double q = 1 - Math.Min(0.95, Math.Max(0, t.Res));
+        double bits = Math.Pow(2, Math.Max(2, Math.Min(16, t.Crush)) - 1);
+        for (int i = 0; i < n; i++) {
+            double tm = (double)i / SR;
+            double x;
+            if (syn == "noise") x = rnd.NextDouble() * 2 - 1;
+            else if (syn == "pluck") {
+                int nx = (kp + 1) % kn;
+                float y = ks[kp]; ks[kp] = 0.4975f * (ks[kp] + ks[nx]); kp = nx; x = y;
+            }
+            else if (syn == "fm") x = Math.Sin(2 * Math.PI * ph1 + (1 + 4 * Math.Exp(-tm * 5)) * Math.Sin(2 * Math.PI * ph1 * 2));
+            else if (syn == "pad") x = 0.5 * (Osc("saw", ph1) + Osc("saw", ph2));
+            else x = Osc(shape, ph1);
+            ph1 += inc; if (ph1 >= 1) ph1 -= 1;
+            ph2 += inc * (syn == "pad" ? 1.006 : 1); if (ph2 >= 1) ph2 -= 1;
+            if (syn != "sine" && syn != "pluck") {
+                double fc = t.Cutoff * (1 + t.EnvAmt * 4 * Math.Exp(-tm / 0.15));
+                fc = Math.Max(40, Math.Min(fc, SR / 6.0));
+                double ff = 2 * Math.Sin(Math.PI * fc / SR);
+                lo += ff * bd;
+                double hi = x - lo - q * bd;
+                bd += ff * hi;
+                x = lo;
+            }
+            double env = tm < atk ? tm / atk : 1.0;
+            if (tm > dur) env *= Math.Max(0, 1 - (tm - dur) / rel);
+            if (syn == "acid") env *= 0.35 + 0.65 * Math.Exp(-tm * 6);
+            if (syn == "pluck") env *= 1.0;
+            x *= env;
+            if (t.Crush < 16) x = Math.Round(x * bits) / bits;
+            o[i] = (float)x;
+        }
+        return o;
+    }
+
+    static float[] Drum(int pitch, Random rnd, string kitName, int vel) {
+        float[] hit = DrumSamples.Get(kitName, pitch, vel);
+        // The generated layers are all peak-normalised by the renderer, so the soft / mid / loud files
+        // differ in timbre but not in level. Apply the velocity as gain here so ghost notes stay quiet.
+        if (hit != null && hit.Length > 4) {
+            float vg = (float)(0.42 + 0.58 * (vel / 127.0));
+            float[] vhit = new float[hit.Length];
+            for (int i = 0; i < hit.Length; i++) vhit[i] = hit[i] * vg;
+            return vhit;
+        }
+        DrumKitParams kp = DrumKits.For(kitName);
+        double len; int kind;
+        switch (pitch) {
+            case 35: case 36: len = kp.KickLen; kind = 0; break;
+            case 38: case 40: len = 0.25; kind = 1; break;
+            case 39: len = 0.25; kind = 2; break;
+            case 37: len = 0.06; kind = 3; break;
+            case 42: case 44: len = 0.09; kind = 4; break;
+            case 46: len = 0.4 * (kp.OpenDecay / 9.0); kind = 5; break;
+            case 49: case 55: case 57: len = kp.CrashLen; kind = 6; break;
+            case 51: case 53: case 59: len = 0.6; kind = 7; break;
+            case 41: case 43: case 45: case 47: case 48: case 50: len = 0.35; kind = 8; break;
+            case 54: case 56: case 58: len = 0.12; kind = 11; break;
+            default:
+                if (pitch >= 72) { len = 0.11; kind = 13; }
+                else if (pitch >= 60) { len = 0.3; kind = 12; }
+                else { len = 0.35; kind = 8; }
+                break;
+        }
+        int n = (int)(len * SR);
+        float[] o = new float[n];
+        double osc1 = rnd.NextDouble() * 6.2832, osc2 = rnd.NextDouble() * 6.2832, osc3 = rnd.NextDouble() * 6.2832;
+        double hzKick = 55 + rnd.NextDouble() * 14 * (1 - kp.Humanize);
+        for (int i = 0; i < n; i++) {
+            double t = (double)i / SR, x = 0;
+            switch (kind) {
+                case 0: { // kick: pitch-swept body + sub sine + snap transient
+                    double pv = (hzKick + kp.KickPitch * Math.Exp(-t * 30)) * (1 + (rnd.NextDouble() - 0.5) * kp.Humanize * 0.06);
+                    osc1 += 2 * Math.PI * pv / SR; double body = Math.Sin(osc1) * Math.Exp(-t * kp.KickDecay) * 1.9;
+                    osc2 += 2 * Math.PI * hzKick / SR; double sub = Math.Sin(osc2) * Math.Exp(-t * (kp.KickDecay * 0.55)) * kp.KickSub * 1.2;
+                    double snap = Math.Exp(-t * 140) * (rnd.NextDouble() * 2 - 1) * kp.KickSnap * 1.5 + Math.Exp(-t * 300) * (rnd.NextDouble() * 2 - 1) * kp.KickClick;
+                    x = body + sub + snap;
+                    x = Math.Tanh(x * (1 + kp.KickDrive * 8)) * 0.8 * Math.Min(1, x == 0 ? 1 : 1.6 / Math.Max(0.5, Math.Abs(x)));
+                } break;
+                case 1: { // snare: snap burst + band noise + body tone + tightness
+                    double burst = (rnd.NextDouble() * 2 - 1) * Math.Exp(-t * (120 - kp.SnareTight * 60)) * kp.SnareSnap * 1.4;
+                    double noise = (rnd.NextDouble() * 2 - 1) * Math.Exp(-t * kp.SnareDecay) * kp.SnareNoise;
+                    osc1 += 2 * Math.PI * kp.SnareTone / SR; double tone = Math.Sin(osc1) * Math.Exp(-t * 25) * kp.SnareBody * 0.8;
+                    osc2 += 2 * Math.PI * kp.SnareTone * 1.5 / SR; double ring = Math.Sin(osc2) * Math.Exp(-t * 30) * kp.SnareBody * 0.25;
+                    x = burst + noise + tone + ring;
+                } break;
+                case 2: { double e = Math.Exp(-t * kp.ClapDecay) * (1 + 0.8 * Math.Sin(t * 2 * Math.PI * 110)); x = (rnd.NextDouble() * 2 - 1) * Math.Max(0, e) * 0.7 + Math.Sin(2 * Math.PI * 1800 * t) * Math.Exp(-t * 40) * 0.25; } break;
+                case 3: osc1 += 2 * Math.PI * kp.RimFreq / SR; x = Math.Sin(osc1) * Math.Exp(-t * 90) + (rnd.NextDouble() * 2 - 1) * Math.Exp(-t * 120) * 0.3; break;
+                case 4: case 5: { // hats: metallic partials + filtered noise; open uses OpenDecay
+                    double dec = kind == 4 ? kp.HatDecay : kp.OpenDecay; double metal = 0;
+                    double[] mfr = { 616, 913, 1109, 1568, 1620, 2400 }; double ms2 = Math.Pow(2, (Math.Min(pitch, 100) - 72) / 12.0);
+                    osc1 += 2 * Math.PI * mfr[0] * ms2 / SR; metal += (osc1 % 6.2832 < 3.1416 ? 1 : -1) * 0.22;
+                    osc2 += 2 * Math.PI * mfr[2] * ms2 / SR; metal += (osc2 % 6.2832 < 3.1416 ? 1 : -1) * 0.14;
+                    osc3 += 2 * Math.PI * mfr[4] * ms2 / SR; metal += (osc3 % 6.2832 < 3.1416 ? 1 : -1) * 0.1;
+                    metal = (metal > 0 ? 1 : -1) * Math.Abs(metal);
+                    double nzf = (rnd.NextDouble() * 2 - 1); double hpf = nzf - nzf * 0.15;
+                    x = (hpf * 0.55 + metal * 0.35) * Math.Exp(-t * dec) * 0.8 * kp.HatBright * Math.Min(1, t * 900);
+                } break;
+                case 6: { // crash: bright noise burst + shimmer tail
+                    x = (rnd.NextDouble() * 2 - 1) * Math.Exp(-t * 3) * 0.6 * kp.CrashBright + Math.Sin(2 * Math.PI * 6400 * t) * Math.Exp(-t * 5) * 0.2 * kp.CrashBright;
+                } break;
+                case 7: { // ride: ping + wash
+                    osc1 += 2 * Math.PI * 5400 / SR; double ping = Math.Sin(osc1) * Math.Exp(-t * 12) * kp.RidePing * 0.8;
+                    x = ((rnd.NextDouble() * 2 - 1) * 0.35 + ping * 0.5) * Math.Exp(-t * 6) * (0.5 + kp.RideCha);
+                } break;
+                case 8: { // tom: tuned body + partial + attack click
+                    double f0 = 80 + (Math.Max(41, Math.Min(59, pitch)) - 41) * 14; double fr = f0 * (1 + 1.1 * Math.Exp(-t * 38));
+                    osc1 += 2 * Math.PI * fr / SR; osc2 += 2 * Math.PI * fr * 1.59 / SR;
+                    x = (Math.Sin(osc1) * 0.9 + Math.Sin(osc2) * 0.22 * Math.Exp(-t * 30)) * Math.Exp(-t * (8 + (pitch - 60) * 0.5)) + (i < 110 ? (rnd.NextDouble() * 2 - 1) * 0.25 * (1 - i / 110.0) : 0);
+                } break;
+                case 11: { // shaker/perc: short noise tick / shake
+                    x = (rnd.NextDouble() * 2 - 1) * Math.Min(1.0, t * 250) * Math.Exp(-t * kp.PercDecay) * 0.8;
+                } break;
+                case 12: { // tuned tom (pitched)
+                    double f0 = 98.0 * Math.Pow(2, (pitch - 60) / 12.0), fr = f0 * (1 + 1.1 * Math.Exp(-t * 38));
+                    osc1 += 2 * Math.PI * fr / SR; osc2 += 2 * Math.PI * fr * 1.59 / SR;
+                    x = (Math.Sin(osc1) * 0.9 + Math.Sin(osc2) * 0.22 * Math.Exp(-t * 30)) * Math.Exp(-t * (8 + (pitch - 60) * 0.5)) + (i < 110 ? (rnd.NextDouble() * 2 - 1) * 0.25 * (1 - i / 110.0) : 0);
+                } break;
+                case 13: { // pitched hat: metallic cluster + band noise
+                    double sq = 0, mscale = Math.Pow(2, (Math.Min(pitch, 100) - 72) / 12.0);
+                    double[] mfr = { 616, 913, 1109, 1568, 1620, 2400 };
+                    for (int k = 0; k < 6; k++) { osc1 += 2 * Math.PI * mfr[k] * mscale / SR; sq += (osc1 % 6.2832 < 3.1416 ? 1 : -1); }
+                    x = (sq * 0.03 + (rnd.NextDouble() * 2 - 1) * 0.18) * Math.Min(1.0, t * 900) * Math.Exp(-t * 50) * kp.HatBright;
+                } break;
+                default: osc1 += 2 * Math.PI * (200 + pitch * 5.0) / SR; x = Math.Sin(osc1) * Math.Exp(-t * 35); break;
+            }
+            // global kit drive + crush + room tail
+            if (kp.DrumDrive > 0) x = Math.Tanh(x * (1 + kp.DrumDrive * 6)) * 0.62;
+            if (kp.DrumCrush < 16) { double steps = Math.Pow(2, Math.Max(2, kp.DrumCrush) - 1); x = Math.Round(x * steps) / steps; }
+            if (kp.Room > 0 && t > 0.01) x += (rnd.NextDouble() * 2 - 1) * Math.Exp(-t * 22) * kp.Room * 0.12;
+            o[i] = (float)x;
+        }
+        return o;
+    }
+
+    public static void WriteWav(string path, short[] pcm) {
+        using (FileStream fs = new FileStream(path, FileMode.Create))
+        using (BinaryWriter w = new BinaryWriter(fs)) {
+            int bytes = pcm.Length * 2;
+            w.Write(new char[] { 'R', 'I', 'F', 'F' }); w.Write(36 + bytes); w.Write(new char[] { 'W', 'A', 'V', 'E', 'f', 'm', 't', ' ' });
+            w.Write(16); w.Write((short)1); w.Write((short)2); w.Write(SR); w.Write(SR * 4); w.Write((short)4); w.Write((short)16);
+            w.Write(new char[] { 'd', 'a', 't', 'a' }); w.Write(bytes);
+            for (int i = 0; i < pcm.Length; i++) w.Write(pcm[i]);
+        }
+    }
+}
+
+public static class PatchSynth {
+    const int SR = Dsp.SR;
+    const int TS = 2048;
+    static readonly double[][] Formants = { new double[] { 730, 1090, 2440 }, new double[] { 530, 1840, 2480 }, new double[] { 270, 2290, 3010 }, new double[] { 570, 840, 2410 }, new double[] { 300, 870, 2240 } };
+    static double FormantAt(double v, int j) {
+        v = Math.Max(0, Math.Min(4, v)); int a = (int)Math.Floor(v); if (a >= 4) a = 3;
+        double fr = v - a; return Formants[a][j] * (1 - fr) + Formants[a + 1][j] * fr;
+    }
+
+    // Deterministic pseudo-random value in -1..1 for step i (used by the sample-and-hold and smooth-random LFOs).
+    static double Rnd(int i, int seed) {
+        unchecked {
+            uint h = (uint)(i * 374761393 + seed * 668265263); h = (h ^ (h >> 13)) * 1274126177u; h ^= h >> 16;
+            return (h & 0xFFFFFF) / 8388608.0 - 1.0;
+        }
+    }
+    static double Lfo(LfoWave w, double rate, double t, int seed) {
+        double x = rate * t, fl = Math.Floor(x), ph = x - fl;
+        switch (w) {
+            case LfoWave.tri: return ph < 0.25 ? 4 * ph : (ph < 0.75 ? 2 - 4 * ph : 4 * ph - 4);
+            case LfoWave.square: return ph < 0.5 ? 1 : -1;
+            case LfoWave.saw: return 2 * ph - 1;
+            case LfoWave.sh: return Rnd((int)fl, seed);
+            case LfoWave.smooth: { double s = ph * ph * (3 - 2 * ph); return Rnd((int)fl, seed) * (1 - s) + Rnd((int)fl + 1, seed) * s; }
+            default: return Math.Sin(2 * Math.PI * ph);
+        }
+    }
+
+    // One cycle of a harmonic stack: an additive tilt/odd-even spectrum, or the formant peaks of a vowel.
+    static float[] Table(Wave w, Patch p, double f0, double tilt, double vowel) {
+        float[] t = new float[TS];
+        int maxH = (int)Math.Max(1, Math.Min(Math.Round(p.Harmonics), Math.Floor(SR * 0.42 / (Math.Max(20, f0) * 1.5))));
+        double[] amp = new double[maxH + 1];
+        for (int k = 1; k <= maxH; k++) {
+            double a;
+            if (w == Wave.vowel) {
+                double f = k * f0; a = Math.Pow(k, -0.6) * 0.08;
+                for (int j = 0; j < 3; j++) { double F = FormantAt(vowel, j), bw = 70 + 0.07 * F, g = j == 0 ? 1.0 : (j == 1 ? 0.55 : 0.3), d = (f - F) / bw; a += g * Math.Exp(-0.5 * d * d); }
+            } else {
+                a = Math.Pow(k, -tilt);
+                if (k % 2 == 0) a *= 1 - Math.Max(0, p.OddEven); else if (k > 1) a *= 1 + Math.Min(0, p.OddEven);
+            }
+            amp[k] = a;
+        }
+        double peak = 0;
+        for (int i = 0; i < TS; i++) {
+            double s = 0, ph = 2 * Math.PI * i / TS;
+            for (int k = 1; k <= maxH; k++) s += amp[k] * Math.Sin(k * ph);
+            t[i] = (float)s; if (Math.Abs(s) > peak) peak = Math.Abs(s);
+        }
+        if (peak > 1e-9) for (int i = 0; i < TS; i++) t[i] = (float)(t[i] / peak);
+        return t;
+    }
+    static double Tab(float[] t, double ph) {
+        double x = (ph - Math.Floor(ph)) * TS; int i = (int)x; double f = x - i;
+        return t[i & (TS - 1)] * (1 - f) + t[(i + 1) & (TS - 1)] * f;
+    }
+
+    // Karplus-Strong plucked string: a noise burst circulating in a damped delay line tuned to the note.
+    static float[] Pluck(Patch p, double f0, int n, Random rnd) {
+        double N = SR / Math.Max(20, f0), d = p.Damping, nc = Math.Max(3.0, N - 0.5 * d), g = Math.Pow(10, -3.0 * nc / (SR * Math.Max(0.05, p.Ring)));
+        double[] y = new double[n]; int ex = (int)Math.Min(n, Math.Ceiling(nc)), pos = (int)Math.Max(1, Math.Round(p.Strike * N));
+        double[] e = new double[ex]; for (int i = 0; i < ex; i++) e[i] = rnd.NextDouble() * 2 - 1;
+        for (int i = ex - 1; i >= pos; i--) e[i] -= e[i - pos] * 0.9;
+        double lp = 0, a = Math.Max(0.05, 1 - 0.92 * d);
+        for (int i = 0; i < ex; i++) { lp += a * (e[i] - lp); y[i] = lp; }
+        for (int i = ex; i < n; i++) {
+            double r = i - nc; int j = (int)Math.Floor(r); double fr = r - j;
+            double d0 = y[j] * (1 - fr) + y[j + 1 < i ? j + 1 : j] * fr, d1 = (j > 0) ? y[j - 1] * (1 - fr) + y[j] * fr : d0;
+            y[i] = g * ((1 - d) * d0 + d * 0.5 * (d0 + d1));
+        }
+        float[] o = new float[n]; double pk = 1e-9; for (int i = 0; i < n; i++) pk = Math.Max(pk, Math.Abs(y[i]));
+        for (int i = 0; i < n; i++) o[i] = (float)(y[i] / pk * 0.9);
+        return o;
+    }
+
+    // Modal resonator: a bank of decaying partials. Inharmonic 0 = string harmonics, 0.5 = tuned bar (marimba, glockenspiel), 1 = church bell.
+    static float[] Modal(Patch p, double f0, int n) {
+        double[] bar = { 1, 2.756, 5.404, 8.933, 13.344, 18.64, 24.81, 31.87, 39.8, 48.6, 58.3, 68.9 };
+        double[] bell = { 1, 2, 2.4, 3, 4.2, 5.4, 6.8, 8.2, 9.6, 11, 12.5, 14 };
+        double io = p.Inharmonic; int K = 12; double[] fr = new double[K], am = new double[K], dc = new double[K];
+        for (int k = 0; k < K; k++) {
+            double hm = k + 1, r = io <= 0.5 ? hm + (bar[k] - hm) * (io / 0.5) : bar[k] + (bell[k] - bar[k]) * ((io - 0.5) / 0.5);
+            fr[k] = f0 * r;
+            double pluckPos = Math.Abs(Math.Sin(Math.PI * hm * p.Strike)) * (1 - io) + io;
+            am[k] = Math.Pow(hm, -0.75) * (0.25 + 0.75 * pluckPos);
+            double T = Math.Max(0.03, p.Ring) / (1 + k * (0.15 + 1.6 * p.Damping)); dc[k] = 6.9 / T;
+        }
+        double[] y = new double[n]; double pk = 1e-9;
+        for (int k = 0; k < K; k++) {
+            if (fr[k] > SR * 0.45) continue;
+            double w = 2 * Math.PI * fr[k] / SR;
+            for (int i = 0; i < n; i++) { double t = (double)i / SR; double ev = Math.Exp(-dc[k] * t); if (ev < 1e-4) break; y[i] += am[k] * ev * Math.Sin(w * i); }
+        }
+        for (int i = 0; i < n; i++) pk = Math.Max(pk, Math.Abs(y[i]));
+        float[] o = new float[n]; for (int i = 0; i < n; i++) o[i] = (float)(y[i] / pk * 0.9);
+        return o;
+    }
+
+    static double Slot(Wave w, double ph, double pw, Random rnd, float[] tA, float[] tB, double m, double syncR, float[] buf, int i) {
+        ph -= Math.Floor(ph);
+        switch (w) {
+            case Wave.square: return ph < 0.5 ? 1 : -1;
+            case Wave.pulse: return ph < pw ? 1 : -1;
+            case Wave.sine: return Math.Sin(2 * Math.PI * ph);
+            case Wave.tri: return 4 * Math.Abs(ph - 0.5) - 1;
+            case Wave.noise: return rnd.NextDouble() * 2 - 1;
+            case Wave.additive: case Wave.vowel: { double a = Tab(tA, ph); return (tB == null || m <= 0) ? a : a * (1 - m) + Tab(tB, ph) * m; }
+            case Wave.sync: { double x = ph * syncR; return 2 * (x - Math.Floor(x)) - 1; }
+            case Wave.pluck: case Wave.bell: return (buf != null && i < buf.Length) ? buf[i] : 0;
+            default: return 2 * ph - 1;
+        }
+    }
+
+    public static float[] Render(Patch p, int pitch, double dur) { return Render(p, pitch, dur, 100, 0); }
+
+    // vel (1-127) and variant (round-robin index) only matter for patches with expression settings (Vel*, Variation).
+    public static float[] Render(Patch p, int pitch, double dur, int vel, int variant) {
+        double vd = Math.Max(-1.5, Math.Min(1.0, (vel - 90) / 37.0));
+        double rel = Math.Max(0.005, p.Release), atk = Math.Max(0.001, Math.Min(5, p.Attack * (1 - 0.7 * p.VelAttack * vd))), dec = Math.Max(0.01, p.Decay), sus = p.Sustain;
+        Random vrnd = new Random(pitch * 31 + variant * 7919 + 5);
+        double vr = p.Variation;
+        if (vr > 0) { double sc = 1 + (vrnd.NextDouble() - 0.5) * 0.16 * vr; atk *= sc; dec *= 2 - sc; rel *= sc; }
+        int n = (int)((dur + rel) * SR) + 1; if (n > SR * 12) n = SR * 12; if (n < 2) n = 2;
+        float[] o = new float[n];
+        Random rnd = new Random(pitch * 7919 + 17 + variant * 104729);
+        double f0 = 440 * Math.Pow(2, (pitch - 69) / 12.0);
+        double noteCents = vr > 0 ? (vrnd.NextDouble() - 0.5) * 2 * vr * 10 : 0, noteOct = vr > 0 ? (vrnd.NextDouble() - 0.5) * 0.6 * vr : 0;
+        int uni = Math.Max(1, Math.Min(7, (int)Math.Round(p.Unison)));
+        double[] p1 = new double[uni], p2 = new double[uni], p3 = new double[uni], pm = new double[uni], pm3 = new double[uni], fb = new double[uni], det = new double[uni];
+        for (int u = 0; u < uni; u++) {
+            p1[u] = rnd.NextDouble(); p2[u] = rnd.NextDouble(); p3[u] = rnd.NextDouble(); pm[u] = 0;
+            det[u] = Math.Pow(2, (uni == 1 ? 0 : ((double)u / (uni - 1) - 0.5) * 2 * p.UnisonSpread) / 1200.0);
+        }
+        double psub = 0, lo = 0, bd = 0, lo2 = 0, bd2 = 0, b0 = 0, b1 = 0, b2 = 0, brown = 0, prevW = 0, hold = 0; int holdCnt = 0;
+        double[] vlo = new double[3], vbd = new double[3];
+        double q = Math.Max(0.05, 1 - Math.Min(0.95, p.Resonance));
+        double bitsSteps = Math.Pow(2, Math.Max(2, Math.Min(16, p.Bits)) - 1);
+        double pw0 = Math.Max(0.05, Math.Min(0.95, p.PulseWidth));
+        double norm = 1.0 / Math.Sqrt(uni);
+        double s2 = Math.Pow(2, p.Semi2 / 12.0) * Math.Pow(2, p.Detune2 / 1200.0), s3 = Math.Pow(2, p.Semi3 / 12.0);
+        double ampAtDur = Adsr(Math.Min(dur, 1e9), dur, atk, dec, sus);
+        double fNote = f0 * Math.Pow(2, noteCents / 1200.0);
+        // per-oscillator tables and physical-model buffers
+        Wave[] ow = { p.Osc1, p.Osc2, p.Osc3 }; double[] ol = { p.Level1, p.Level2, p.Level3 }, of = { 1, s2, s3 };
+        float[][] tA = new float[3][], tB = new float[3][], pb = new float[3][];
+        bool morphOn = p.Morph > 0 || p.LfoMorph > 0 || p.Lfo2Morph > 0 || p.ModMorph != 0;
+        for (int s = 0; s < 3; s++) {
+            if (ol[s] <= 0) continue;
+            double fs = fNote * of[s];
+            if (ow[s] == Wave.additive || ow[s] == Wave.vowel) {
+                tA[s] = Table(ow[s], p, fs, p.Tilt, p.Vowel);
+                if (morphOn) tB[s] = Table(ow[s], p, fs, p.TiltEnd, p.VowelEnd);
+            } else if (ow[s] == Wave.pluck) pb[s] = Pluck(p, fs, n, rnd);
+            else if (ow[s] == Wave.bell) pb[s] = Modal(p, fs, n);
+        }
+        // slow random drift (pitch and cutoff), 50 control points per second
+        double[] drift = null;
+        if (p.Drift > 0) { drift = new double[n / (SR / 50) + 3]; double dv = 0; for (int k = 0; k < drift.Length; k++) { dv = dv * 0.96 + (vrnd.NextDouble() - 0.5) * 0.4; drift[k] = dv; } }
+        double[] comb = p.Filter == FilterMode.comb ? new double[SR / 20 + 8] : null; int cw = 0;
+        int lseed1 = pitch * 13 + variant + 1, lseed2 = pitch * 17 + variant + 2;
+        bool anyFm = p.FmAmount > 0 || p.LfoFm > 0 || p.Lfo2Fm > 0 || p.ModFm > 0;
+        for (int i = 0; i < n; i++) {
+            double t = (double)i / SR;
+            double lfoG = p.LfoDelay > 0 ? Math.Max(0, Math.Min(1, (t - p.LfoDelay) / 0.5)) : 1;
+            double lfo = Lfo(p.LfoShape, p.LfoRate, t, lseed1) * lfoG;
+            double lfo2 = (p.Lfo2Pitch > 0 || p.Lfo2Filter > 0 || p.Lfo2Fm > 0 || p.Lfo2Morph > 0 || p.Lfo2Pwm > 0 || p.Lfo2Sync > 0 || p.Lfo2Amp > 0) ? Lfo(p.Lfo2Shape, p.Lfo2Rate, t, lseed2) : 0;
+            double me = t < p.ModAttack ? t / p.ModAttack : Math.Exp(-(t - p.ModAttack) / Math.Max(0.01, p.ModDecay));
+            double dr = 0; if (drift != null) { double dx = t * 50; int di = (int)dx; double df = dx - di; dr = drift[di] * (1 - df) + drift[di + 1] * df; }
+            double fm = Math.Pow(2, (p.PitchEnv * Math.Exp(-t / Math.Max(0.002, p.PitchDecay)) + p.ModPitch * me) / 12.0) * Math.Pow(2, (lfo * p.LfoPitch + lfo2 * p.Lfo2Pitch + dr * p.Drift * 18) / 1200.0);
+            double fmE = p.FmDecay > 0 ? p.FmSustain + (1 - p.FmSustain) * Math.Exp(-t / p.FmDecay) : 1;
+            double fmIdx = anyFm ? Math.Max(0, p.FmAmount * fmE * (1 + p.VelFm * vd * 0.8) + 4 * p.LfoFm * lfo + 4 * p.Lfo2Fm * lfo2 + 6 * p.ModFm * me) : 0;
+            double pw = Math.Max(0.05, Math.Min(0.95, pw0 + 0.4 * (p.LfoPwm * lfo + p.Lfo2Pwm * lfo2 + p.ModPwm * me)));
+            double mo = Math.Max(0, Math.Min(1, p.Morph + 0.5 * p.LfoMorph * lfo + 0.5 * p.Lfo2Morph * lfo2 + p.ModMorph * me));
+            double syncR = Math.Max(1, p.SyncRatio + 6 * (p.Lfo2Sync * lfo2 + p.ModSync * me));
+            double x = 0;
+            for (int u = 0; u < uni; u++) {
+                double fu = fNote * fm * det[u];
+                double f1 = fu;
+                if (fmIdx > 0) {
+                    double m3 = 0;
+                    if (p.Fm2Amount > 0) { m3 = Math.Sin(2 * Math.PI * pm3[u]) * p.Fm2Amount * fmE; pm3[u] += fu * p.Fm2Ratio / SR; if (pm3[u] >= 1) pm3[u] -= 1; }
+                    double sm = Math.Sin(2 * Math.PI * pm[u] + m3 + (p.FmFeedback > 0 ? p.FmFeedback * 2.5 * fb[u] : 0)); fb[u] = sm;
+                    f1 = fu * (1 + fmIdx * sm); pm[u] += fu * p.FmRatio / SR; if (pm[u] >= 1) pm[u] -= 1;
+                }
+                double v = 0, a1 = 0, a2 = 0;
+                bool phys1 = ow[0] == Wave.pluck || ow[0] == Wave.bell, phys2 = ow[1] == Wave.pluck || ow[1] == Wave.bell, phys3 = ow[2] == Wave.pluck || ow[2] == Wave.bell;
+                if (ol[0] > 0 && (u == 0 || !phys1)) { a1 = Slot(ow[0], p1[u], pw, rnd, tA[0], tB[0], mo, syncR, pb[0], i); v += ol[0] * a1; }
+                if (ol[1] > 0 && (u == 0 || !phys2)) { a2 = Slot(ow[1], p2[u], pw, rnd, tA[1], tB[1], mo, syncR, pb[1], i); v += ol[1] * a2; }
+                if (ol[2] > 0 && (u == 0 || !phys3)) v += ol[2] * Slot(ow[2], p3[u], pw, rnd, tA[2], tB[2], mo, syncR, pb[2], i);
+                if (p.RingAmount > 0 && ol[0] > 0 && ol[1] > 0) v = v * (1 - 0.7 * p.RingAmount) + p.RingAmount * 1.6 * a1 * a2 * (ol[0] + ol[1]) * 0.5;
+                x += v;
+                p1[u] += f1 / SR; p1[u] -= Math.Floor(p1[u]);
+                p2[u] += fu * s2 / SR; p2[u] -= Math.Floor(p2[u]);
+                p3[u] += fu * s3 / SR; p3[u] -= Math.Floor(p3[u]);
+            }
+            x *= norm * 0.5;
+            if (p.SubLevel > 0) { x += p.SubLevel * 0.6 * Math.Sin(2 * Math.PI * psub); psub += fNote * fm * 0.5 / SR; psub -= Math.Floor(psub); }
+            double nl = p.NoiseLevel + p.ModNoise * me;
+            if (nl > 0) {
+                double w = rnd.NextDouble() * 2 - 1, nz;
+                if (p.Noise == NoiseColor.pink) { b0 = 0.99765 * b0 + w * 0.0990460; b1 = 0.96300 * b1 + w * 0.2965164; b2 = 0.57000 * b2 + w * 1.0526913; nz = (b0 + b1 + b2 + w * 0.1848) * 0.25; }
+                else if (p.Noise == NoiseColor.brown) { brown = (brown + 0.02 * w) / 1.02; nz = brown * 3.5; }
+                else if (p.Noise == NoiseColor.blue) { nz = (w - prevW) * 0.7; prevW = w; }
+                else if (p.Noise == NoiseColor.dust) { nz = rnd.NextDouble() < p.NoiseRate / SR ? (rnd.NextDouble() < 0.5 ? 1.8 : -1.8) * rnd.NextDouble() : 0; }
+                else if (p.Noise == NoiseColor.bits) { if (holdCnt <= 0) { hold = w; holdCnt = Math.Max(1, (int)(SR / Math.Max(20, p.NoiseRate))); } holdCnt--; nz = hold; }
+                else nz = w;
+                x += nl * 0.5 * nz;
+            }
+            if (p.Filter != FilterMode.off) {
+                double fe = t < 0.001 ? t / 0.001 : Math.Exp(-(t - 0.001) / Math.Max(0.01, p.FilterDecay));
+                double oct = p.FilterEnv * 5 * fe + p.LfoFilter * 2 * lfo + p.Lfo2Filter * 2 * lfo2 + p.KeyTrack * (pitch - 60) / 12.0 + p.VelFilter * 2.5 * vd + dr * p.Drift * 0.8 + noteOct;
+                double fc = p.Cutoff * Math.Pow(2, oct);
+                fc = Math.Max(30, Math.Min(fc, SR / 6.0));
+                if (p.FilterDrive > 0) x = Math.Tanh(x * (1 + 6 * p.FilterDrive));
+                double ff = 2 * Math.Sin(Math.PI * fc / SR);
+                switch (p.Filter) {
+                    case FilterMode.comb: {
+                        double D = Math.Max(2, Math.Min(comb.Length - 2, SR / fc)); double fbk = Math.Min(0.97, p.Resonance);
+                        int rd = cw - (int)Math.Round(D); if (rd < 0) rd += comb.Length;
+                        double yv = x + fbk * comb[rd]; comb[cw] = yv; cw++; if (cw >= comb.Length) cw = 0;
+                        x = yv * (1 - 0.5 * fbk); break;
+                    }
+                    case FilterMode.vowel: {
+                        double sh = fc / Math.Max(30, p.Cutoff), sum = 0, xin = x;
+                        for (int j = 0; j < 3; j++) {
+                            double fj = Math.Max(60, Math.Min(SR / 6.0, FormantAt(p.FilterVowel, j) * sh)), fj2 = 2 * Math.Sin(Math.PI * fj / SR);
+                            vlo[j] += fj2 * vbd[j]; double hj = xin - vlo[j] - 0.12 * vbd[j]; vbd[j] += fj2 * hj;
+                            sum += vbd[j] * (j == 0 ? 1.0 : (j == 1 ? 0.7 : 0.45));
+                        }
+                        x = sum * 0.5; break;
+                    }
+                    case FilterMode.lowpass24: {
+                        lo += ff * bd; double hi = x - lo - q * bd; bd += ff * hi;
+                        double q2 = Math.Max(0.5, q); lo2 += ff * bd2; double hi2 = lo - lo2 - q2 * bd2; bd2 += ff * hi2; x = lo2; break;
+                    }
+                    default: {
+                        lo += ff * bd; double hi = x - lo - q * bd; bd += ff * hi;
+                        x = p.Filter == FilterMode.lowpass ? lo : (p.Filter == FilterMode.highpass ? hi : (p.Filter == FilterMode.notch ? lo + hi : bd)); break;
+                    }
+                }
+            }
+            double drv = p.Drive + 0.4 * p.VelDrive * vd; if (drv < 0) drv = 0;
+            if (drv > 0) x = Math.Tanh(x * (1 + drv * 12)) * 0.6;
+            if (p.Fold > 0) x = x * (1 - p.Fold) + p.Fold * Math.Sin(x * (1 + p.Fold * 8) * 1.5707963);
+            if (p.Bits < 16) x = Math.Round(x * bitsSteps) / bitsSteps;
+            double env;
+            if (t <= dur) env = Adsr(t, dur, atk, dec, sus);
+            else env = ampAtDur * Math.Max(0, 1 - (t - dur) / rel);
+            env *= Math.Max(0, 1 - p.LfoAmp * (0.5 + 0.5 * lfo) - p.Lfo2Amp * (0.5 + 0.5 * lfo2));
+            double outv = x * env * p.Gain * 1.6;
+            if (double.IsNaN(outv) || double.IsInfinity(outv)) { outv = 0; lo = bd = lo2 = bd2 = 0; }
+            o[i] = (float)outv;
+        }
+        return o;
+    }
+    static double Adsr(double t, double dur, double atk, double dec, double sus) {
+        if (t < atk) return t / atk;
+        if (t < atk + dec) return 1 - (1 - sus) * (t - atk) / dec;
+        return sus;
+    }
+}
+
+public static class FxProc {
+    const int SR = Dsp.SR;
+    // In loop mode the buffers are processed twice end to end and the second pass is kept, so delay and reverb tails wrap seamlessly.
+    public static void Process(Fx fx, float[] L, float[] R, bool loop, double spb) {
+        int N = L.Length;
+        if (!loop) { Run(fx, L, R, spb); return; }
+        float[] a = new float[N * 2], b = new float[N * 2];
+        Array.Copy(L, 0, a, 0, N); Array.Copy(L, 0, a, N, N); Array.Copy(R, 0, b, 0, N); Array.Copy(R, 0, b, N, N);
+        Run(fx, a, b, spb);
+        Array.Copy(a, N, L, 0, N); Array.Copy(b, N, R, 0, N);
+    }
+
+    static void Run(Fx fx, float[] a, float[] b, double spb) {
+        int n = a.Length;
+        if (fx.PitchShift != 0) PitchShift(fx, a, b);
+        if (fx.TapeWow > 0) Wow(fx, a, b);
+        if (fx.TapeStop > 0) TapeStopFx(fx, a, b, spb);
+        if (fx.StutterBeats > 0.001 && fx.StutterChance > 0.001) Stutter(fx, a, b, spb);
+        if (fx.Filter != FilterMode.off) { Svf(a, fx); Svf(b, fx); }
+        if (fx.Fold > 0) {
+            double f = fx.Fold;
+            for (int i = 0; i < n; i++) {
+                a[i] = (float)(a[i] * (1 - f) + f * Math.Sin(a[i] * (1 + f * 8) * 1.5707963));
+                b[i] = (float)(b[i] * (1 - f) + f * Math.Sin(b[i] * (1 + f * 8) * 1.5707963));
+            }
+        }
+        if (fx.Drive > 0) {
+            double g = 1 + fx.Drive * 12;
+            for (int i = 0; i < n; i++) { a[i] = (float)(Math.Tanh(a[i] * g) * 0.5); b[i] = (float)(Math.Tanh(b[i] * g) * 0.5); }
+        }
+        if (fx.Bits < 16 || fx.Downsample > 1) {
+            double steps = Math.Pow(2, Math.Max(2, fx.Bits) - 1); int ds = Math.Max(1, (int)Math.Round(fx.Downsample));
+            float ha = 0, hb = 0;
+            for (int i = 0; i < n; i++) {
+                if (i % ds == 0) { ha = a[i]; hb = b[i]; }
+                a[i] = (float)(fx.Bits < 16 ? Math.Round(ha * steps) / steps : ha); b[i] = (float)(fx.Bits < 16 ? Math.Round(hb * steps) / steps : hb);
+            }
+        }
+        if (fx.RingMix > 0 && fx.RingFreq > 0) {
+            double m = fx.RingMix, w = 2 * Math.PI * fx.RingFreq / SR;
+            for (int i = 0; i < n; i++) { double s = Math.Sin(w * i); a[i] = (float)(a[i] * (1 - m) + a[i] * s * m); b[i] = (float)(b[i] * (1 - m) + b[i] * s * m); }
+        }
+        if (fx.Chorus > 0) Chorus(fx, a, b);
+        if (fx.FlangerMix > 0) Flanger(fx, a, b);
+        if (fx.PhaserMix > 0) Phaser(fx, a, b);
+        if (fx.DelayMix > 0) Delay(fx, a, b, spb);
+        if (fx.TapeDelayMix > 0) TapeDelay(fx, a, b, spb);
+        if (fx.ReverbMix > 0) Reverb(fx, a, b);
+        if (fx.PlateMix > 0) Plate(fx, a, b);
+        if (fx.VinylCrackle > 0 || fx.TapeHiss > 0) VinylTape(fx, a, b);
+        if (fx.CompRatio > 1) Comp(fx, a, b);
+        if (fx.LowShelf != 0 || fx.HighShelf != 0 || fx.MidPeak != 0) EqFx(fx, a, b);
+        if (Math.Abs(fx.Width - 1) > 0.001) WidthFx(fx, a, b);
+        if (Math.Abs(fx.Gain - 1) > 0.001) { float g = (float)fx.Gain; for (int i = 0; i < n; i++) { a[i] *= g; b[i] *= g; } }
+    }
+
+    static void Stutter(Fx fx, float[] a, float[] b, double spb) {
+        int blk = (int)(fx.StutterBeats * spb * SR), div = Math.Max(2, (int)Math.Round(fx.StutterDiv));
+        int seg = blk / div; if (blk < 64 || seg < 32) return;
+        Random r = new Random(99);
+        for (int s = 0; s + blk <= a.Length; s += blk) {
+            if (r.NextDouble() >= fx.StutterChance) continue;
+            for (int i = seg; i < blk; i++) { a[s + i] = a[s + (i % seg)]; b[s + i] = b[s + (i % seg)]; }
+        }
+    }
+
+    static void Phaser(Fx fx, float[] a, float[] b) {
+        int n = a.Length, stages = Math.Max(1, (int)Math.Round(fx.PhaserStages)); double mix = fx.PhaserMix, w = 2 * Math.PI * fx.PhaserRate / SR;
+        double[][] z1a = new double[12][], z1b = new double[12][];
+        for (int s = 0; s < stages; s++) { z1a[s] = new double[1]; z1b[s] = new double[1]; }
+        for (int i = 0; i < n; i++) {
+            double lfo = Math.Sin(w * i) * fx.PhaserDepth;
+            double x = a[i], y = b[i];
+            for (int s = 0; s < stages; s++) {
+                double fc = 500 + lfo * 2500 + s * 180; double t = Math.Tan(Math.PI * Math.Min(fc, 16000) / SR); double c = (t - 1) / (t + 1);
+                double xa = x, xb = y;
+                x = c * xa + z1a[s][0]; z1a[s][0] = xa - c * x;
+                y = c * xb + z1b[s][0]; z1b[s][0] = xb - c * y;
+            }
+            a[i] = (float)(x * (1 - mix) + (a[i] + x) * mix * 0.5); b[i] = (float)(y * (1 - mix) + (b[i] + y) * mix * 0.5);
+        }
+    }
+    static void Flanger(Fx fx, float[] a, float[] b) {
+        float[] sa = (float[])a.Clone(), sb = (float[])b.Clone(); int n = a.Length; double mix = fx.FlangerMix, w = 2 * Math.PI * fx.FlangerRate / SR, fb = fx.FlangerFb;
+        float[] dl = new float[(int)(SR * 0.02) + 10], dr = new float[(int)(SR * 0.02) + 10]; int pos = 0;
+        for (int i = 0; i < n; i++) {
+            double dt = (0.004 + 0.003 * fx.FlangerDepth * Math.Sin(w * i)) * SR; int di = Math.Max(1, (int)dt);
+            double yl = dl[(pos - di + dl.Length) % dl.Length], yr = dr[(pos - di + dr.Length) % dr.Length];
+            dl[pos] = (float)(sa[i] + yr * fb); dr[pos] = (float)(sb[i] + yl * fb); pos = (pos + 1) % dl.Length;
+            a[i] = (float)(sa[i] * (1 - mix) + yl * mix); b[i] = (float)(sb[i] * (1 - mix) + yr * mix);
+        }
+    }
+    static void Wow(Fx fx, float[] a, float[] b) {
+        float[] sa = (float[])a.Clone(), sb = (float[])b.Clone(); int n = a.Length; double amt = fx.TapeWow * 0.02;
+        for (int i = 0; i < n; i++) { double mod = Math.Sin(2 * Math.PI * 2.5 * i / SR) * amt; double src = i * (1 + mod); if (src < 0) continue; int j = (int)src; double fr = src - j; if (j + 1 < n) { a[i] = (float)(sa[j] * (1 - fr) + sa[j + 1] * fr); b[i] = (float)(sb[j] * (1 - fr) + sb[j + 1] * fr); } }
+    }
+    static void TapeStopFx(Fx fx, float[] a, float[] b, double spb) {
+        int n = a.Length; double tstop = Math.Max(0.05, fx.TapeStopRate * 3.0); int stopN = (int)Math.Min(n, tstop * SR); double amt = fx.TapeStop;
+        float[] oa = (float[])a.Clone(), ob = (float[])b.Clone();
+        for (int i = stopN; i < n; i++) {
+            double u = (i - stopN) / (double)Math.Max(1, n - stopN); double speed = 1 - amt * (1 - u * u); double src = i * speed + (n - stopN) * 0; if (src < 0) src = 0; if (src >= n - 1) continue; int j = (int)src; double fr = src - j; oa[i] = (float)(a[j] * (1 - fr) + a[j + 1] * fr); ob[i] = (float)(b[j] * (1 - fr) + b[j + 1] * fr);
+        }
+        Array.Copy(oa, a, n); Array.Copy(ob, b, n);
+    }
+    static void PitchShift(Fx fx, float[] a, float[] b) {
+        double ratio = Math.Pow(2, fx.PitchShift / 12.0); if (Math.Abs(ratio - 1) < 0.001) return;
+        float[] sa = (float[])a.Clone(), sb = (float[])b.Clone(); int n = a.Length;
+        for (int i = 0; i < n; i++) { double src = i * ratio; if (src + 1 >= n) continue; int j = (int)src; double fr = src - j; a[i] = (float)(sa[j] * (1 - fr) + sa[j + 1] * fr); b[i] = (float)(sb[j] * (1 - fr) + sb[j + 1] * fr); }
+    }
+    static void TapeDelay(Fx fx, float[] a, float[] b, double spb) {
+        int d = (int)Math.Round(fx.TapeDelayTime / 1000.0 * SR), n = a.Length; if (d < 1 || d >= n) return;
+        float[] da = (float[])a.Clone(), db = (float[])b.Clone(); float fb = (float)fx.TapeDelayFb; float m = (float)fx.TapeDelayMix; double wow = 2 * Math.PI * 2.2 / SR;
+        for (int i = d; i < n; i++) { double mod = fx.TapeDelayWow * 0.5 * Math.Sin(wow * i); int di = (int)Math.Round(d * (1 + mod)); if (di < 1) di = 1; if (di >= i) continue; a[i] = da[i] + m * db[i - di] + fb * a[i - di] * 0.5f; b[i] = db[i] + m * da[i - di] + fb * b[i - di] * 0.5f; }
+    }
+    static void Plate(Fx fx, float[] a, float[] b) {
+        int n = a.Length; float[] mono = new float[n];
+        for (int i = 0; i < n; i++) mono[i] = (a[i] + b[i]) * 0.5f * 0.25f;
+        double fb = 0.6 + 0.35 * fx.PlateSize, damp = 0.1 + 0.5 * fx.PlateDamping;
+        for (int ch = 0; ch < 2; ch++) {
+            float[] wet = new float[n]; float[] dst = ch == 0 ? a : b;
+            int[] combs = new int[] { 1557 + ch * 7, 1617 + ch * 13, 1491 + ch * 5, 1422 + ch * 11, 1277 + ch * 17, 1356 + ch * 19 };
+            for (int c = 0; c < combs.Length; c++) {
+                float[] buf = new float[combs[c]]; int idx = 0; double store = 0;
+                for (int i = 0; i < n; i++) { float outv = buf[idx]; store = outv * (1 - damp) + store * damp; buf[idx] = (float)(mono[i] + store * fb); if (++idx >= buf.Length) idx = 0; wet[i] += outv; }
+            }
+            for (int k = 0; k < ApLen.Length; k++) { float[] buf = new float[ApLen[k] + ch * 11]; int idx = 0; for (int i = 0; i < n; i++) { float bo = buf[idx]; float w = wet[i]; wet[i] = -w + bo; buf[idx] = w + bo * 0.5f; if (++idx >= buf.Length) idx = 0; } }
+            for (int i = 0; i < n; i++) dst[i] += (float)(wet[i] * fx.PlateMix);
+        }
+    }
+    static void VinylTape(Fx fx, float[] a, float[] b) {
+        Random r = new Random(1234);
+        for (int i = 0; i < a.Length; i++) {
+            double nz = r.NextDouble() * 2 - 1;
+            if (fx.TapeHiss > 0) { a[i] += (float)(nz * fx.TapeHiss * 0.03); b[i] += (float)(nz * fx.TapeHiss * 0.03); }
+            if (fx.VinylCrackle > 0 && r.NextDouble() < fx.VinylCrackle * 0.02) { float pop = (float)((r.NextDouble() * 2 - 1) * fx.VinylCrackle * 0.6); a[i] += pop; b[i] += pop; }
+        }
+    }
+    static void Comp(Fx fx, float[] a, float[] b) {
+        double env = 0, atk = Math.Exp(-1 / (fx.CompAttack / 1000.0 * SR)), rel = Math.Exp(-1 / (fx.CompRelease / 1000.0 * SR)); double thr = Math.Pow(10, fx.CompThresh / 20.0), ratio = fx.CompRatio;
+        double makeup = Math.Pow(10, fx.CompMakeup / 20.0);
+        for (int i = 0; i < a.Length; i++) {
+            double x = Math.Max(Math.Abs(a[i]), Math.Abs(b[i])); env = Math.Max(x, env * rel + (x - env) * (x > env ? 1 - atk : 1 - rel));
+            double gr = makeup; if (env > thr) { double db = 20 * Math.Log10(env / thr); gr = Math.Pow(10, (-db * (1 - 1 / ratio)) / 20.0); gr = Math.Min(1, gr) * makeup; }
+            a[i] = (float)(a[i] * gr); b[i] = (float)(b[i] * gr);
+        }
+    }
+    static void EqFx(Fx fx, float[] a, float[] b) {
+        Biquad lsa = Biquad.LowShelf(SR, 200, fx.LowShelf, 0.7071), hsa = Biquad.HighShelf(SR, 8000, fx.HighShelf, 0.7071), mpa = Biquad.Peak(SR, 1200, fx.MidPeak, 1.0);
+        Biquad lsb = Biquad.LowShelf(SR, 200, fx.LowShelf, 0.7071), hsb = Biquad.HighShelf(SR, 8000, fx.HighShelf, 0.7071), mpb = Biquad.Peak(SR, 1200, fx.MidPeak, 1.0);
+        for (int i = 0; i < a.Length; i++) { a[i] = (float)mpa.Tick(hsa.Tick(lsa.Tick(a[i]))); b[i] = (float)mpb.Tick(hsb.Tick(lsb.Tick(b[i]))); }
+    }
+    static void WidthFx(Fx fx, float[] a, float[] b) {
+        for (int i = 0; i < a.Length; i++) { double mid = (a[i] + b[i]) * 0.5, side = (a[i] - b[i]) * 0.5 * fx.Width; a[i] = (float)(mid + side); b[i] = (float)(mid - side); }
+    }
+
+    static void Svf(float[] x, Fx fx) {
+        double lo = 0, bd = 0, q = Math.Max(0.05, 1 - Math.Min(0.95, fx.Resonance));
+        for (int i = 0; i < x.Length; i++) {
+            double fc = fx.Cutoff;
+            if (fx.FilterLfoRate > 0) fc *= Math.Pow(2, fx.FilterLfoDepth * 3 * Math.Sin(2 * Math.PI * fx.FilterLfoRate * i / SR));
+            fc = Math.Max(30, Math.Min(fc, SR / 6.0));
+            double ff = 2 * Math.Sin(Math.PI * fc / SR);
+            lo += ff * bd; double hi = x[i] - lo - q * bd; bd += ff * hi;
+            x[i] = (float)(fx.Filter == FilterMode.lowpass ? lo : (fx.Filter == FilterMode.highpass ? hi : bd));
+        }
+    }
+
+    static void Chorus(Fx fx, float[] a, float[] b) {
+        float[] sa = (float[])a.Clone(), sb = (float[])b.Clone();
+        double mix = fx.Chorus, w = 2 * Math.PI * fx.ChorusRate / SR;
+        for (int i = 0; i < a.Length; i++) {
+            double da = (0.010 + 0.007 * fx.ChorusDepth * Math.Sin(w * i)) * SR, db = (0.010 + 0.007 * fx.ChorusDepth * Math.Sin(w * i + 1.5708)) * SR;
+            a[i] = (float)(sa[i] + mix * Tap(sa, i - da)); b[i] = (float)(sb[i] + mix * Tap(sb, i - db));
+        }
+    }
+    static double Tap(float[] x, double pos) {
+        if (pos < 0) return 0;
+        int j = (int)pos; double fr = pos - j;
+        return j + 1 < x.Length ? x[j] * (1 - fr) + x[j + 1] * fr : 0;
+    }
+
+    static void Delay(Fx fx, float[] a, float[] b, double spb) {
+        int d = (int)Math.Round(fx.DelayBeats * spb * SR), n = a.Length;
+        if (d < 1 || d >= n) return;
+        float[] da = (float[])a.Clone(), db = (float[])b.Clone(), wl = new float[n], wr = new float[n];
+        float fb = (float)fx.DelayFeedback;
+        for (int i = d; i < n; i++) { wl[i] = db[i - d] + fb * wr[i - d]; wr[i] = da[i - d] + fb * wl[i - d]; }
+        float m = (float)fx.DelayMix;
+        for (int i = 0; i < n; i++) { a[i] = da[i] + m * wl[i]; b[i] = db[i] + m * wr[i]; }
+    }
+
+    static readonly int[] CombLen = new int[] { 1116, 1188, 1277, 1356, 1422, 1491 };
+    static readonly int[] ApLen = new int[] { 556, 441, 341, 225 };
+    static void Reverb(Fx fx, float[] a, float[] b) {
+        int n = a.Length; float[] mono = new float[n];
+        for (int i = 0; i < n; i++) mono[i] = (a[i] + b[i]) * 0.5f * 0.2f;
+        double fb = 0.72 + 0.26 * fx.ReverbSize, damp = 0.25, mix = fx.ReverbMix;
+        for (int ch = 0; ch < 2; ch++) {
+            float[] wet = new float[n]; float[] dst = ch == 0 ? a : b;
+            for (int c = 0; c < CombLen.Length; c++) {
+                float[] buf = new float[CombLen[c] + ch * 23]; int idx = 0; double store = 0;
+                for (int i = 0; i < n; i++) {
+                    float outv = buf[idx]; store = outv * (1 - damp) + store * damp;
+                    buf[idx] = (float)(mono[i] + store * fb); if (++idx >= buf.Length) idx = 0;
+                    wet[i] += outv;
+                }
+            }
+            for (int k = 0; k < ApLen.Length; k++) {
+                float[] buf = new float[ApLen[k] + ch * 11]; int idx = 0;
+                for (int i = 0; i < n; i++) { float bo = buf[idx]; float w = wet[i]; wet[i] = -w + bo; buf[idx] = w + bo * 0.5f; if (++idx >= buf.Length) idx = 0; }
+            }
+            for (int i = 0; i < n; i++) dst[i] += (float)(wet[i] * mix);
+        }
+    }
+}
+
+public static class MidiWriter {
+    static void Vlq(List<byte> b, long v) {
+        Stack<byte> s = new Stack<byte>();
+        s.Push((byte)(v & 0x7F)); v >>= 7;
+        while (v > 0) { s.Push((byte)((v & 0x7F) | 0x80)); v >>= 7; }
+        while (s.Count > 0) b.Add(s.Pop());
+    }
+    static void Be32(List<byte> b, int v) { b.Add((byte)(v >> 24)); b.Add((byte)(v >> 16)); b.Add((byte)(v >> 8)); b.Add((byte)v); }
+    static void Chunk(Stream os, string id, List<byte> body) {
+        foreach (char c in id) os.WriteByte((byte)c);
+        List<byte> len = new List<byte>(); Be32(len, body.Count);
+        os.Write(len.ToArray(), 0, 4); os.Write(body.ToArray(), 0, body.Count);
+    }
+
+    public static void Write(Project p, string path) {
+        const int PPQ = 480;
+        using (FileStream fs = new FileStream(path, FileMode.Create)) {
+            List<byte> head = new List<byte>();
+            head.Add(0); head.Add(1); head.Add(0); head.Add((byte)(p.Tracks.Count + 1)); head.Add((byte)(PPQ >> 8)); head.Add((byte)(PPQ & 0xFF));
+            Chunk(fs, "MThd", head);
+            List<byte> tr = new List<byte>();
+            int us = (int)Math.Round(60000000.0 / p.Bpm);
+            Vlq(tr, 0); tr.Add(0xFF); tr.Add(0x51); tr.Add(3); tr.Add((byte)(us >> 16)); tr.Add((byte)(us >> 8)); tr.Add((byte)us);
+            Vlq(tr, 0); tr.Add(0xFF); tr.Add(0x58); tr.Add(4); tr.Add((byte)p.BeatsPerBar); tr.Add((byte)Math.Round(Math.Log(Math.Max(1, p.BeatUnit), 2))); tr.Add(24); tr.Add(8);
+            Vlq(tr, 0); tr.Add(0xFF); tr.Add(0x2F); tr.Add(0);
+            Chunk(fs, "MTrk", tr);
+            int ch = 0;
+            foreach (Track t in p.Tracks) {
+                int channel;
+                if (t.Synth == "drums") channel = 9; else { if (ch == 9) ch++; channel = ch % 16; ch++; }
+                List<long[]> ev = new List<long[]>();
+                foreach (Note n in t.Notes) {
+                    long on = (long)Math.Round(n.Start * PPQ), off = on + Math.Max(1, (long)Math.Round(n.Len * PPQ));
+                    ev.Add(new long[] { on, 1, n.Pitch, n.Vel }); ev.Add(new long[] { off, 0, n.Pitch, 0 });
+                }
+                ev.Sort(delegate (long[] a, long[] b) { int c = a[0].CompareTo(b[0]); return c != 0 ? c : a[1].CompareTo(b[1]); });
+                List<byte> body = new List<byte>();
+                byte[] name = System.Text.Encoding.ASCII.GetBytes(t.Name ?? "Track");
+                Vlq(body, 0); body.Add(0xFF); body.Add(0x03); Vlq(body, name.Length); body.AddRange(name);
+                long last = 0;
+                foreach (long[] e in ev) {
+                    Vlq(body, e[0] - last); last = e[0];
+                    body.Add((byte)((e[1] == 1 ? 0x90 : 0x80) | channel)); body.Add((byte)e[2]); body.Add((byte)e[3]);
+                }
+                Vlq(body, 0); body.Add(0xFF); body.Add(0x2F); body.Add(0);
+                Chunk(fs, "MTrk", body);
+            }
+        }
+    }
+}
+
+public class PianoRoll : Control {
+    public Project Proj; public Track Cur;
+    public double Grid = 0.25; public double Playhead = -1; public bool SnapScale;
+    public double MarkerBeat = -1; public List<Note> Clip = new List<Note>(); public double ClipBase = 0;
+    public bool[] Mask = new bool[12]; public int Root = 0;
+    public double Zoom = 80; public int RowH = 14;
+    public HashSet<Note> Sel = new HashSet<Note>();
+    public event EventHandler Changed, BeginEdit, UndoRequested, SpaceRequested;
+
+    const int KeyW = 58, RulerH = 22, VelH = 52;
+    HScrollBar hs = new HScrollBar(); VScrollBar vs = new VScrollBar();
+    int mode; Note dragNote; double startBeat; int startPitch; Rectangle box; Point boxStart;
+    Dictionary<Note, Note> orig = new Dictionary<Note, Note>();
+    double lastLen = 0.25; int lastVel = 100;
+    static readonly bool[] Black = new bool[] { false, true, false, true, false, false, true, false, true, false, true, false };
+    static readonly string[] NoteNames = new string[] { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+
+    public PianoRoll() {
+        SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.Selectable | ControlStyles.ResizeRedraw, true);
+        TabStop = true; DoubleBuffered = true; BackColor = Color.FromArgb(24, 26, 32);
+        hs.Scroll += delegate { Invalidate(); }; vs.Scroll += delegate { Invalidate(); };
+        Controls.Add(hs); Controls.Add(vs);
+        vs.Value = 0;
+        for (int i = 0; i < 12; i++) Mask[i] = true;
+    }
+
+    public void ScrollToPitch(int pitch) { SetScroll(vs, Math.Max(0, (127 - pitch) * RowH - Math.Max(0, ViewH / 2))); }
+    int ViewW { get { return Math.Max(10, Width - vs.Width - KeyW); } }
+    int GridH { get { return Math.Max(10, Height - hs.Height - RulerH - VelH); } }
+    int ViewH { get { return GridH; } }
+    void SetScroll(ScrollBar b, int v) { v = Math.Max(b.Minimum, Math.Min(v, Math.Max(b.Minimum, b.Maximum - b.LargeChange + 1))); b.Value = v; Invalidate(); }
+
+    public void UpdateScroll() {
+        if (Proj == null || Width < 120 || Height < 120) return;
+        hs.SetBounds(0, Height - hs.Height, Width - vs.Width, hs.Height);
+        vs.SetBounds(Width - vs.Width, 0, vs.Width, Height - hs.Height);
+        int cw = (int)((Proj.LoopBeats + 8) * Zoom), vw = ViewW;
+        hs.LargeChange = Math.Max(1, vw); hs.SmallChange = 20; hs.Maximum = Math.Max(0, cw - vw) + hs.LargeChange - 1;
+        int ch = 128 * RowH, vh = GridH;
+        vs.LargeChange = Math.Max(1, vh); vs.SmallChange = RowH; vs.Maximum = Math.Max(0, ch - vh) + vs.LargeChange - 1;
+        if (hs.Value > hs.Maximum - hs.LargeChange + 1) hs.Value = Math.Max(0, hs.Maximum - hs.LargeChange + 1);
+        if (vs.Value > vs.Maximum - vs.LargeChange + 1) vs.Value = Math.Max(0, vs.Maximum - vs.LargeChange + 1);
+    }
+    protected override void OnResize(EventArgs e) { base.OnResize(e); UpdateScroll(); }
+
+    double XToBeat(int x) { return (x - KeyW + hs.Value) / Zoom; }
+    int BeatToX(double b) { return (int)(KeyW + b * Zoom - hs.Value); }
+    int YToPitch(int y) { return 127 - (int)Math.Floor((double)(y - RulerH + vs.Value) / RowH); }
+    int PitchToY(int p) { return RulerH + (127 - p) * RowH - vs.Value; }
+    double Snap(double d) { return Math.Round(d / Grid) * Grid; }
+    void Fire(EventHandler h) { if (h != null) h(this, EventArgs.Empty); }
+    int FixPitch(int p) { p = Math.Max(0, Math.Min(127, p)); return SnapScale ? Scales.Snap(p, Mask) : p; }
+
+    Note NoteAt(int x, int y) {
+        if (Cur == null) return null;
+        for (int i = Cur.Notes.Count - 1; i >= 0; i--) {
+            Note n = Cur.Notes[i];
+            Rectangle r = NoteRect(n);
+            if (r.Contains(x, y)) return n;
+        }
+        return null;
+    }
+    Rectangle NoteRect(Note n) {
+        int x = BeatToX(n.Start), w = Math.Max(4, (int)(n.Len * Zoom));
+        return new Rectangle(x, PitchToY(n.Pitch), w, RowH);
+    }
+
+    protected override void OnPaint(PaintEventArgs pe) {
+        Graphics g = pe.Graphics;
+        g.Clear(BackColor);
+        if (Proj == null) return;
+        int vw = Width - vs.Width, gb = Height - hs.Height - VelH;
+        Rectangle gridRect = new Rectangle(KeyW, RulerH, vw - KeyW, gb - RulerH);
+        g.SetClip(gridRect);
+        int p0 = Math.Max(0, YToPitch(gridRect.Bottom)), p1 = Math.Min(127, YToPitch(gridRect.Top));
+        using (SolidBrush white = new SolidBrush(Color.FromArgb(34, 37, 46)), blk = new SolidBrush(Color.FromArgb(26, 28, 35)), tone = new SolidBrush(Color.FromArgb(40, 52, 78)), root = new SolidBrush(Color.FromArgb(52, 66, 100))) {
+            for (int p = p0; p <= p1; p++) {
+                int pc = p % 12; int y = PitchToY(p);
+                Brush b = Black[pc] ? blk : white;
+                if (Mask[pc]) b = (pc == Root) ? root : tone;
+                g.FillRectangle(b, KeyW, y, vw - KeyW, RowH);
+            }
+        }
+        double barB = Proj.BarBeats, phraseB = barB * Math.Max(1, Proj.PhraseBars);
+        double viewStart = Math.Max(0, XToBeat(KeyW)), viewEnd = XToBeat(vw) + 1;
+        // alternate phrases get a faint tint so the song structure reads at a glance
+        using (SolidBrush tint = new SolidBrush(Color.FromArgb(26, 255, 190, 80))) {
+            for (long ph = (long)Math.Floor(viewStart / phraseB); ph * phraseB <= viewEnd; ph++) {
+                if ((ph & 1) == 0) continue;
+                int x0 = Math.Max(KeyW, BeatToX(ph * phraseB)), x1 = Math.Min(vw, BeatToX((ph + 1) * phraseB));
+                if (x1 > x0) g.FillRectangle(tint, x0, RulerH, x1 - x0, gb - RulerH);
+            }
+        }
+        using (Pen row = new Pen(Color.FromArgb(46, 50, 62)), s16 = new Pen(Color.FromArgb(40, 45, 58)), sub = new Pen(Color.FromArgb(52, 58, 80)) { DashStyle = System.Drawing.Drawing2D.DashStyle.Dot },
+               beat = new Pen(Color.FromArgb(78, 88, 112)), whole = new Pen(Color.FromArgb(104, 122, 170), 2), bar = new Pen(Color.FromArgb(170, 180, 205), 2), phrase = new Pen(Color.FromArgb(255, 176, 64), 3)) {
+            for (int p = p0; p <= p1 + 1; p++) g.DrawLine(row, KeyW, PitchToY(p), vw, PitchToY(p));
+            // 16th-note divisions are always drawn (when zoomed in enough); a finer or triplet snap grid adds dotted lines
+            if (Zoom * 0.25 >= 5) for (long i = (long)Math.Floor(viewStart * 4); i <= viewEnd * 4; i++) { int x = BeatToX(i * 0.25); if (i % 4 != 0) g.DrawLine(s16, x, RulerH, x, gb); }
+            if (Math.Abs(Grid * 4 - Math.Round(Grid * 4)) > 1e-6 || Grid < 0.25 - 1e-9) {
+                for (long i = (long)Math.Floor(viewStart / Grid); i * Grid <= viewEnd; i++) {
+                    double bb = i * Grid; if (Math.Abs(bb * 4 - Math.Round(bb * 4)) < 1e-6) continue;
+                    int x = BeatToX(bb); g.DrawLine(sub, x, RulerH, x, gb);
+                }
+            }
+            for (long i = (long)Math.Floor(viewStart); i <= viewEnd; i++) g.DrawLine(beat, BeatToX(i), RulerH, BeatToX(i), gb);
+            for (long i = (long)Math.Floor(viewStart / 4); i * 4.0 <= viewEnd; i++) g.DrawLine(whole, BeatToX(i * 4.0), RulerH, BeatToX(i * 4.0), gb);
+            for (long i = (long)Math.Floor(viewStart / barB); i * barB <= viewEnd; i++) g.DrawLine(bar, BeatToX(i * barB), RulerH, BeatToX(i * barB), gb);
+            for (long i = (long)Math.Floor(viewStart / phraseB); i * phraseB <= viewEnd; i++) g.DrawLine(phrase, BeatToX(i * phraseB), RulerH, BeatToX(i * phraseB), gb);
+        }
+        int loopX = BeatToX(Proj.LoopBeats);
+        using (SolidBrush shade = new SolidBrush(Color.FromArgb(120, 0, 0, 0))) { if (loopX < vw) g.FillRectangle(shade, Math.Max(KeyW, loopX), RulerH, vw, gb - RulerH); }
+        // other tracks as ghosts
+        using (SolidBrush ghost = new SolidBrush(Color.FromArgb(50, 200, 200, 255))) {
+            foreach (Track t in Proj.Tracks) {
+                if (t == Cur || t.Mute) continue;
+                foreach (Note n in t.Notes) { Rectangle r = NoteRect(n); if (r.Right >= KeyW && r.Left < vw) g.FillRectangle(ghost, r.X, r.Y + 3, r.Width, RowH - 6); }
+            }
+        }
+        if (Cur != null) {
+            foreach (Note n in Cur.Notes) {
+                Rectangle r = NoteRect(n);
+                if (r.Right < KeyW || r.Left > vw || r.Bottom < RulerH || r.Top > gb) continue;
+                int sh = 80 + n.Vel * 175 / 127;
+                using (SolidBrush b = new SolidBrush(Color.FromArgb(40, Math.Min(255, sh), 190)))
+                    g.FillRectangle(b, r.X, r.Y + 1, r.Width - 1, RowH - 2);
+                bool sel = Sel.Contains(n);
+                using (Pen pn = new Pen(sel ? Color.White : Color.FromArgb(20, 90, 80), sel ? 2 : 1)) g.DrawRectangle(pn, r.X, r.Y + 1, r.Width - 1, RowH - 2);
+            }
+        }
+        if (mode == 4) using (Pen pn = new Pen(Color.FromArgb(200, 255, 255, 255)) { DashStyle = System.Drawing.Drawing2D.DashStyle.Dash }) g.DrawRectangle(pn, box);
+        if (Playhead >= 0) using (Pen pn = new Pen(Color.FromArgb(255, 90, 90), 2)) { int x = BeatToX(Playhead); g.DrawLine(pn, x, RulerH, x, gb + VelH); }
+        g.ResetClip();
+
+        // piano keys
+        g.SetClip(new Rectangle(0, RulerH, KeyW, gb - RulerH));
+        using (Font f = new Font("Segoe UI", 7f)) {
+            for (int p = p0; p <= p1; p++) {
+                int y = PitchToY(p); int pc = p % 12;
+                using (SolidBrush b = new SolidBrush(Black[pc] ? Color.FromArgb(20, 20, 24) : Color.FromArgb(222, 224, 230))) g.FillRectangle(b, 0, y, KeyW - 1, RowH - 1);
+                if (pc == 0 || Mask[pc]) using (SolidBrush tb = new SolidBrush(Black[pc] ? Color.Gainsboro : Color.FromArgb(40, 40, 50))) g.DrawString(NoteNames[pc] + ((p / 12) - 1), f, tb, 4, y + 1);
+            }
+        }
+        g.ResetClip();
+        if (Proj.Markers != null && Proj.Markers.Count > 0) {
+            g.SetClip(gridRect);
+            using (Pen mp = new Pen(Color.FromArgb(120, 70, 140, 220), 1)) { mp.DashStyle = System.Drawing.Drawing2D.DashStyle.Dash; foreach (Marker mk in Proj.Markers) { int mx = BeatToX(mk.Beat); if (mx >= KeyW && mx <= vw) g.DrawLine(mp, mx, RulerH, mx, gb); } }
+            g.ResetClip();
+        }
+
+        // ruler
+        using (SolidBrush rb = new SolidBrush(Color.FromArgb(18, 20, 26))) g.FillRectangle(rb, 0, 0, vw, RulerH);
+        g.SetClip(new Rectangle(KeyW, 0, vw - KeyW, RulerH));
+        using (Font f = new Font("Segoe UI", 7.5f)) using (Font fb = new Font("Segoe UI", 7.5f, FontStyle.Bold)) using (SolidBrush tb = new SolidBrush(Color.Silver)) using (SolidBrush pb = new SolidBrush(Color.FromArgb(255, 190, 90))) using (SolidBrush mb = new SolidBrush(Color.FromArgb(120, 128, 150)))
+        using (Pen tick = new Pen(Color.FromArgb(90, 98, 120)), ptick = new Pen(Color.FromArgb(255, 176, 64), 2)) {
+            double endB = XToBeat(vw) + 1;
+            if (Zoom * 0.25 >= 5) for (long i = (long)Math.Floor(Math.Max(0, XToBeat(KeyW)) * 4); i <= endB * 4; i++) { int x = BeatToX(i * 0.25); g.DrawLine(tick, x, RulerH - (i % 4 == 0 ? 8 : 3), x, RulerH); }
+            for (int bar = 0; bar * barB <= endB; bar++) {
+                int x = BeatToX(bar * barB);
+                if (x < KeyW - 40) continue;
+                bool isPhrase = (bar % Math.Max(1, Proj.PhraseBars)) == 0;
+                if (isPhrase) {
+                    g.DrawLine(ptick, x, 0, x, RulerH);
+                    double sec = bar * barB * 60.0 / Math.Max(1, Proj.Bpm); string time = ((int)(sec / 60)) + ":" + ((int)sec % 60).ToString("00");
+                    g.DrawString("Phrase " + (bar / Math.Max(1, Proj.PhraseBars) + 1) + "  " + time, fb, pb, x + 3, 1);
+                    g.DrawString((bar + 1).ToString(), f, tb, x + 3, 11);
+                } else g.DrawString((bar + 1).ToString(), f, tb, x + 3, 4);
+                if (Zoom >= 36) for (int k = 1; k < Math.Ceiling(barB) && k < 16; k++) { if (k >= barB - 1e-9) break; int bx = BeatToX(bar * barB + k); g.DrawString((k + 1).ToString(), f, mb, bx + 2, 8); }
+            }
+            if (Proj.Markers != null) foreach (Marker mk in Proj.Markers) {
+                int mx = BeatToX(mk.Beat); if (mx < KeyW - 300 || mx > vw) continue;
+                string label = mk.Name + (mk.Energy > 0 ? " (" + mk.Energy + ")" : ""); SizeF sz = g.MeasureString(label, fb);
+                using (SolidBrush chip = new SolidBrush(Color.FromArgb(70, 140, 220))) g.FillRectangle(chip, mx, 9, (int)sz.Width + 6, 12);
+                g.DrawString(label, fb, Brushes.White, mx + 3, 8);
+            }
+            if (MarkerBeat >= 0) { int mx = BeatToX(MarkerBeat); if (mx >= KeyW && mx <= vw) { using (SolidBrush mb2 = new SolidBrush(Color.FromArgb(255, 20, 147))) { g.FillPolygon(mb2, new Point[] { new Point(mx - 6, 1), new Point(mx + 6, 1), new Point(mx, 10) }); } using (Pen mp2 = new Pen(Color.FromArgb(255, 20, 147), 1)) g.DrawLine(mp2, mx, 10, mx, RulerH); string ml = MarkerBeat.ToString("0.0"); g.DrawString(ml, f, Brushes.White, mx + 7, 4); } }
+        }
+        g.ResetClip();
+
+        // velocity lane
+        Rectangle vr = new Rectangle(KeyW, gb, vw - KeyW, VelH);
+        using (SolidBrush b = new SolidBrush(Color.FromArgb(18, 20, 26))) g.FillRectangle(b, 0, gb, vw, VelH);
+        g.SetClip(vr);
+        if (Cur != null) foreach (Note n in Cur.Notes) {
+            int x = BeatToX(n.Start); int h = (int)((VelH - 6) * n.Vel / 127.0);
+            using (SolidBrush b = new SolidBrush(Sel.Contains(n) ? Color.White : Color.FromArgb(40, 200, 170))) g.FillRectangle(b, x, gb + VelH - 3 - h, 4, h);
+        }
+        g.ResetClip();
+        using (Pen pn = new Pen(Color.FromArgb(64, 70, 86))) g.DrawLine(pn, 0, gb, vw, gb);
+    }
+
+    void BeginChange() { Fire(BeginEdit); }
+
+    protected override void OnMouseDown(MouseEventArgs e) {
+        Focus();
+        if (Proj == null || Cur == null) return;
+        int gb = Height - hs.Height - VelH;
+        if (e.Y < RulerH && e.X >= KeyW) {
+            double b = Math.Max(0, Math.Round(XToBeat(e.X) / Grid) * Grid);
+            if (e.Button == MouseButtons.Left) { MarkerBeat = b; Playhead = b; Fire(Changed); Invalidate(); }
+            else if (e.Button == MouseButtons.Right) { MarkerBeat = -1; Playhead = -1; Fire(Changed); Invalidate(); }
+            return;
+        }
+        if (e.X < KeyW || e.Y < RulerH) return;
+        if (e.Y >= gb) { // velocity lane: pick the note under the cursor by start position
+            mode = 5; VelAt(e); return;
+        }
+        Note hit = NoteAt(e.X, e.Y);
+        if (e.Button == MouseButtons.Right) {
+            mode = 3; BeginChange();
+            if (hit != null) { Cur.Notes.Remove(hit); Sel.Remove(hit); Fire(Changed); Invalidate(); }
+            return;
+        }
+        startBeat = XToBeat(e.X); startPitch = YToPitch(e.Y);
+        if (hit == null && (Control.ModifierKeys & Keys.Control) == Keys.Control) {
+            mode = 4; boxStart = e.Location; box = new Rectangle(e.Location, new Size(0, 0)); Sel.Clear(); Invalidate(); return;
+        }
+        BeginChange();
+        if (hit == null) {
+            Sel.Clear();
+            Note n = new Note(FixPitch(startPitch), Math.Max(0, Math.Floor(startBeat / Grid) * Grid), lastLen, lastVel);
+            Cur.Notes.Add(n); Sel.Add(n); dragNote = n;
+            mode = 2; orig.Clear(); orig[n] = n.Clone();
+            Fire(Changed); Invalidate(); return;
+        }
+        if ((Control.ModifierKeys & Keys.Shift) == Keys.Shift) { if (!Sel.Remove(hit)) Sel.Add(hit); }
+        else if (!Sel.Contains(hit)) { Sel.Clear(); Sel.Add(hit); }
+        dragNote = hit; orig.Clear();
+        foreach (Note n in Sel) orig[n] = n.Clone();
+        Rectangle r = NoteRect(hit);
+        mode = (e.X >= r.Right - 6) ? 2 : 1;
+        Invalidate();
+    }
+
+    void VelAt(MouseEventArgs e) {
+        int gb = Height - hs.Height - VelH;
+        double b = XToBeat(e.X);
+        Note best = null; double bd = 1e9;
+        foreach (Note n in Cur.Notes) { double d = Math.Abs(n.Start - b) * Zoom; if (d < bd) { bd = d; best = n; } }
+        if (best == null || bd > 10) return;
+        int v = (int)Math.Round(127.0 * (gb + VelH - 3 - e.Y) / (VelH - 6));
+        v = Math.Max(1, Math.Min(127, v));
+        if (Sel.Contains(best)) foreach (Note n in Sel) n.Vel = v; else best.Vel = v;
+        lastVel = v; Fire(Changed); Invalidate();
+    }
+
+    protected override void OnMouseMove(MouseEventArgs e) {
+        if (Proj == null || Cur == null) return;
+        if (mode == 5) { VelAt(e); return; }
+        if (mode == 3) {
+            Note hit = NoteAt(e.X, e.Y);
+            if (hit != null) { Cur.Notes.Remove(hit); Sel.Remove(hit); Fire(Changed); Invalidate(); }
+            return;
+        }
+        if (mode == 4) {
+            box = new Rectangle(Math.Min(boxStart.X, e.X), Math.Min(boxStart.Y, e.Y), Math.Abs(e.X - boxStart.X), Math.Abs(e.Y - boxStart.Y));
+            Sel.Clear();
+            foreach (Note n in Cur.Notes) if (NoteRect(n).IntersectsWith(box)) Sel.Add(n);
+            Invalidate(); return;
+        }
+        double cur = XToBeat(e.X);
+        if (mode == 1) {
+            double db = Snap(cur - startBeat); int dp = YToPitch(e.Y) - startPitch;
+            foreach (Note n in Sel) {
+                Note o; if (!orig.TryGetValue(n, out o)) continue;
+                n.Start = Math.Max(0, o.Start + db); n.Pitch = FixPitch(o.Pitch + dp);
+            }
+            Fire(Changed); Invalidate();
+        } else if (mode == 2) {
+            double dl = Snap(cur - startBeat);
+            foreach (Note n in Sel) {
+                Note o; if (!orig.TryGetValue(n, out o)) continue;
+                n.Len = Math.Max(Grid / 4, o.Len + dl);
+            }
+            Fire(Changed); Invalidate();
+        } else {
+            Cursor = (NoteAt(e.X, e.Y) != null && (e.X >= NoteRect(NoteAt(e.X, e.Y)).Right - 6)) ? Cursors.SizeWE : Cursors.Default;
+        }
+    }
+
+    protected override void OnMouseUp(MouseEventArgs e) {
+        if ((mode == 1 || mode == 2) && dragNote != null && mode == 2) lastLen = dragNote.Len;
+        mode = 0; dragNote = null; Invalidate();
+    }
+
+    protected override void OnMouseWheel(MouseEventArgs e) {
+        Keys m = Control.ModifierKeys;
+        if ((m & Keys.Control) == Keys.Control) {
+            double beat = XToBeat(e.X);
+            Zoom = Math.Max(3, Math.Min(400, Zoom * (e.Delta > 0 ? 1.15 : 1 / 1.15)));
+            UpdateScroll(); SetScroll(hs, (int)(beat * Zoom - (e.X - KeyW)));
+        } else if ((m & Keys.Shift) == Keys.Shift) SetScroll(hs, hs.Value - e.Delta / 2);
+        else SetScroll(vs, vs.Value - e.Delta / 3);
+    }
+
+    protected override bool IsInputKey(Keys k) {
+        Keys b = k & Keys.KeyCode;
+        return b == Keys.Up || b == Keys.Down || b == Keys.Left || b == Keys.Right || base.IsInputKey(k);
+    }
+
+    protected override bool ProcessCmdKey(ref Message msg, Keys k) {
+        if (k == (Keys.Control | Keys.Z)) { Fire(UndoRequested); return true; }
+        if (k == Keys.Space) { Fire(SpaceRequested); return true; }
+        return base.ProcessCmdKey(ref msg, k);
+    }
+
+    protected override void OnKeyDown(KeyEventArgs e) {
+        if (Cur == null) return;
+        bool shift = e.Shift;
+        if (e.KeyCode == Keys.A && e.Control) { Sel.Clear(); foreach (Note n in Cur.Notes) Sel.Add(n); Invalidate(); e.Handled = true; return; }
+        if (e.KeyCode == Keys.C && e.Control) { if (Sel.Count > 0) { Clip.Clear(); double b0 = 1e9; foreach (Note n in Sel) { Clip.Add(n.Clone()); b0 = Math.Min(b0, n.Start); } ClipBase = b0; } e.Handled = true; return; }
+        if (e.KeyCode == Keys.X && e.Control) { if (Sel.Count > 0) { Clip.Clear(); double b0 = 1e9; foreach (Note n in Sel) { Clip.Add(n.Clone()); b0 = Math.Min(b0, n.Start); } ClipBase = b0; BeginChange(); foreach (Note n in new List<Note>(Sel)) Cur.Notes.Remove(n); Sel.Clear(); Fire(Changed); Invalidate(); } e.Handled = true; return; }
+        if (e.KeyCode == Keys.V && e.Control) { if (Clip.Count > 0) { double at = MarkerBeat >= 0 ? MarkerBeat : (Playhead >= 0 ? Playhead : 0); BeginChange(); List<Note> add = new List<Note>(); foreach (Note n in Clip) { Note c = n.Clone(); c.Start = at + (n.Start - ClipBase); if (c.Start >= 0) add.Add(c); } Sel.Clear(); foreach (Note c in add) { Cur.Notes.Add(c); Sel.Add(c); } MarkerBeat = at; Fire(Changed); Invalidate(); } e.Handled = true; return; }
+        if (Sel.Count == 0) return;
+        if (e.KeyCode == Keys.Delete || e.KeyCode == Keys.Back) {
+            BeginChange(); foreach (Note n in new List<Note>(Sel)) Cur.Notes.Remove(n); Sel.Clear(); Fire(Changed); Invalidate(); e.Handled = true;
+        } else if (e.KeyCode == Keys.Up || e.KeyCode == Keys.Down) {
+            BeginChange(); int d = (e.KeyCode == Keys.Up ? 1 : -1) * (shift ? 12 : 1);
+            foreach (Note n in Sel) n.Pitch = Math.Max(0, Math.Min(127, n.Pitch + d));
+            Fire(Changed); Invalidate(); e.Handled = true;
+        } else if (e.KeyCode == Keys.Left || e.KeyCode == Keys.Right) {
+            BeginChange(); double d = (e.KeyCode == Keys.Right ? 1 : -1) * Grid;
+            foreach (Note n in Sel) n.Start = Math.Max(0, n.Start + d);
+            Fire(Changed); Invalidate(); e.Handled = true;
+        } else if (e.KeyCode == Keys.D && e.Control) {
+            BeginChange();
+            double lo = 1e9, hi = 0; foreach (Note n in Sel) { lo = Math.Min(lo, n.Start); hi = Math.Max(hi, n.Start + n.Len); }
+            double shiftB = Math.Max(Grid, Math.Ceiling((hi - lo) / Grid) * Grid);
+            List<Note> add = new List<Note>();
+            foreach (Note n in Sel) { Note c = n.Clone(); c.Start += shiftB; add.Add(c); }
+            Sel.Clear(); foreach (Note c in add) { Cur.Notes.Add(c); Sel.Add(c); }
+            Fire(Changed); Invalidate(); e.Handled = true;
+        }
+    }
+}
+
+// Chroma analysis of audio: the key and one chord per bar. Used to turn a song-model render into editable chords.
+public static class Harmony {
+    const int SR = 44100, N = 8192;
+    static readonly string[] Names = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+    static readonly string[] Suffix = { "", "m", "7", "maj7", "m7", "dim", "sus4" };
+    static readonly int[][] Tpl = { new int[] { 0, 4, 7 }, new int[] { 0, 3, 7 }, new int[] { 0, 4, 7, 10 }, new int[] { 0, 4, 7, 11 }, new int[] { 0, 3, 7, 10 }, new int[] { 0, 3, 6 }, new int[] { 0, 5, 7 } };
+    static readonly double[] Pen = { 0, 0, 0.05, 0.06, 0.04, 0.08, 0.08 };
+    static readonly double[] KsMajor = { 6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88 };
+    static readonly double[] KsMinor = { 6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17 };
+
+    static void Fft(double[] re, double[] im) {
+        int n = re.Length;
+        for (int i = 1, j = 0; i < n; i++) {
+            int bit = n >> 1; for (; (j & bit) != 0; bit >>= 1) j ^= bit; j ^= bit;
+            if (i < j) { double t = re[i]; re[i] = re[j]; re[j] = t; t = im[i]; im[i] = im[j]; im[j] = t; }
+        }
+        for (int len = 2; len <= n; len <<= 1) {
+            double ang = -2 * Math.PI / len, wr = Math.Cos(ang), wi = Math.Sin(ang);
+            for (int i = 0; i < n; i += len) {
+                double cr = 1, ci = 0;
+                for (int k = 0; k < len / 2; k++) {
+                    int a = i + k, b = i + k + len / 2;
+                    double xr = re[b] * cr - im[b] * ci, xi = re[b] * ci + im[b] * cr;
+                    re[b] = re[a] - xr; im[b] = im[a] - xi; re[a] += xr; im[a] += xi;
+                    double ncr = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = ncr;
+                }
+            }
+        }
+    }
+
+    // Adds the pitch-class energy (and the low-register energy, for the bass) of x[start, start+len) into chroma and bass.
+    static void Accumulate(float[] x, int start, int len, double[] chroma, double[] bass) {
+        double[] re = new double[N], im = new double[N], win = new double[N];
+        for (int i = 0; i < N; i++) win[i] = 0.5 - 0.5 * Math.Cos(2 * Math.PI * i / (N - 1));
+        int end = Math.Min(x.Length, start + len);
+        for (int p = Math.Max(0, start); p < end; p += N) {
+            double e = 0;
+            for (int i = 0; i < N; i++) { double v = (p + i < end) ? x[p + i] : 0; re[i] = v * win[i]; im[i] = 0; e += v * v; }
+            if (e < 1e-6) continue;
+            Fft(re, im);
+            for (int k = 1; k < N / 2; k++) {
+                double f = k * (double)SR / N; if (f < 65 || f > 2100) continue;
+                double mag = Math.Sqrt(re[k] * re[k] + im[k] * im[k]);
+                int pc = (((int)Math.Round(69 + 12 * Math.Log(f / 440.0, 2)) % 12) + 12) % 12;
+                chroma[pc] += mag; if (f < 260) bass[pc] += mag;
+            }
+        }
+    }
+    static void Norm(double[] a) { double s = 0; for (int i = 0; i < a.Length; i++) s += a[i]; if (s > 1e-9) for (int i = 0; i < a.Length; i++) a[i] /= s; }
+
+    public static string DetectKey(float[] x, out double confidence) {
+        double[] c = new double[12], b = new double[12]; Accumulate(x, 0, x.Length, c, b); Norm(c);
+        double best = -2; int bk = 0; bool bm = false;
+        for (int minor = 0; minor < 2; minor++) for (int k = 0; k < 12; k++) {
+            double[] prof = minor == 1 ? KsMinor : KsMajor; double mc = 1.0 / 12, mp = 0; for (int i = 0; i < 12; i++) mp += prof[i] / 12;
+            double num = 0, dc = 0, dp = 0;
+            for (int i = 0; i < 12; i++) { double a = c[(i + k) % 12] - mc, p = prof[i] - mp; num += a * p; dc += a * a; dp += p * p; }
+            double r = num / Math.Sqrt(dc * dp + 1e-12);
+            if (r > best) { best = r; bk = k; bm = minor == 1; }
+        }
+        confidence = best;
+        return Names[bk] + (bm ? " minor" : " major");
+    }
+
+    // One chord name per bar (triads, sevenths, dim, sus4) from beat-aligned chroma; the downbeat is assumed at offsetSec.
+    public static string[] ChordsPerBar(float[] x, double bpm, int beatsPerBar, int beatUnit, int bars, double offsetSec) {
+        double barSec = 60.0 / bpm * beatsPerBar * 4.0 / Math.Max(1, beatUnit);
+        string[] res = new string[bars]; string prev = "";
+        for (int b = 0; b < bars; b++) {
+            int start = (int)((offsetSec + b * barSec) * SR), len = (int)(barSec * SR);
+            if (start >= x.Length) { res[b] = prev; continue; }
+            double[] c = new double[12], bs = new double[12]; Accumulate(x, start, len, c, bs); Norm(c); Norm(bs);
+            double cn = 0; for (int i = 0; i < 12; i++) cn += c[i] * c[i];
+            if (cn < 1e-9) { res[b] = prev; continue; }
+            double best = -9; string name = prev;
+            for (int r = 0; r < 12; r++) for (int t = 0; t < Tpl.Length; t++) {
+                double dot = 0, tn = 0;
+                foreach (int iv in Tpl[t]) { double w = iv == 0 ? 1.2 : 1.0; dot += c[(r + iv) % 12] * w; tn += w * w; }
+                double s = dot / Math.Sqrt(cn * tn) + 0.25 * bs[r] - Pen[t];
+                if (s > best) { best = s; name = Names[r] + Suffix[t]; }
+            }
+            res[b] = name; prev = name;
+        }
+        return res;
+    }
+}
+
+// Applies a track's automation lanes (volume, pan, sweeping low-pass and high-pass filters) to its rendered audio.
+public static class AutoFx {
+    const int SR = Dsp.SR;
+    class Svf {
+        double ic1, ic2;
+        public double Tick(double x, double a1, double a2, double a3, double k, bool hp) {
+            double v3 = x - ic2, v1 = a1 * ic1 + a2 * v3, v2 = ic2 + a2 * ic1 + a3 * v3;
+            ic1 = 2 * v1 - ic1; ic2 = 2 * v2 - ic2;
+            return hp ? x - k * v1 - v2 : v2;
+        }
+    }
+    public static void Apply(Track t, float[] L, float[] R, double spb) { ApplyLanes(t.Auto, t.Fx, L, R, spb); }
+    public static void ApplyLanes(List<AutoLane> lanes, Fx fx, float[] L, float[] R, double spb) {
+        if (lanes == null) return;
+        int n = L.Length; double sampPerBeat = spb * SR;
+        foreach (AutoLane lane in lanes) {
+            if (lane.Points.Count == 0) continue;
+            string p = lane.Param;
+            if (p == "lp" || p == "hp") {
+                // Mixer low-pass / high-pass (post-FX) automation.
+                double zl = 0, zr = 0;
+                for (int i0 = 0; i0 < n; i0 += 32) {
+                    double fc = Math.Max(20, Math.Min(20000, lane.At(i0 / sampPerBeat)));
+                    double ea = Math.Exp(-2 * Math.PI * fc / SR); int end = Math.Min(n, i0 + 32);
+                    for (int i = i0; i < end; i++) {
+                        zl = (1 - ea) * L[i] + ea * zl; zr = (1 - ea) * R[i] + ea * zr;
+                        if (p == "lp") { L[i] = (float)zl; R[i] = (float)zr; }
+                        else { L[i] = (float)(L[i] - zl); R[i] = (float)(R[i] - zr); }
+                    }
+                }
+            } else if (p == "vol" || p == "pan") {
+                for (int i0 = 0; i0 < n; i0 += 32) {
+                    double v = lane.At(i0 / sampPerBeat), gl, gr; int end = Math.Min(n, i0 + 32);
+                    if (p == "vol") { gl = gr = Math.Max(0, v); }
+                    else { double pn = Math.Max(-1, Math.Min(1, v)); gl = Math.Min(1, 1 - pn); gr = Math.Min(1, 1 + pn); }
+                    if (gl == 1 && gr == 1) continue;
+                    for (int i = i0; i < end; i++) { L[i] *= (float)gl; R[i] *= (float)gr; }
+                }
+            } else if (p.StartsWith("f:")) {
+                string fpn = p.Substring(2);
+                if (fpn == "Cutoff") {
+                    Svf[] slf = { new Svf(), new Svf() }, srf = { new Svf(), new Svf() };
+                    AutoLane resLane = null;
+                    foreach (AutoLane ra in lanes) if (ra.Param == "f:Resonance") { resLane = ra; break; }
+                    for (int i0 = 0; i0 < n; i0 += 32) {
+                        double fc = lane.At(i0 / sampPerBeat); int end = Math.Min(n, i0 + 32);
+                        if (fc >= 19000) continue;
+                        fc = Math.Max(20, Math.Min(0.45 * SR, fc));
+                        double rq = resLane != null ? Math.Max(0, Math.Min(0.95, resLane.At(i0 / sampPerBeat))) : 0;
+                        double g = Math.Tan(Math.PI * fc / SR), k = Math.Max(0.15, 1.0 - rq), a1 = 1 / (1 + g * (g + k)), a2 = g * a1, a3 = g * a2;
+                        for (int i = i0; i < end; i++) {
+                            double x = L[i], y = R[i];
+                            x = slf[1].Tick(slf[0].Tick(x, a1, a2, a3, k, false), a1, a2, a3, k, false); y = srf[1].Tick(srf[0].Tick(y, a1, a2, a3, k, false), a1, a2, a3, k, false);
+                            L[i] = (float)Math.Max(-2, Math.Min(2, x)); R[i] = (float)Math.Max(-2, Math.Min(2, y));
+                        }
+                    }
+                } else if (fpn == "Resonance") {
+                    // Standalone resonance: only when no Cutoff lane exists (Cutoff already applies resonance as a modifier).
+                    if (!lanes.Exists(delegate (AutoLane x) { return x.Param == "f:Cutoff"; })) {
+                        Svf[] slf = { new Svf(), new Svf() }, srf = { new Svf(), new Svf() };
+                        double fc0 = fx != null ? Math.Max(20, Math.Min(0.45 * SR, fx.Cutoff)) : 12000;
+                        for (int i0 = 0; i0 < n; i0 += 32) {
+                            double rq = Math.Max(0, Math.Min(0.95, lane.At(i0 / sampPerBeat))); int end = Math.Min(n, i0 + 32);
+                            double g = Math.Tan(Math.PI * fc0 / SR), k = Math.Max(0.15, 1.0 - rq), a1 = 1 / (1 + g * (g + k)), a2 = g * a1, a3 = g * a2;
+                            for (int i = i0; i < end; i++) {
+                                double x = L[i], y = R[i];
+                                x = slf[1].Tick(slf[0].Tick(x, a1, a2, a3, k, false), a1, a2, a3, k, false); y = srf[1].Tick(srf[0].Tick(y, a1, a2, a3, k, false), a1, a2, a3, k, false);
+                                L[i] = (float)Math.Max(-2, Math.Min(2, x)); R[i] = (float)Math.Max(-2, Math.Min(2, y));
+                            }
+                        }
+                    }
+                } else if (fpn == "Drive" || fpn == "Fold") {
+                    for (int i0 = 0; i0 < n; i0 += 32) {
+                        double v = Math.Max(0, Math.Min(1, lane.At(i0 / sampPerBeat))); int end = Math.Min(n, i0 + 32);
+                        double g = 1 + v * 12;
+                        for (int i = i0; i < end; i++) { if (fpn == "Drive") { L[i] = (float)(Math.Tanh(L[i] * g) * 0.5); R[i] = (float)(Math.Tanh(R[i] * g) * 0.5); } else { L[i] = (float)(L[i] * (1 - v) + v * Math.Sin(L[i] * (1 + v * 8) * 1.5707963)); R[i] = (float)(R[i] * (1 - v) + v * Math.Sin(R[i] * (1 + v * 8) * 1.5707963)); } }
+                    }
+                } else if (fpn == "Bits") {
+                    float ha = 0, hb = 0; int ds = 1;
+                    for (int i0 = 0; i0 < n; i0 += 32) {
+                        double v = Math.Max(2, Math.Min(16, lane.At(i0 / sampPerBeat))); double steps = Math.Pow(2, v - 1); int end = Math.Min(n, i0 + 32);
+                        for (int i = i0; i < end; i++) { if (i % ds == 0) { ha = L[i]; hb = R[i]; } L[i] = (float)(Math.Round(ha * steps) / steps); R[i] = (float)(Math.Round(hb * steps) / steps); }
+                    }
+                } else if (fpn == "RingMix" || fpn == "RingFreq") {
+                    for (int i0 = 0; i0 < n; i0 += 32) {
+                        double m = Math.Max(0, Math.Min(1, lane.At(i0 / sampPerBeat))); double fr = fx != null && fx.RingFreq > 0 ? fx.RingFreq : 200; int end = Math.Min(n, i0 + 32);
+                        double w = 2 * Math.PI * Math.Max(20, Math.Min(5000, fr)) / SR;
+                        for (int i = i0; i < end; i++) { double s = Math.Sin(w * i); L[i] = (float)(L[i] * (1 - m) + L[i] * s * m); R[i] = (float)(R[i] * (1 - m) + R[i] * s * m); }
+                    }
+                } else if (fpn == "DelayMix") {
+                    int d = (int)Math.Round((fx != null && fx.DelayBeats > 0 ? fx.DelayBeats : 0.75) * spb * SR); if (d < 1) d = 1; if (d < n) {
+                        float[] wl = new float[n], wr = new float[n]; double fb = 0.4;
+                        for (int pass = 0; pass < 2; pass++) { for (int i = 0; i < n; i++) { int j = i - d; if (j < 0) continue; wr[i] = L[j] + (float)fb * wl[j]; wl[i] = R[j] + (float)fb * wr[j]; } }
+                        for (int i0 = 0; i0 < n; i0 += 32) { double m = Math.Max(0, Math.Min(1, lane.At(i0 / sampPerBeat))); int end = Math.Min(n, i0 + 32); for (int i = i0; i < end; i++) { L[i] += (float)m * wl[i]; R[i] += (float)m * wr[i]; } }
+                    }
+                } else if (fpn == "ReverbMix") {
+                    int dl = 1557; float[] delayBufL = new float[dl], delayBufR = new float[dl]; int pos = 0; double lpL = 0, lpR = 0;
+                    for (int i = 0; i < n; i++) {
+                        double m = Math.Max(0, Math.Min(1, lane.At(i / sampPerBeat)));
+                        double xL = L[i], xR = R[i];
+                        double yL = delayBufL[pos], yR = delayBufR[pos];
+                        lpL += 0.25 * (xL - lpL); lpR += 0.25 * (xR - lpR);
+                        delayBufL[pos] = (float)(xL + yL * 0.7); delayBufR[pos] = (float)(xR + yR * 0.7); pos = (pos + 1) % dl;
+                        L[i] = (float)(xL * (1 - m) + yL * m); R[i] = (float)(xR * (1 - m) + yR * m);
+                    }
+                } else if (fpn == "Chorus") {
+                    double baseD = 0.005 * SR; double depth = 0.003 * SR;
+                    for (int i0 = 0; i0 < n; i0 += 32) {
+                        double m = Math.Max(0, Math.Min(1, lane.At(i0 / sampPerBeat))); int end = Math.Min(n, i0 + 32);
+                        for (int i = i0; i < end; i++) { int di = (int)(baseD + depth * Math.Sin(2 * Math.PI * 0.7 * i / SR)); if (di < 1) di = 1; if (di < i) { L[i] = (float)(L[i] * (1 - m) + L[i - di] * m); R[i] = (float)(R[i] * (1 - m) + R[i - di] * m); } }
+                    }
+                } else if (fpn == "TapeStop") {
+                    // Variable playback speed: 1 = full stop, 0 = normal. The read head freezes while stopped.
+                    float[] srcL = (float[])L.Clone(), srcR = (float[])R.Clone();
+                    double pos = 0;
+                    for (int i = 0; i < n; i++) {
+                        double amt = Math.Max(0, Math.Min(1, lane.At(i / sampPerBeat)));
+                        if (amt < 1e-4) { pos = i; L[i] = srcL[i]; R[i] = srcR[i]; continue; }
+                        int j = (int)pos; double fr = pos - j;
+                        if (j >= 0 && j + 1 < n) { L[i] = (float)(srcL[j] * (1 - fr) + srcL[j + 1] * fr); R[i] = (float)(srcR[j] * (1 - fr) + srcR[j + 1] * fr); }
+                        pos += (1 - amt);
+                        if (pos > n - 2) pos = n - 2;
+                    }
+                } else if (fpn == "Width") {
+                    for (int i0 = 0; i0 < n; i0 += 32) {
+                        double w = Math.Max(0, Math.Min(1.6, lane.At(i0 / sampPerBeat))); int end = Math.Min(n, i0 + 32);
+                        for (int i = i0; i < end; i++) { double mid = (L[i] + R[i]) * 0.5, side = (L[i] - R[i]) * 0.5 * w; L[i] = (float)(mid + side); R[i] = (float)(mid - side); }
+                    }
+                } else if (fpn == "CompThresh") {
+                    double ratio = fx != null && fx.CompRatio > 1 ? fx.CompRatio : 4;
+                    double atk = fx != null ? Math.Max(0.1, fx.CompAttack) : 10;
+                    double rel = fx != null ? Math.Max(10, fx.CompRelease) : 100;
+                    double makeup = fx != null ? fx.CompMakeup : 0;
+                    double ea = 1 - Math.Exp(-1.0 / (atk * 0.001 * SR)), er = 1 - Math.Exp(-1.0 / (rel * 0.001 * SR));
+                    double env = 0;
+                    for (int i0 = 0; i0 < n; i0 += 32) {
+                        double thr = lane.At(i0 / sampPerBeat); int end = Math.Min(n, i0 + 32);
+                        for (int i = i0; i < end; i++) {
+                            double x = Math.Max(Math.Abs(L[i]), Math.Abs(R[i]));
+                            env += (x > env ? ea : er) * (x - env);
+                            double db = 20 * Math.Log10(Math.Max(env, 1e-9));
+                            double over = Math.Max(0, db - thr);
+                            double g = Math.Pow(10, (-over * (1 - 1 / ratio) + makeup) / 20);
+                            L[i] = (float)(L[i] * g); R[i] = (float)(R[i] * g);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Repeat and finalise PCM for export (fast enough for long loop counts).
+public static class ExportDsp {
+    public static short[] Repeat(short[] pcm, int loops) {
+        loops = Math.Max(1, loops);
+        if (loops == 1) return pcm;
+        short[] o = new short[pcm.Length * loops];
+        for (int i = 0; i < loops; i++) Array.Copy(pcm, 0, o, i * pcm.Length, pcm.Length);
+        return o;
+    }
+    public static void NormalizeFade(short[] pcm, bool normalize, double targetDb, int fadeInMs, int fadeOutMs, int sr) {
+        int n = pcm.Length / 2;
+        if (normalize) {
+            double peak = 0;
+            for (int i = 0; i < pcm.Length; i++) { double a = Math.Abs((double)pcm[i]); if (a > peak) peak = a; }
+            if (peak > 0) {
+                double target = Math.Pow(10, targetDb / 20.0) * 32767.0, g = target / peak;
+                for (int i = 0; i < pcm.Length; i++) { double v = Math.Round(pcm[i] * g); pcm[i] = (short)Math.Max(-32767, Math.Min(32767, v)); }
+            }
+        }
+        if (fadeInMs > 0) { int k = Math.Min(n, (int)(fadeInMs * sr / 1000.0)); for (int i = 0; i < k; i++) { double g = (double)i / k; pcm[2 * i] = (short)(pcm[2 * i] * g); pcm[2 * i + 1] = (short)(pcm[2 * i + 1] * g); } }
+        if (fadeOutMs > 0) { int k = Math.Min(n, (int)(fadeOutMs * sr / 1000.0)); for (int i = 0; i < k; i++) { double g = (double)i / k; int idx = n - 1 - i; pcm[2 * idx] = (short)(pcm[2 * idx] * g); pcm[2 * idx + 1] = (short)(pcm[2 * idx + 1] * g); } }
+    }
+}
+
+// Measurements a producer would make by listening: how busy, how bright, how noisy, how loud over time, and what pitch a note really has.
+public class AudioFeatures {
+    public double Seconds, OnsetsPerSec, CentroidHz, Flatness, ClipFraction, Dc, PeakDb, RmsDb;
+    public double[] Curve = new double[0];   // RMS in dB for every 2 seconds
+}
+
+public static class Critic {
+    const int SR = Dsp.SR, N = 1024;
+    static void Fft(double[] re, double[] im) {
+        int n = re.Length;
+        for (int i = 1, j = 0; i < n; i++) {
+            int bit = n >> 1; for (; (j & bit) != 0; bit >>= 1) j ^= bit; j ^= bit;
+            if (i < j) { double t = re[i]; re[i] = re[j]; re[j] = t; t = im[i]; im[i] = im[j]; im[j] = t; }
+        }
+        for (int len = 2; len <= n; len <<= 1) {
+            double ang = -2 * Math.PI / len, wr = Math.Cos(ang), wi = Math.Sin(ang);
+            for (int i = 0; i < n; i += len) {
+                double cr = 1, ci = 0;
+                for (int k = 0; k < len / 2; k++) {
+                    int a = i + k, b = i + k + len / 2;
+                    double xr = re[b] * cr - im[b] * ci, xi = re[b] * ci + im[b] * cr;
+                    re[b] = re[a] - xr; im[b] = im[a] - xi; re[a] += xr; im[a] += xi;
+                    double ncr = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = ncr;
+                }
+            }
+        }
+    }
+    static double Db(double x) { return 20 * Math.Log10(Math.Max(x, 1e-9)); }
+
+    public static AudioFeatures Features(float[] L, float[] R) {
+        AudioFeatures f = new AudioFeatures(); int n = Math.Min(L.Length, R.Length); f.Seconds = (double)n / SR;
+        double pk = 0, ss = 0, dc = 0; int clip = 0;
+        for (int i = 0; i < n; i++) { double a = Math.Abs(L[i]), b = Math.Abs(R[i]); pk = Math.Max(pk, Math.Max(a, b)); ss += (double)L[i] * L[i] + (double)R[i] * R[i]; dc += (L[i] + R[i]) * 0.5; if (a >= 0.999 || b >= 0.999) clip++; }
+        f.PeakDb = Db(pk); f.RmsDb = 10 * Math.Log10(Math.Max(ss / Math.Max(1, 2.0 * n), 1e-18)); f.ClipFraction = (double)clip / Math.Max(1, n); f.Dc = dc / Math.Max(1, n);
+        int cw = SR * 2, cn = Math.Max(1, n / cw); f.Curve = new double[cn];
+        for (int c = 0; c < cn; c++) { double s = 0; int cnt = 0; for (int i = c * cw; i < Math.Min(n, (c + 1) * cw); i++) { double m = (L[i] + R[i]) * 0.5; s += m * m; cnt++; } f.Curve[c] = 10 * Math.Log10(Math.Max(s / Math.Max(1, cnt), 1e-12)); }
+        int hop = N / 2, frames = Math.Max(0, (n - N) / hop); if (frames < 4) return f;
+        double[] re = new double[N], im = new double[N], win = new double[N], prev = new double[N / 2], flux = new double[frames];
+        for (int i = 0; i < N; i++) win[i] = 0.5 - 0.5 * Math.Cos(2 * Math.PI * i / (N - 1));
+        double cenSum = 0, cenW = 0, flatSum = 0; int flatN = 0;
+        for (int fr = 0; fr < frames; fr++) {
+            int o = fr * hop; double e = 0;
+            for (int i = 0; i < N; i++) { double v = (L[o + i] + R[o + i]) * 0.5; re[i] = v * win[i]; im[i] = 0; e += v * v; }
+            Fft(re, im); double fl = 0, sm = 0, sf = 0, logSum = 0, ar = 0; int bins = 0;
+            for (int k = 1; k < N / 2; k++) {
+                double mag = Math.Sqrt(re[k] * re[k] + im[k] * im[k]); if (k < 200) fl += Math.Max(0, mag - prev[k]); prev[k] = mag;
+                sm += mag; sf += mag * k * SR / (double)N;
+                if (k >= 4) { double p = mag * mag + 1e-12; logSum += Math.Log(p); ar += p; bins++; }
+            }
+            flux[fr] = fl;
+            if (e / N > 1e-6 && sm > 1e-9) { double w = e; cenSum += (sf / sm) * w; cenW += w; flatSum += Math.Exp(logSum / bins) / (ar / bins); flatN++; }
+        }
+        f.CentroidHz = cenW > 0 ? cenSum / cenW : 0; f.Flatness = flatN > 0 ? flatSum / flatN : 0;
+        int win1s = (int)(SR / (double)hop), onsets = 0, lastPeak = -100;
+        for (int fr = 1; fr < frames - 1; fr++) {
+            int a0 = Math.Max(0, fr - win1s / 2), a1 = Math.Min(frames - 1, fr + win1s / 2); double mean = 0, sq = 0; for (int k = a0; k <= a1; k++) { mean += flux[k]; sq += flux[k] * flux[k]; }
+            int cnt = a1 - a0 + 1; mean /= cnt; double sd = Math.Sqrt(Math.Max(0, sq / cnt - mean * mean));
+            if (flux[fr] > mean + 1.1 * sd && flux[fr] >= flux[fr - 1] && flux[fr] > flux[fr + 1] && fr - lastPeak >= 4) { onsets++; lastPeak = fr; }
+        }
+        f.OnsetsPerSec = onsets / Math.Max(0.1, f.Seconds);
+        return f;
+    }
+
+    // Fundamental frequency of x[start, start+len) by normalised autocorrelation; 0 if there is no clear pitch.
+    public static double DetectPitch(float[] x, int start, int len, double minHz, double maxHz) {
+        if (start < 0 || len < 512 || start + len > x.Length) return 0;
+        int minLag = Math.Max(2, (int)(SR / maxHz)), maxLag = Math.Min((int)(SR / minHz), len / 2 - 1); if (maxLag <= minLag + 2) return 0;
+        double[] ns = new double[maxLag + 2];
+        for (int lag = minLag - 1; lag <= maxLag + 1; lag++) {
+            double acf = 0, m = 0; for (int i = 0; i + lag < len; i++) { double a = x[start + i], b = x[start + i + lag]; acf += a * b; m += a * a + b * b; }
+            ns[lag] = m > 1e-12 ? 2 * acf / m : 0;
+        }
+        double mx = 0; for (int lag = minLag; lag <= maxLag; lag++) mx = Math.Max(mx, ns[lag]); if (mx < 0.5) return 0;
+        for (int lag = minLag; lag <= maxLag; lag++) {
+            if (ns[lag] >= 0.85 * mx && ns[lag] >= ns[lag - 1] && ns[lag] >= ns[lag + 1]) {
+                double a = ns[lag - 1], b = ns[lag], c = ns[lag + 1], d = a - 2 * b + c, off = Math.Abs(d) > 1e-12 ? 0.5 * (a - c) / d : 0;
+                return SR / (lag + off);
+            }
+        }
+        return 0;
+    }
+}
+
+// Best-effort audio-to-MIDI transcription: a monophonic line (lead/vocals/bass) and a drum kit from onset + pitch
+// analysis. Used to turn a song-model render or its stems into editable notes that keep the song's real performance.
+public static class Transcriber {
+    const int SR = Dsp.SR, N = 1024, HOP = 512;
+
+    static void Fft(double[] re, double[] im) {
+        int n = re.Length;
+        for (int i = 1, j = 0; i < n; i++) { int bit = n >> 1; for (; (j & bit) != 0; bit >>= 1) j ^= bit; j ^= bit; if (i < j) { double t = re[i]; re[i] = re[j]; re[j] = t; t = im[i]; im[i] = im[j]; im[j] = t; } }
+        for (int len = 2; len <= n; len <<= 1) {
+            double ang = -2 * Math.PI / len, wr = Math.Cos(ang), wi = Math.Sin(ang);
+            for (int i = 0; i < n; i += len) {
+                double cr = 1, ci = 0;
+                for (int k = 0; k < len / 2; k++) {
+                    int a = i + k, b = i + k + len / 2; double xr = re[b] * cr - im[b] * ci, xi = re[b] * ci + im[b] * cr;
+                    re[b] = re[a] - xr; im[b] = im[a] - xi; re[a] += xr; im[a] += xi;
+                    double ncr = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = ncr;
+                }
+            }
+        }
+    }
+
+    // Spectral-flux onset strength per frame; frame fr starts at (fr * HOP) samples into x.
+    static double[] Flux(float[] x, int start, int length) {
+        int frames = Math.Max(0, (length - N) / HOP);
+        double[] flux = new double[frames];
+        double[] win = new double[N]; for (int i = 0; i < N; i++) win[i] = 0.5 - 0.5 * Math.Cos(2 * Math.PI * i / (N - 1));
+        double[] re = new double[N], im = new double[N], prev = new double[N / 2];
+        for (int fr = 0; fr < frames; fr++) {
+            int o = start + fr * HOP; double e = 0;
+            for (int i = 0; i < N; i++) { double v = x[o + i] * win[i]; re[i] = v; im[i] = 0; e += v * v; }
+            if (e < 1e-8) {
+                // Silence: decay the remembered spectrum so the next real onset shows up as a sharp increase.
+                flux[fr] = 0; for (int k = 1; k < N / 2; k++) prev[k] *= 0.7;
+                continue;
+            }
+            Fft(re, im); double fl = 0;
+            for (int k = 1; k < N / 2; k++) { double m = Math.Sqrt(re[k] * re[k] + im[k] * im[k]); fl += Math.Max(0, m - prev[k]); prev[k] = m; }
+            flux[fr] = fl;
+        }
+        return flux;
+    }
+
+    // Frame RMS energy (same hop as Flux), used to reject note-offs where energy is falling.
+    static double[] FrameEnergy(float[] x) {
+        int frames = Math.Max(0, (x.Length - N) / HOP);
+        double[] e = new double[frames];
+        for (int fr = 0; fr < frames; fr++) {
+            int o = fr * HOP; double s = 0;
+            for (int i = 0; i < N; i++) { double v = x[o + i]; s += v * v; }
+            e[fr] = Math.Sqrt(s / N);
+        }
+        return e;
+    }
+
+    // Peak-picked onset times in seconds (adaptive threshold over a ~0.25 s window; sens 0..1 lowers the threshold).
+    static List<double> OnsetTimes(float[] x, double sens) {
+        double[] flux = Flux(x, 0, x.Length);
+        double[] energy = FrameEnergy(x);
+        List<double> times = new List<double>();
+        int frames = flux.Length; if (frames < 4) return times;
+        double fmax = 0; for (int fr = 0; fr < frames; fr++) fmax = Math.Max(fmax, flux[fr]);
+        if (fmax < 1e-6) return times;
+        int win = Math.Max(3, (int)(0.25 * SR / HOP)); int last = -1000;
+        for (int fr = 0; fr < frames - 1; fr++) {
+            int a0 = Math.Max(0, fr - win / 2), a1 = Math.Min(frames - 1, fr + win / 2);
+            double mean = 0, sq = 0; for (int k = a0; k <= a1; k++) { mean += flux[k]; sq += flux[k] * flux[k]; }
+            int cnt = a1 - a0 + 1; mean /= cnt; double sd = Math.Sqrt(Math.Max(0, sq / cnt - mean * mean));
+            double thr = Math.Max(mean + (1.4 - sens) * sd, fmax * 0.08) + 1e-6;
+            double left = fr > 0 ? flux[fr - 1] : 0;
+            double prevE = fr > 0 ? energy[fr - 1] : 0;
+            if (flux[fr] > thr && flux[fr] >= left && flux[fr] > flux[fr + 1] && energy[fr] > prevE && fr - last >= 3) { times.Add(fr * (double)HOP / SR); last = fr; }
+        }
+        return times;
+    }
+
+    static double Quant16(double beats) { return Math.Round(beats * 4.0) / 4.0; }
+
+    // Sums several sample-aligned mono stems into one buffer for cleaner chord/key detection (fast, in C#).
+    public static float[] Sum(System.Collections.Generic.List<float[]> stems) {
+        int n = 0; foreach (float[] s in stems) if (s != null) n = Math.Max(n, s.Length);
+        float[] o = new float[n];
+        foreach (float[] s in stems) { if (s == null) continue; int m = Math.Min(n, s.Length); for (int i = 0; i < m; i++) o[i] += s[i]; }
+        return o;
+    }
+
+    // One note per onset, pitched by autocorrelation and snapped to the scale; contiguous equal notes merge.
+    public static List<Note> Monophonic(float[] x, double bpm, int key, string scale, double minHz, double maxHz) {
+        List<Note> res = new List<Note>();
+        bool[] mask = Scales.Mask(key, scale);
+        double spb = 60.0 / Math.Max(20, bpm);
+        List<double> ons = OnsetTimes(x, 0.5);
+        int prevMidi = -1;
+        for (int i = 0; i < ons.Count; i++) {
+            double t = ons[i]; int s0 = (int)(t * SR); if (s0 >= x.Length - 1024) break;
+            double f0 = Critic.DetectPitch(x, s0, Math.Min((int)(0.4 * SR), x.Length - s0), minHz, maxHz);
+            if (f0 <= 0) continue;
+            int midi = (int)Math.Round(69 + 12 * Math.Log(f0 / 440.0, 2));
+            // Octave-error correction: autocorrelation can land an octave (or two) off; snap large jumps toward
+            // the previous note so the line moves by steps/fifths instead of wild leaps.
+            if (prevMidi >= 0) { while (midi - prevMidi > 7) midi -= 12; while (prevMidi - midi > 7) midi += 12; }
+            midi = Scales.Snap(midi, mask);
+            double startBeats = Quant16(t / spb);
+            double endSec = (i + 1 < ons.Count) ? ons[i + 1] : t + 0.6;
+            double lenBeats = Quant16((endSec - t) / spb); lenBeats = Math.Max(0.25, Math.Min(8.0, lenBeats));
+            // Skip exact duplicates (a single onset picked twice); keep genuine repeated notes separate.
+            if (res.Count > 0 && Math.Abs(res[res.Count - 1].Start - startBeats) < 0.02) continue;
+            res.Add(new Note(midi, startBeats, lenBeats, 100));
+            prevMidi = midi;
+        }
+        return res;
+    }
+
+    // Drum kit from the drums stem: classifies each onset into kick/snare/hat/tom/crash/perc and maps to GM pitches.
+    public static List<Note> Drums(float[] x, double bpm) {
+        List<Note> res = new List<Note>();
+        double spb = 60.0 / Math.Max(20, bpm);
+        List<double> ons = OnsetTimes(x, 0.75);
+        double[] re = new double[N], im = new double[N], win = new double[N];
+        for (int i = 0; i < N; i++) win[i] = 0.5 - 0.5 * Math.Cos(2 * Math.PI * i / (N - 1));
+        foreach (double t in ons) {
+            int s0 = (int)(t * SR); if (s0 + N > x.Length) break;
+            for (int i = 0; i < N; i++) { re[i] = x[s0 + i] * win[i]; im[i] = 0; }
+            Fft(re, im);
+            double sub = 0, low = 0, lowMid = 0, mid = 0, high = 0, air = 0, logSum = 0, ar = 0; int bins = 0;
+            for (int k = 1; k < N / 2; k++) {
+                double m = re[k] * re[k] + im[k] * im[k]; double f = k * (double)SR / N;
+                if (f < 80) sub += m; else if (f < 150) low += m; else if (f < 300) lowMid += m; else if (f < 2000) mid += m; else if (f < 8000) high += m; else air += m;
+                if (f >= 200 && f <= 8000) { double p = m + 1e-12; logSum += Math.Log(p); ar += p; bins++; }
+            }
+            double flat = bins > 0 ? Math.Exp(logSum / bins) / (ar / bins) : 1;
+            double total = sub + low + lowMid + mid + high + air + 1e-9;
+            double rSubLow = (sub + low) / total, rLowMid = (lowMid + mid) / total, rLowMidOnly = lowMid / total, rAir = air / total, rHighAir = (high + air) / total;
+            int pitch;
+            if (rSubLow > 0.38) pitch = 36;                                 // kick: sub + bass dominant
+            else if (rAir > 0.45 && flat > 0.35) pitch = 42;                // closed hat: airy noise
+            else if (flat > 0.3 && rLowMid > 0.3) pitch = 38;               // snare / clap: noise with a low-mid body
+            else if (rHighAir > 0.6 && flat < 0.25) pitch = 49;             // crash / ride: bright, tonal
+            else if (rLowMidOnly > 0.25 && flat < 0.35) pitch = 45;         // tom: low-mid tonal
+            else pitch = 54;                                                // shaker / perc
+            double startBeats = Quant16(t / spb);
+            if (res.Count > 0) { Note p = res[res.Count - 1]; if (p.Pitch == pitch && startBeats - (p.Start + p.Len) < 0.02) continue; }
+            res.Add(new Note(pitch, startBeats, 0.25, (pitch == 36 || pitch == 38) ? 112 : 92));
+        }
+        return res;
+    }
+
+    // ---- timbre -> patch, time signature and song-structure inference ------------------------------------------------
+
+    static double Clamp(double v, double lo, double hi) { return Math.Max(lo, Math.Min(hi, v)); }
+
+    // RMS envelope (hop HOP), plus the global peak, the rise time to that peak and how much energy the tail holds.
+    static void Envelope(float[] x, out double peak, out double attackMs, out double sustain) {
+        int n = (x.Length - N) / HOP; if (n < 2) { peak = attackMs = sustain = 0; return; }
+        double[] r = new double[n];
+        for (int fr = 0; fr < n; fr++) { int o = fr * HOP; double s = 0; for (int i = 0; i < N; i++) { double v = x[o + i]; s += v * v; } r[fr] = Math.Sqrt(s / N); }
+        peak = 0; int pi = 0; for (int i = 0; i < n; i++) if (r[i] > peak) { peak = r[i]; pi = i; }
+        if (peak < 1e-6) { attackMs = 0; sustain = 0; return; }
+        double rise = 0.1 * peak, rise9 = 0.9 * peak; int i0 = -1, i9 = -1;
+        for (int i = 0; i <= pi; i++) { if (i0 < 0 && r[i] >= rise) i0 = i; if (r[i] >= rise9) { i9 = i; break; } }
+        attackMs = (i0 >= 0 && i9 > i0) ? (i9 - i0) * HOP * 1000.0 / SR : 0;
+        double tail = 0; int tc = 0; for (int i = n - Math.Max(1, n / 4); i < n; i++) { tail += r[i]; tc++; }
+        sustain = tail / Math.Max(1, tc) / peak;
+    }
+
+    // Spectral centroid, noisiness (flatness) and low-frequency weight, averaged over decimated frames.
+    static void Spectral(float[] x, out double centroid, out double flatness, out double lowRatio) {
+        double cs = 0, fs = 0, ls = 0, w = 0;
+        double[] re = new double[N], im = new double[N], win = new double[N];
+        for (int i = 0; i < N; i++) win[i] = 0.5 - 0.5 * Math.Cos(2 * Math.PI * i / (N - 1));
+        int step = HOP * 8;
+        for (int o = 0; o + N <= x.Length; o += step) {
+            double e = 0; for (int i = 0; i < N; i++) { double v = x[o + i] * win[i]; re[i] = v; im[i] = 0; e += v * v; }
+            if (e < 1e-6) continue;
+            Fft(re, im);
+            double sm = 0, sf = 0, logSum = 0, ar = 0, lo = 0; int bins = 0;
+            for (int k = 1; k < N / 2; k++) {
+                double f = k * (double)SR / N, m = re[k] * re[k] + im[k] * im[k];
+                sm += m; sf += m * f; if (f < 200) lo += m;
+                if (k >= 4) { double p = m + 1e-12; logSum += Math.Log(p); ar += p; bins++; }
+            }
+            if (sm > 1e-9) { cs += sf / sm; ls += lo / sm; }
+            if (bins > 0) fs += Math.Exp(logSum / bins) / (ar / bins);
+            w += 1;
+        }
+        centroid = w > 0 ? cs / w : 0; flatness = w > 0 ? fs / w : 0; lowRatio = w > 0 ? ls / w : 0;
+    }
+
+    // Builds a synth patch that matches the stem's timbre: brightness, attack, sustain, noisiness and low-end weight.
+    // Kept conservative so the result stays musical (gentle noise, modest resonance, no harsh static).
+    public static Patch PatchForStem(float[] x) {
+        Patch p = new Patch();
+        double peak, attackMs, sustain; Envelope(x, out peak, out attackMs, out sustain);
+        double centroid, flatness, lowRatio; Spectral(x, out centroid, out flatness, out lowRatio);
+        double bright = Clamp(centroid / 3500.0, 0, 1);
+        bool isBass = lowRatio > 0.45;
+        bool isNoisy = flatness > 0.6;
+        if (isNoisy) { p.Osc1 = Wave.noise; p.Level1 = 0.8; p.Noise = NoiseColor.pink; p.NoiseLevel = 0.45; p.Osc2 = Wave.sine; p.Level2 = 0.35; }
+        else {
+            if (bright > 0.65) { p.Osc1 = Wave.saw; p.Level1 = 1; }
+            else if (bright > 0.4) { p.Osc1 = Wave.pulse; p.Level1 = 1; p.PulseWidth = 0.45; }
+            else { p.Osc1 = Wave.tri; p.Level1 = 1; }
+            p.Osc2 = p.Osc1; p.Level2 = 0.4; p.Detune2 = 7;
+            if (isBass) { p.SubLevel = 0.45; p.Semi2 = -12; }
+            p.NoiseLevel = Clamp((flatness - 0.35) * 0.5, 0, 0.25);
+        }
+        p.Filter = FilterMode.lowpass;
+        p.Cutoff = Clamp(500 + centroid * 1.1, 250, 11000);
+        p.Resonance = Clamp(bright * 0.25, 0, 0.4);
+        p.KeyTrack = 0.25;
+        p.Attack = Clamp(attackMs / 1000.0, 0.001, 2.5);
+        p.Decay = isBass ? 0.3 : 0.35;
+        p.Sustain = Clamp(sustain, 0.25, 1.0);
+        p.Release = 0.25;
+        if (attackMs > 120) { p.Unison = 3; p.UnisonSpread = 14; p.Release = 1.6; p.Cutoff = Clamp(p.Cutoff * 0.75, 200, 8000); }
+        else if (attackMs < 15 && sustain < 0.4) { p.Sustain = 0; p.Decay = 0.4; p.Release = 0.18; }
+        p.Gain = 0.7;
+        return p;
+    }
+
+    // Estimates beats-per-bar (3, 4 or 6) from the low-frequency (kick/bass) accent pattern; 4 when unclear.
+    public static int DetectTimeSig(float[] x, double bpm) {
+        double spb = 60.0 / Math.Max(30, Math.Min(300, bpm));
+        int nbeats = Math.Min(64, (int)(x.Length / (spb * SR))); if (nbeats < 8) return 4;
+        double[] lo = new double[nbeats];
+        for (int b = 0; b < nbeats; b++) { int s0 = (int)(b * spb * SR), len = (int)(spb * SR); double e = 0; for (int i = s0; i < Math.Min(x.Length, s0 + len); i++) { double v = x[i]; e += v * v; } lo[b] = e; }
+        double sum = 0; for (int i = 0; i < nbeats; i++) sum += lo[i]; if (sum < 1e-9) return 4;
+        double mean = sum / nbeats; for (int i = 0; i < nbeats; i++) lo[i] /= mean;
+        int best = 4; double bestScore = -1;
+        foreach (int L in new int[] { 3, 4, 6 }) {
+            double score = -1;
+            for (int off = 0; off < L; off++) { double db = 0, rest = 0; int dcn = 0, rn = 0; for (int i = 0; i < nbeats; i++) { if ((i - off) % L == 0) { db += lo[i]; dcn++; } else { rest += lo[i]; rn++; } } if (dcn < 2 || rn < 2) continue; double s = db / dcn - rest / rn; if (s > score) score = s; }
+            if (score > bestScore) { bestScore = score; best = L; }
+        }
+        if (best == 4) return 4;
+        double s4 = -1; for (int off = 0; off < 4; off++) { double db = 0, rest = 0; int dcn = 0, rn = 0; for (int i = 0; i < nbeats; i++) { if ((i - off) % 4 == 0) { db += lo[i]; dcn++; } else { rest += lo[i]; rn++; } } double s = dcn > 1 && rn > 1 ? db / dcn - rest / rn : -1; if (s > s4) s4 = s; }
+        return bestScore > s4 + 0.15 ? best : 4;
+    }
+
+    // Splits the song into named sections (intro/build/drop/breakdown/outro...) by smoothed bar energy.
+    public static List<Section> Sections(float[] x, double bpm, int beatsPerBar, int beatUnit) {
+        List<Section> res = new List<Section>();
+        double barSec = 60.0 / Math.Max(30, Math.Min(300, bpm)) * beatsPerBar * 4.0 / Math.Max(1, beatUnit);
+        int nbars = (int)(x.Length / (barSec * SR)); if (nbars < 4) return res;
+        double[] e = new double[nbars];
+        for (int b = 0; b < nbars; b++) { int s0 = (int)(b * barSec * SR), len = (int)(barSec * SR); double s = 0; for (int i = s0; i < Math.Min(x.Length, s0 + len); i++) { double v = x[i]; s += v * v; } e[b] = s / len; }
+        double[] sm = new double[nbars];
+        for (int i = 0; i < nbars; i++) { double s = 0; int c = 0; for (int k = i - 1; k <= i + 1; k++) if (k >= 0 && k < nbars) { s += e[k]; c++; } sm[i] = s / c; }
+        double mx = 0; for (int i = 0; i < nbars; i++) mx = Math.Max(mx, sm[i]); if (mx < 1e-9) return res;
+        for (int i = 0; i < nbars; i++) sm[i] /= mx;
+        int[] buck = new int[nbars];
+        for (int i = 0; i < nbars; i++) buck[i] = sm[i] < 0.34 ? 0 : (sm[i] > 0.66 ? 2 : 1);
+        List<int> starts = new List<int>(); List<int> lens = new List<int>();
+        for (int i = 0; i < nbars; ) { int j = i; while (j < nbars && buck[j] == buck[i]) j++; starts.Add(i); lens.Add(j - i); i = j; }
+        // merge segments shorter than 2 bars into the neighbour whose energy is closest
+        bool changed = true;
+        while (changed && starts.Count > 1) {
+            changed = false;
+            for (int s = 0; s < starts.Count; s++) {
+                if (lens[s] >= 2) continue;
+                double here = sm[starts[s]];
+                double prev = s > 0 ? sm[starts[s] - 1] : -1;
+                double next = s + 1 < starts.Count ? sm[starts[s] + lens[s]] : -1;
+                if (s > 0 && (next < 0 || Math.Abs(here - prev) <= Math.Abs(here - next))) { lens[s - 1] += lens[s]; }
+                else if (s + 1 < starts.Count) { lens[s + 1] += lens[s]; }
+                else { lens[s] = 2; }
+                if (lens[s] != 2) { starts.RemoveAt(s); lens.RemoveAt(s); }
+                changed = true; break;
+            }
+        }
+        int peakBar = 0; for (int i = 0; i < nbars; i++) if (sm[i] > sm[peakBar]) peakBar = i;
+        double barBeats = beatsPerBar * 4.0 / Math.Max(1, beatUnit);
+        for (int s = 0; s < starts.Count; s++) {
+            int a = starts[s], len = lens[s]; double avg = 0; for (int i = a; i < a + len; i++) avg += sm[i]; avg /= len;
+            int en = (int)Clamp(1 + avg * 9, 1, 10);
+            bool isFirst = s == 0, isLast = s == starts.Count - 1, isPeak = (a <= peakBar && peakBar < a + len);
+            string name = isFirst && avg < 0.4 ? "Intro" : isLast && avg < 0.5 ? "Outro" : isPeak ? (avg > 0.6 ? "Drop" : "Chorus") : avg < 0.4 ? "Breakdown" : "Verse";
+            res.Add(new Section { Name = name, Beat = a * barBeats, Bars = len, Energy = en });
+        }
+        return res;
+    }
+}
+
+// One detected section of a song: where it starts (beats), how long (bars) and how loud (energy 1-10).
+public class Section {
+    public string Name; public double Beat; public int Bars; public int Energy;
+}
+
+}
+'@
+}
+
+# ---------------------------------------------------------------------------------------------------------------
+# Studio state and helpers
+# ---------------------------------------------------------------------------------------------------------------
+
+$script:StudioSynths = @('acid', 'saw', 'square', 'tri', 'sine', 'pad', 'fm', 'pluck', 'noise', 'drums', 'patch', 'sample')
+
+function ConvertTo-StudioMap($Obj) {
+    $m = [ordered]@{}
+    foreach ($pr in $Obj.GetType().GetProperties()) {
+        if (-not $pr.CanWrite -or $pr.GetIndexParameters().Count) { continue }
+        $v = $pr.GetValue($Obj, $null)
+        $m[$pr.Name] = if ($v -is [enum]) { $v.ToString() } else { $v }
+    }
+    return $m
+}
+
+# Applies a JSON-ish object (PSCustomObject) to a Patch or Fx; unknown keys are ignored and values are clamped by PropIO.
+function Set-StudioObjectFromJson($Obj, $Json) {
+    $n = 0
+    if ($null -eq $Json) { return 0 }
+    foreach ($pr in $Json.PSObject.Properties) {
+        $v = $pr.Value
+        if ($v -is [bool]) { $v = if ($v) { '1' } else { '0' } }
+        if ($null -eq $v -or $v -is [System.Management.Automation.PSCustomObject]) { continue }
+        try { if ([HbStudio.PropIO]::Set($Obj, $pr.Name, [string]::Format([Globalization.CultureInfo]::InvariantCulture, '{0}', $v))) { $n++ } } catch { }
+    }
+    return $n
+}
+
+function Repair-StudioJson([string]$Text) {
+    # Pulls the first JSON value out of a chatty reply; closes it if the model was cut off mid-way.
+    $t = [regex]::Replace($Text, '(?s)```(?:json)?', '')
+    $t = [regex]::Replace($t, '(?m)^\s*//.*$', '')
+    $start = -1
+    for ($i = 0; $i -lt $t.Length; $i++) { if ($t[$i] -eq '{' -or $t[$i] -eq '[') { $start = $i; break } }
+    if ($start -lt 0) { return $null }
+    $stack = New-Object Collections.Generic.List[char]; $inStr = $false; $esc = $false
+    $snapIdx = -1; $snapStack = ''
+    for ($i = $start; $i -lt $t.Length; $i++) {
+        $c = $t[$i]
+        if ($inStr) { if ($esc) { $esc = $false } elseif ($c -eq '\') { $esc = $true } elseif ($c -eq '"') { $inStr = $false }; continue }
+        if ($c -eq '"') { $inStr = $true; continue }
+        if ($c -eq '{') { $stack.Add('}') } elseif ($c -eq '[') { $stack.Add(']') }
+        elseif ($c -eq '}' -or $c -eq ']') {
+            if ($stack.Count -eq 0) { break }
+            $stack.RemoveAt($stack.Count - 1)
+            if ($stack.Count -eq 0) { return [regex]::Replace($t.Substring($start, $i - $start + 1), ',\s*([}\]])', '$1') }
+            $snapIdx = $i; $snapStack = (($stack.ToArray() | ForEach-Object { [string]$_ }) -join '')
+            $rev = $snapStack.ToCharArray(); [array]::Reverse($rev); $snapStack = -join $rev
+        }
+    }
+    if ($snapIdx -lt 0) { return $null }
+    $cut = $t.Substring($start, $snapIdx - $start + 1)
+    return [regex]::Replace($cut, ',\s*([}\]])', '$1') + $snapStack
+}
+
+function Find-StudioJsonObject([string]$Reply, [string]$Key) {
+    $raw = Repair-StudioJson $Reply
+    if (-not $raw) { throw 'The model did not return JSON.' }
+    try { $j = $raw | ConvertFrom-Json } catch { throw ('The model returned malformed JSON (' + $_.Exception.Message + ').') }
+    if ($Key -and $j.$Key -is [System.Management.Automation.PSCustomObject]) { return $j.$Key }
+    return $j
+}
+$script:StudioDrumNames = @{ 36 = 'kick'; 38 = 'snare'; 39 = 'clap'; 37 = 'rim'; 42 = 'hat'; 46 = 'open hat'; 45 = 'tom'; 49 = 'crash'; 51 = 'ride' }
+
+function Get-StudioDir {
+    $base = $null
+    try { if (Get-Command Get-AudioDir -ErrorAction SilentlyContinue) { $base = Get-AudioDir } } catch { }
+    if (-not $base) { $base = Join-Path $env:LOCALAPPDATA 'HumbleBakerAudio' }
+    $d = Join-Path $base 'studio'
+    foreach ($s in @('', 'renders', 'projects')) { New-Item -ItemType Directory -Force -Path (Join-Path $d $s) | Out-Null }
+    return $d
+}
+
+# Where the AI one-shot libraries live (DrumKits, OrchestralHits, GuitarHits, FoleyPercussion).
+# Checks the exe folder, the script folder, an env override and the dev tree, so the same code works
+# for the standalone exe, the main app and a raw script run.
+function Get-StudioSampleRoots {
+    $roots = New-Object Collections.Generic.List[string]
+    $cand = New-Object Collections.Generic.List[string]
+    if ($env:HUMBLEBAKER_SAMPLES) { $cand.Add($env:HUMBLEBAKER_SAMPLES) }
+    try { $cand.Add([IO.Path]::GetDirectoryName([Diagnostics.Process]::GetCurrentProcess().MainModule.FileName)) } catch { }
+    try { if ($PSScriptRoot) { $cand.Add($PSScriptRoot); $cand.Add([IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))) } } catch { }
+    try { $cand.Add((Join-Path (Get-StudioDir) 'samples')) } catch { }
+    try { $cand.Add((Split-Path ([Environment]::GetCommandLineArgs()[0]) -Parent)) } catch { }
+    $cand.Add('Z:\LocalAI\App')
+    foreach ($c in $cand) {
+        if ([string]::IsNullOrWhiteSpace($c)) { continue }
+        try { $full = [IO.Path]::GetFullPath($c).TrimEnd('\') } catch { continue }
+        if (-not (Test-Path -LiteralPath $full)) { continue }
+        if (-not $roots.Contains($full)) { $roots.Add($full) }
+    }
+    return $roots
+}
+
+function Initialize-StudioSampleRoots {
+    $n = 0
+    foreach ($r in @(Get-StudioSampleRoots)) {
+        [HbStudio.DrumSamples]::AddRoot($r)
+        $dk = Join-Path $r 'DrumKits'
+        if (Test-Path -LiteralPath $dk) { $n = @(Get-ChildItem -LiteralPath $dk -Directory -ErrorAction SilentlyContinue).Count }
+    }
+    [HbStudio.DrumSamples]::Reset()
+    return $n
+}
+
+function New-StudioTrack([string]$Name, [string]$Synth) {
+    $t = New-Object HbStudio.Track
+    $t.Name = $Name; $t.Synth = $Synth
+    switch ($Synth) {
+        'drums' { $t.Vol = 0.9 }
+        'pad' { $t.Cutoff = 1800; $t.Vol = 0.6; $t.Atk = 0.2; $t.Rel = 0.6; $t.EnvAmt = 0.1 }
+        'pluck' { $t.Vol = 0.8; $t.Rel = 0.3 }
+        'sine' { $t.Vol = 0.9; $t.Rel = 0.2 }
+    }
+    return $t
+}
+
+function New-StudioProject {
+    $p = New-Object HbStudio.Project
+    $p.Tracks.Add((New-StudioTrack 'Drums' 'drums'))
+    $p.Tracks.Add((New-StudioTrack 'Acid' 'acid'))
+    $p.Tracks.Add((New-StudioTrack 'Pad' 'pad'))
+    0..3 | ForEach-Object { $p.Buses.Add((New-Object HbStudio.Bus ('Bus ' + [char](65 + $_)))) }
+    return $p
+}
+
+function ConvertTo-StudioAutoList($Lanes) {
+    return @($Lanes | ForEach-Object { [ordered]@{ param = $_.Param; points = @($_.Points | ForEach-Object { , @($_[0], $_[1]) }) } })
+}
+function Read-StudioAutoList($Data, [int]$Track = 0) {
+    $l = New-Object 'System.Collections.Generic.List[HbStudio.AutoLane]'
+    foreach ($ad in @($Data)) {
+        if (-not $ad) { continue }
+        $lane = New-Object HbStudio.AutoLane $Track, ([string]$ad.param)
+        foreach ($pt in @($ad.points)) { if (@($pt).Count -ge 2) { $lane.Points.Add([double[]]@([double]$pt[0], [double]$pt[1])) } }
+        $l.Add($lane)
+    }
+    return , $l
+}
+function Get-StudioProjectData($P) {
+    $tracks = foreach ($t in $P.Tracks) {
+        [ordered]@{
+            name = $t.Name; synth = $t.Synth; vol = $t.Vol; pan = $t.Pan; cutoff = $t.Cutoff; res = $t.Res; envamt = $t.EnvAmt
+            atk = $t.Atk; rel = $t.Rel; crush = $t.Crush; mute = $t.Mute; solo = $t.Solo; bus = $t.Bus; uid = $t.Uid; drumKit = $t.DrumKit; instrumentName = $t.InstrumentName
+            patch = $(if ($t.Patch) { ConvertTo-StudioMap $t.Patch } else { $null })
+            fx = ConvertTo-StudioMap $t.Fx
+            sample = $(if ($t.Sample) { [HbStudio.Dsp]::SampleToBase64($t.Sample) } else { $null }); sampleRoot = $t.SampleRoot; sampleGate = $t.SampleGate; sampleMode = $t.SampleMode; notes = @($t.Notes | ForEach-Object { , @($_.Pitch, $_.Start, $_.Len, $_.Vel) }); auto = @($t.Auto | ForEach-Object { [ordered]@{ param = $_.Param; points = @($_.Points | ForEach-Object { , @($_[0], $_[1]) }) } })
+        }
+    }
+    return [ordered]@{
+        bpm = $P.Bpm; beatsPerBar = $P.BeatsPerBar; beatUnit = $P.BeatUnit; phraseBars = $P.PhraseBars; bars = $P.Bars; swing = $P.Swing; delayMix = $P.DelayMix; delayBeats = $P.DelayBeats; delayFb = $P.DelayFb; key = $P.Key; scale = $P.Scale; click = $P.Click
+        master = (ConvertTo-StudioMap $P.Master)
+        markers = @($P.Markers | ForEach-Object { [ordered]@{ beat = $_.Beat; name = $_.Name; energy = $_.Energy } })
+        mix = @($P.Mix | ForEach-Object { ConvertTo-StudioMap $_ })
+        buses = @($P.Buses | ForEach-Object { [ordered]@{ name = $_.Name; enabled = $_.Enabled; fx = ConvertTo-StudioMap $_.Fx; auto = ConvertTo-StudioAutoList $_.Auto } })
+        graph = [ordered]@{
+            initialized = [bool]$P.Graph.Initialized; panX = $P.Graph.PanX; panY = $P.Graph.PanY
+            nodes = @($P.Graph.Nodes | ForEach-Object { [ordered]@{ id = $_.Id; kind = $_.Kind; type = $_.Type; label = $_.Label; x = $_.X; y = $_.Y; trackUid = $_.TrackUid; gain = $_.Gain; pan = $_.Pan; bypass = $_.Bypass; fx = ConvertTo-StudioMap $_.Fx; auto = ConvertTo-StudioAutoList $_.Auto } })
+            links = @($P.Graph.Links | ForEach-Object { [ordered]@{ from = $_.From; to = $_.To } })
+            groups = @($P.Graph.Groups | ForEach-Object { [ordered]@{ id = $_.Id; name = $_.Name; nodeId = $_.NodeId; collapsed = $_.Collapsed; color = $_.ColorIndex; members = @($_.Members) } })
+        }
+        patterns = @($P.Patterns | ForEach-Object { [ordered]@{ name = $_.Name; bars = $_.Bars; mutes = @($_.Mutes); notes = @($_.Notes | ForEach-Object { (ConvertTo-StudioNoteString $_) }); auto = @($_.Auto | ForEach-Object { [ordered]@{ track = $_.Track; param = $_.Param; points = @($_.Points | ForEach-Object { , @($_[0], $_[1]) }) } }) } })
+        song = @($P.Song | ForEach-Object { [ordered]@{ pattern = $_.Pattern; repeats = $_.Repeats } })
+        tracks = @($tracks)
+    }
+}
+
+function ConvertTo-StudioNoteString($Notes) {
+    $ci = [Globalization.CultureInfo]::InvariantCulture
+    return (@($Notes | ForEach-Object { '{0},{1},{2},{3}' -f $_.Pitch, $_.Start.ToString('R', $ci), $_.Len.ToString('R', $ci), $_.Vel }) -join ';')
+}
+function ConvertFrom-StudioNoteString([string]$s) {
+    $ci = [Globalization.CultureInfo]::InvariantCulture
+    $l = New-Object 'System.Collections.Generic.List[HbStudio.Note]'
+    foreach ($part in ($s -split ';')) {
+        $f = $part -split ','
+        if ($f.Count -ge 4) { $l.Add((New-Object HbStudio.Note ([int]$f[0]), ([double]::Parse($f[1], $ci)), ([double]::Parse($f[2], $ci)), ([int]$f[3]))) }
+    }
+    return , $l
+}
+
+function Read-StudioProjectData($d) {
+    $p = New-Object HbStudio.Project
+    $p.Bpm = [double]$d.bpm; $p.BeatsPerBar = [int]$d.beatsPerBar; $p.Bars = [int]$d.bars; $p.Swing = [double]$d.swing
+    if ($d.beatUnit) { $p.BeatUnit = [int]$d.beatUnit }; if ($d.phraseBars) { $p.PhraseBars = [int]$d.phraseBars }
+    $p.DelayMix = [double]$d.delayMix; $p.DelayBeats = [double]$d.delayBeats; $p.DelayFb = [double]$d.delayFb
+    $p.Key = [int]$d.key; $p.Scale = [string]$d.scale
+    if ($null -ne $d.click) { $p.Click = [bool]$d.click }
+    foreach ($td in @($d.tracks)) {
+        $t = New-Object HbStudio.Track
+        $t.Name = [string]$td.name; $t.Synth = [string]$td.synth; $t.Vol = [double]$td.vol; $t.Pan = [double]$td.pan
+        $t.Cutoff = [double]$td.cutoff; $t.Res = [double]$td.res; $t.EnvAmt = [double]$td.envamt
+        $t.Atk = [double]$td.atk; $t.Rel = [double]$td.rel; $t.Crush = [double]$td.crush; $t.Mute = [bool]$td.mute
+        if ($null -ne $td.solo) { $t.Solo = [bool]$td.solo }
+        if ($null -ne $td.bus) { $t.Bus = [int]$td.bus }
+        if ($td.patch) { $t.Patch = New-Object HbStudio.Patch; [void](Set-StudioObjectFromJson $t.Patch $td.patch) }
+        if ($td.fx) { [void](Set-StudioObjectFromJson $t.Fx $td.fx) }
+        if ($td.sample) { $t.Sample = [HbStudio.Dsp]::SampleFromBase64([string]$td.sample) }
+        if ($null -ne $td.sampleRoot) { $t.SampleRoot = [int]$td.sampleRoot }
+        if ($null -ne $td.sampleGate) { $t.SampleGate = [bool]$td.sampleGate }
+        if ($null -ne $td.sampleMode) { $t.SampleMode = [int]$td.sampleMode }
+        if ($td.drumKit) { $t.DrumKit = [string]$td.drumKit }
+        if ($td.instrumentName) { $t.InstrumentName = [string]$td.instrumentName }
+        if ($td.uid) { $t.Uid = [string]$td.uid }
+        if ($t.Synth -eq 'patch' -and -not $t.Patch) { $t.Patch = New-Object HbStudio.Patch }
+        foreach ($n in @($td.notes)) { if (@($n).Count -ge 4) { $t.Notes.Add((New-Object HbStudio.Note ([int]$n[0]), ([double]$n[1]), ([double]$n[2]), ([int]$n[3]))) } }
+        foreach ($ad in @($td.auto)) {
+            if (-not $ad) { continue }
+            $lane = New-Object HbStudio.AutoLane 0, ([string]$ad.param)
+            foreach ($pt in @($ad.points)) { if (@($pt).Count -ge 2) { $lane.Points.Add([double[]]@([double]$pt[0], [double]$pt[1])) } }
+            $t.Auto.Add($lane)
+        }
+        $p.Tracks.Add($t)
+    }
+    if ($p.Tracks.Count -eq 0) { $p.Tracks.Add((New-StudioTrack 'Track 1' 'acid')) }
+    if ($d.master) { [void](Set-StudioObjectFromJson $p.Master $d.master) }
+    foreach ($md in @($d.markers)) { if ($md) { $p.Markers.Add((New-Object HbStudio.Marker ([double]$md.beat), ([string]$md.name), ([int]$md.energy))) } }
+    foreach ($bd in @($d.buses)) {
+        if (-not $bd) { continue }
+        $bus = New-Object HbStudio.Bus ([string]$bd.name)
+        $bus.Enabled = [bool]$bd.enabled
+        if ($bd.fx) { [void](Set-StudioObjectFromJson $bus.Fx $bd.fx) }
+        $bus.Auto = Read-StudioAutoList $bd.auto
+        $p.Buses.Add($bus)
+    }
+    while ($p.Buses.Count -lt 4) { $p.Buses.Add((New-Object HbStudio.Bus ('Bus ' + [char](65 + $p.Buses.Count)))) }
+    if ($d.graph) {
+        $gd = $d.graph
+        $g = $p.Graph
+        $g.Initialized = [bool]$gd.initialized
+        if ($null -ne $gd.panX) { $g.PanX = [double]$gd.panX; $g.PanY = [double]$gd.panY }
+        $graphFxSaved = @{}
+        foreach ($nd in @($gd.nodes)) {
+            if (-not $nd) { continue }
+            $n = New-Object HbStudio.PatchNode
+            $n.Id = [string]$nd.id; $n.Kind = [string]$nd.kind; $n.Type = [string]$nd.type; $n.Label = [string]$nd.label
+            $n.X = [double]$nd.x; $n.Y = [double]$nd.y
+            if ($nd.trackUid) { $n.TrackUid = [string]$nd.trackUid }
+            $n.Gain = [double]$nd.gain; $n.Pan = [double]$nd.pan; $n.Bypass = [bool]$nd.bypass
+            if ($nd.fx) { [void](Set-StudioObjectFromJson $n.Fx $nd.fx); $graphFxSaved[$n.Id] = $true }
+            $n.Auto = Read-StudioAutoList $nd.auto
+            if ($n.Kind -eq 'fx' -and $n.Type -eq 'busfx' -and $n.Label -match '^BUS ([A-D])$') {
+                $bi = [int][char]$Matches[1] - 64
+                if ($bi -ge 1 -and $bi -le $p.Buses.Count) { $n.Fx = $p.Buses[$bi - 1].Fx; $n.Auto = $p.Buses[$bi - 1].Auto }
+            }
+            $g.Nodes.Add($n)
+        }
+        foreach ($ln in @($gd.links)) { if ($ln) { $g.Links.Add((New-Object HbStudio.PatchLink ([string]$ln.from), ([string]$ln.to))) } }
+        foreach ($gdg in @($gd.groups)) {
+            if (-not $gdg) { continue }
+            $pg = New-Object HbStudio.PatchGroup
+            if ($gdg.id) { $pg.Id = [string]$gdg.id }
+            $pg.Name = [string]$gdg.name; $pg.NodeId = [string]$gdg.nodeId; $pg.Collapsed = [bool]$gdg.collapsed
+            if ($null -ne $gdg.color) { $pg.ColorIndex = [int]$gdg.color }
+            foreach ($mid in @($gdg.members)) { if ($mid) { $pg.Members.Add([string]$mid) } }
+            if ($pg.NodeId) { $g.Groups.Add($pg) }
+        }
+        # Re-link graph FX modules to the live track/bus FX objects. Without this, a saved graph
+        # carried an independent copy of each FX and the mixer path applied the track FX a second time.
+        foreach ($n in $g.Nodes) {
+            if ($n.Kind -ne 'fx') { continue }
+            if ($n.Type -ieq 'trackfx') {
+                $up = $null
+                foreach ($ln in $g.Links) { if ($ln.To -eq $n.Id) { $cand = $g.Find($ln.From); if ($cand -and $cand.Kind -eq 'track') { $up = $cand; break } } }
+                if ($up) {
+                    $tr = $null; foreach ($t2 in $p.Tracks) { if ($t2.Uid -eq $up.TrackUid) { $tr = $t2; break } }
+                    if ($tr) { if ($graphFxSaved.ContainsKey($n.Id)) { $tr.Fx = $n.Fx } else { $n.Fx = $tr.Fx } }
+                }
+            } elseif ($n.Type -ieq 'busfx' -and ([string]$n.Label -match '^BUS ([A-D])$')) {
+                $bi = [int][char]$Matches[1] - 64
+                if ($bi -ge 1 -and $bi -le $p.Buses.Count) {
+                    if ($graphFxSaved.ContainsKey($n.Id)) { $p.Buses[$bi - 1].Fx = $n.Fx } else { $n.Fx = $p.Buses[$bi - 1].Fx }
+                }
+            }
+        }
+    }
+    foreach ($md in @($d.mix)) { if ($md) { $mr = New-Object HbStudio.MixRule; if ((Set-StudioObjectFromJson $mr $md) -gt 0) { $p.Mix.Add($mr) } } }
+    foreach ($pd in @($d.patterns)) {
+        if (-not $pd) { continue }
+        $pat = New-Object HbStudio.Pattern; $pat.Name = [string]$pd.name; $pat.Bars = [int]$pd.bars
+        foreach ($ns in @($pd.notes)) { $pat.Notes.Add((ConvertFrom-StudioNoteString ([string]$ns))) }
+        foreach ($mu in @($pd.mutes)) { $pat.Mutes.Add([bool]$mu) }
+        while ($pat.Mutes.Count -lt $pat.Notes.Count) { $pat.Mutes.Add($false) }
+        foreach ($ad in @($pd.auto)) {
+            if (-not $ad) { continue }
+            $lane = New-Object HbStudio.AutoLane ([int]$ad.track), ([string]$ad.param)
+            foreach ($pt in @($ad.points)) { if (@($pt).Count -ge 2) { $lane.Points.Add([double[]]@([double]$pt[0], [double]$pt[1])) } }
+            $pat.Auto.Add($lane)
+        }
+        $p.Patterns.Add($pat)
+    }
+    foreach ($sd in @($d.song)) { if ($sd) { $p.Song.Add((New-Object HbStudio.SongItem ([int]$sd.pattern), ([int]$sd.repeats))) } }
+    return $p
+}
+
+# ---------------------------------------------------------------------------------------------------------------
+# Export: WAV is native; MP3 / OGG / FLAC are encoded with FFmpeg
+# ---------------------------------------------------------------------------------------------------------------
+
+$script:StudioFormats = [ordered]@{
+    'WAV 16-bit'      = @{ Ext = 'wav';  Args = '' }
+    'MP3 320 kbps'    = @{ Ext = 'mp3';  Args = '-c:a libmp3lame -b:a 320k' }
+    'MP3 192 kbps'    = @{ Ext = 'mp3';  Args = '-c:a libmp3lame -b:a 192k' }
+    'MP3 V0 (VBR)'    = @{ Ext = 'mp3';  Args = '-c:a libmp3lame -q:a 0' }
+    'OGG Vorbis q6'   = @{ Ext = 'ogg';  Args = '-c:a libvorbis -q:a 6' }
+    'OGG Vorbis q9'   = @{ Ext = 'ogg';  Args = '-c:a libvorbis -q:a 9' }
+    'FLAC lossless'   = @{ Ext = 'flac'; Args = '-c:a flac' }
+}
+
+function Find-StudioFfmpeg {
+    $c = New-Object Collections.Generic.List[string]
+    $c.Add((Join-Path (Get-StudioDir) 'ffmpeg\ffmpeg.exe'))
+    try { if (Get-Command Get-ToolsDir -ErrorAction SilentlyContinue) { $t = Get-ToolsDir; $c.Add((Join-Path $t 'ffmpeg.exe')); $c.Add((Join-Path $t 'ffmpeg\bin\ffmpeg.exe')) } } catch { }
+    foreach ($x in $c) { if (Test-Path -LiteralPath $x) { return $x } }
+    $g = Get-Command ffmpeg.exe -ErrorAction SilentlyContinue
+    if ($g) { return $g.Source }
+    return $null
+}
+
+# Downloads the official-build FFmpeg zip (about 90 MB) into the studio folder and keeps only ffmpeg.exe.
+function Install-StudioFfmpeg([scriptblock]$OnProgress) {
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    $dir = Join-Path (Get-StudioDir) 'ffmpeg'; New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    $zip = Join-Path $dir 'ffmpeg.zip'
+    $wc = New-Object Net.WebClient; $wc.Headers['User-Agent'] = 'Mozilla/5.0 (Humble Baker Studio)'
+    $wc.DownloadFileAsync([Uri]'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip', $zip)
+    while ($wc.IsBusy) { Start-Sleep -Milliseconds 100; [Windows.Forms.Application]::DoEvents(); if ($OnProgress) { & $OnProgress ([int]((Get-Item -LiteralPath $zip -ErrorAction SilentlyContinue).Length / 1MB)) } }
+    $wc.Dispose()
+    if (-not (Test-Path -LiteralPath $zip) -or (Get-Item -LiteralPath $zip).Length -lt 10MB) { throw 'FFmpeg download failed. Check your connection, or put ffmpeg.exe in the Tools folder.' }
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $arc = [IO.Compression.ZipFile]::OpenRead($zip)
+    try {
+        $e = $arc.Entries | Where-Object { $_.FullName -match '(^|/)bin/ffmpeg\.exe$' } | Select-Object -First 1
+        if (-not $e) { throw 'ffmpeg.exe was not found inside the download.' }
+        [IO.Compression.ZipFileExtensions]::ExtractToFile($e, (Join-Path $dir 'ffmpeg.exe'), $true)
+    } finally { $arc.Dispose(); Remove-Item -LiteralPath $zip -Force -ErrorAction SilentlyContinue }
+    return (Join-Path $dir 'ffmpeg.exe')
+}
+
+function Convert-StudioAudio([string]$Ffmpeg, [string]$Wav, [string]$Out, [string]$FormatName, [string]$ExtraArgs = '') {
+    $fmt = $script:StudioFormats[$FormatName]
+    $err = Join-Path $env:TEMP 'hb-studio-ffmpeg.log'
+    $ffArgs = "-y -hide_banner -loglevel error -i `"$Wav`" $($fmt.Args) $ExtraArgs -metadata comment=`"Humble Baker Studio`" `"$Out`""
+    $pr = Start-Process -FilePath $Ffmpeg -ArgumentList $ffArgs -WindowStyle Hidden -PassThru -RedirectStandardError $err
+    while (-not $pr.HasExited) { Start-Sleep -Milliseconds 80; [Windows.Forms.Application]::DoEvents() }
+    if ($pr.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $Out)) { $m = if (Test-Path $err) { (Get-Content -LiteralPath $err -Raw) } else { '' }; throw "FFmpeg could not encode $FormatName. $m" }
+}
+
+# ---------------------------------------------------------------------------------------------------------------
+# Instrument preset browser (patch + effects, applied through the same bounded parameter model the AI uses)
+# ---------------------------------------------------------------------------------------------------------------
+
+$script:StudioPresets = [ordered]@{
+    'Bass - acid 303'      = @{ Patch = '{"Osc1":"saw","Level1":1,"Level2":0,"Filter":"lowpass","Cutoff":420,"Resonance":0.82,"FilterEnv":0.75,"FilterDecay":0.16,"Attack":0.002,"Decay":0.2,"Sustain":0.4,"Release":0.08,"Drive":0.25}' }
+    'Bass - sub 808'       = @{ Patch = '{"Osc1":"sine","Level1":1,"Level2":0,"PitchEnv":14,"PitchDecay":0.04,"Filter":"off","Attack":0.002,"Decay":1.2,"Sustain":0.3,"Release":0.3,"Drive":0.2}' }
+    'Bass - reese'         = @{ Patch = '{"Osc1":"saw","Level1":1,"Osc2":"saw","Level2":1,"Detune2":18,"Unison":2,"Filter":"lowpass","Cutoff":380,"Resonance":0.35,"LfoRate":0.3,"LfoFilter":0.35,"Attack":0.01,"Decay":0.3,"Sustain":0.9,"Release":0.2,"Drive":0.3}' }
+    'Lead - hollow pulse'  = @{ Patch = '{"Osc1":"pulse","PulseWidth":0.3,"Level1":1,"Osc2":"pulse","Level2":0.6,"Detune2":6,"Filter":"lowpass","Cutoff":2600,"Resonance":0.3,"LfoRate":5.5,"LfoPitch":12,"Attack":0.01,"Decay":0.2,"Sustain":0.7,"Release":0.25}'; Fx = '{"DelayMix":0.3,"DelayBeats":0.75,"DelayFeedback":0.45,"ReverbMix":0.2}' }
+    'Lead - FM glass bell' = @{ Patch = '{"Osc1":"sine","Level1":1,"Level2":0,"FmAmount":2.4,"FmRatio":3.5,"Filter":"off","Attack":0.001,"Decay":1.8,"Sustain":0,"Release":1.2}'; Fx = '{"ReverbMix":0.35,"ReverbSize":0.8}' }
+    'Pad - supersaw drift' = @{ Patch = '{"Osc1":"saw","Level1":0.8,"Osc2":"saw","Level2":0.6,"Detune2":9,"Unison":5,"UnisonSpread":20,"Filter":"lowpass","Cutoff":1400,"LfoRate":0.15,"LfoFilter":0.4,"Attack":1.2,"Decay":1,"Sustain":0.8,"Release":2.5}'; Fx = '{"Chorus":0.4,"ChorusRate":0.3,"ReverbMix":0.35,"ReverbSize":0.85}' }
+    'Pad - dark noise air' = @{ Patch = '{"Osc1":"tri","Level1":0.5,"Level2":0,"NoiseLevel":0.4,"Noise":"pink","Filter":"bandpass","Cutoff":900,"Resonance":0.5,"LfoRate":0.2,"LfoFilter":0.5,"Attack":2,"Decay":1,"Sustain":0.8,"Release":3}'; Fx = '{"ReverbMix":0.5,"ReverbSize":0.9}' }
+    'Pluck - squelchy'     = @{ Patch = '{"Osc1":"square","Level1":1,"Osc2":"saw","Level2":0.4,"Detune2":5,"Filter":"lowpass","Cutoff":700,"Resonance":0.55,"FilterEnv":0.8,"FilterDecay":0.12,"Attack":0.001,"Decay":0.22,"Sustain":0,"Release":0.1}'; Fx = '{"DelayMix":0.25,"DelayBeats":0.375,"DelayFeedback":0.4}' }
+    'FX - noise riser'     = @{ Patch = '{"Level1":0,"Level2":0,"NoiseLevel":1,"Noise":"white","Filter":"bandpass","Cutoff":600,"Resonance":0.6,"FilterEnv":1,"FilterDecay":4,"Attack":3,"Decay":0.5,"Sustain":1,"Release":0.5}'; Fx = '{"ReverbMix":0.3}' }
+    'Glitch - crushed perc' = @{ Patch = '{"Osc1":"noise","Level1":1,"Level2":0,"Filter":"highpass","Cutoff":2500,"Attack":0.001,"Decay":0.08,"Sustain":0,"Release":0.03}'; Fx = '{"Bits":6,"Downsample":6,"StutterBeats":0.25,"StutterDiv":4,"StutterChance":0.4}' }
+    'Pluck - nylon guitar' = @{ Patch = '{"Osc1":"pluck","Level1":1,"Level2":0,"Ring":1.6,"Damping":0.55,"Strike":0.18,"Filter":"lowpass","Cutoff":6500,"Attack":0.001,"Decay":0.5,"Sustain":1,"Release":0.3,"Variation":0.6}'; Fx = '{"ReverbMix":0.2,"ReverbSize":0.5}' }
+    'Pluck - harp'         = @{ Patch = '{"Osc1":"pluck","Level1":1,"Level2":0,"Ring":2.6,"Damping":0.22,"Strike":0.12,"Filter":"off","Attack":0.001,"Decay":0.5,"Sustain":1,"Release":0.7,"Variation":0.4}'; Fx = '{"ReverbMix":0.35,"ReverbSize":0.7}' }
+    'Pluck - koto twang'   = @{ Patch = '{"Osc1":"pluck","Level1":1,"Level2":0,"Ring":1.3,"Damping":0.15,"Strike":0.05,"Filter":"highpass","Cutoff":200,"Attack":0.001,"Decay":0.5,"Sustain":1,"Release":0.4,"Variation":0.5}'; Fx = '{"ReverbMix":0.25}' }
+    'Pluck - upright bass' = @{ Patch = '{"Osc1":"pluck","Level1":1,"Level2":0,"SubLevel":0.35,"Ring":0.9,"Damping":0.7,"Strike":0.3,"Filter":"lowpass","Cutoff":1800,"Attack":0.001,"Decay":0.5,"Sustain":1,"Release":0.2,"Variation":0.4}' }
+    'Keys - FM electric piano' = @{ Patch = '{"Osc1":"sine","Level1":1,"Level2":0,"Osc3":"sine","Level3":0.12,"Semi3":24,"FmAmount":1.6,"FmRatio":1,"FmDecay":0.35,"FmSustain":0.15,"Filter":"off","Attack":0.002,"Decay":1.6,"Sustain":0.1,"Release":0.5,"VelFm":0.7,"Variation":0.3}'; Fx = '{"Chorus":0.35,"ChorusRate":0.5,"ReverbMix":0.2}' }
+    'Keys - tine bell'     = @{ Patch = '{"Osc1":"sine","Level1":1,"Level2":0,"FmAmount":2.2,"FmRatio":3.01,"Fm2Amount":1.2,"Fm2Ratio":7,"FmDecay":0.5,"FmSustain":0.05,"Filter":"off","Attack":0.001,"Decay":2.2,"Sustain":0,"Release":1.2,"VelFm":0.6}'; Fx = '{"ReverbMix":0.35,"ReverbSize":0.75}' }
+    'Bell - glass'         = @{ Patch = '{"Osc1":"bell","Level1":1,"Level2":0,"Inharmonic":0.75,"Ring":4,"Damping":0.1,"Strike":0.2,"Filter":"off","Attack":0.001,"Decay":0.5,"Sustain":1,"Release":1.5}'; Fx = '{"ReverbMix":0.45,"ReverbSize":0.8}' }
+    'Bell - church'        = @{ Patch = '{"Osc1":"bell","Level1":1,"Level2":0,"Inharmonic":1,"Ring":8,"Damping":0.05,"Strike":0.15,"Filter":"off","Attack":0.001,"Decay":0.5,"Sustain":1,"Release":3}'; Fx = '{"ReverbMix":0.5,"ReverbSize":0.9}' }
+    'Mallet - marimba'     = @{ Patch = '{"Osc1":"bell","Level1":1,"Level2":0,"Inharmonic":0.5,"Ring":0.7,"Damping":0.65,"Strike":0.15,"Filter":"off","Attack":0.001,"Decay":0.3,"Sustain":1,"Release":0.2,"Variation":0.5}'; Fx = '{"ReverbMix":0.2}' }
+    'Mallet - vibraphone'  = @{ Patch = '{"Osc1":"bell","Level1":1,"Level2":0,"Inharmonic":0.5,"Ring":3,"Damping":0.2,"Strike":0.2,"LfoRate":5.5,"LfoAmp":0.45,"Filter":"off","Attack":0.001,"Decay":0.5,"Sustain":1,"Release":0.8,"Variation":0.3}'; Fx = '{"ReverbMix":0.3,"ReverbSize":0.6}' }
+    'Mallet - kalimba'     = @{ Patch = '{"Osc1":"bell","Level1":1,"Level2":0,"Inharmonic":0.42,"Ring":1,"Damping":0.5,"Strike":0.1,"Filter":"off","Attack":0.001,"Decay":0.4,"Sustain":1,"Release":0.3,"Variation":0.6}'; Fx = '{"ReverbMix":0.25}' }
+    'Voice - choir ahh'    = @{ Patch = '{"Osc1":"vowel","Level1":1,"Level2":0,"Vowel":0,"VowelEnd":3,"Morph":0.2,"Lfo2Morph":0.4,"Lfo2Rate":0.2,"Lfo2Shape":"smooth","Harmonics":32,"Unison":4,"UnisonSpread":14,"Filter":"lowpass","Cutoff":6000,"Attack":0.6,"Decay":1,"Sustain":0.85,"Release":1.5,"LfoRate":5.2,"LfoPitch":18,"LfoDelay":0.6,"Drift":0.4,"Variation":0.3}'; Fx = '{"Chorus":0.3,"ReverbMix":0.5,"ReverbSize":0.85}' }
+    'Voice - talking lead' = @{ Patch = '{"Osc1":"vowel","Level1":1,"Level2":0,"Vowel":0,"VowelEnd":2,"Morph":0,"ModMorph":1,"ModAttack":0.04,"ModDecay":0.35,"Harmonics":28,"Filter":"lowpass","Cutoff":7000,"Attack":0.03,"Decay":0.3,"Sustain":0.8,"Release":0.3,"LfoRate":5.5,"LfoPitch":14,"LfoDelay":0.3}'; Fx = '{"DelayMix":0.2,"DelayBeats":0.75,"ReverbMix":0.2}' }
+    'Voice - robot formant' = @{ Patch = '{"Osc1":"saw","Level1":1,"Level2":0.3,"Detune2":6,"Filter":"vowel","FilterVowel":3,"Cutoff":1000,"FilterEnv":0.12,"FilterDecay":0.3,"Lfo2Rate":2,"Lfo2Shape":"sh","Lfo2Filter":0.3,"Attack":0.01,"Decay":0.3,"Sustain":0.8,"Release":0.2}'; Fx = '{"ReverbMix":0.15}' }
+    'Organ - drawbar'      = @{ Patch = '{"Osc1":"additive","Level1":1,"Level2":0,"Harmonics":9,"Tilt":0.7,"OddEven":0.2,"Filter":"off","LfoRate":6.5,"LfoAmp":0.12,"Attack":0.005,"Decay":0.2,"Sustain":1,"Release":0.08}'; Fx = '{"Chorus":0.4,"ChorusRate":0.8,"ChorusDepth":0.6,"ReverbMix":0.2}' }
+    'Wind - clarinet'      = @{ Patch = '{"Osc1":"additive","Level1":1,"Level2":0,"Harmonics":20,"Tilt":1.4,"OddEven":1,"Filter":"lowpass","Cutoff":3500,"KeyTrack":0.3,"ModNoise":0.15,"ModDecay":0.1,"Noise":"pink","Attack":0.05,"Decay":0.2,"Sustain":0.85,"Release":0.15,"LfoRate":5,"LfoPitch":14,"LfoDelay":0.4,"Variation":0.3}'; Fx = '{"ReverbMix":0.25}' }
+    'Wind - breathy flute' = @{ Patch = '{"Osc1":"sine","Level1":1,"Osc2":"tri","Level2":0.2,"Semi2":12,"Detune2":0,"NoiseLevel":0.05,"Noise":"pink","ModNoise":0.3,"ModDecay":0.25,"Filter":"lowpass","Cutoff":5000,"Attack":0.07,"Decay":0.2,"Sustain":0.85,"Release":0.2,"LfoRate":5.2,"LfoPitch":20,"LfoDelay":0.5,"Drift":0.3,"Variation":0.3}'; Fx = '{"ReverbMix":0.3,"ReverbSize":0.6}' }
+    'Brass - analog section' = @{ Patch = '{"Osc1":"saw","Level1":1,"Osc2":"saw","Level2":0.7,"Detune2":8,"Unison":3,"UnisonSpread":10,"Filter":"lowpass","Cutoff":900,"Resonance":0.2,"FilterEnv":0.55,"FilterDecay":0.35,"Attack":0.06,"Decay":0.3,"Sustain":0.8,"Release":0.2,"VelFilter":0.6,"Drift":0.2}'; Fx = '{"ReverbMix":0.2}' }
+    'Strings - ensemble'   = @{ Patch = '{"Osc1":"saw","Level1":1,"Osc2":"saw","Level2":0.5,"Detune2":9,"Unison":6,"UnisonSpread":22,"Filter":"lowpass","Cutoff":3500,"KeyTrack":0.3,"Attack":0.35,"Decay":0.5,"Sustain":0.9,"Release":0.8,"LfoRate":5.4,"LfoPitch":10,"LfoDelay":0.5,"Drift":0.5,"Variation":0.2}'; Fx = '{"Chorus":0.4,"ReverbMix":0.4,"ReverbSize":0.8}' }
+    'Lead - sync scream'   = @{ Patch = '{"Osc1":"sync","Level1":1,"Level2":0,"SyncRatio":2,"ModSync":0.8,"ModAttack":0.01,"ModDecay":0.6,"Filter":"lowpass","Cutoff":6000,"Resonance":0.2,"Drive":0.2,"Attack":0.005,"Decay":0.3,"Sustain":0.7,"Release":0.2,"LfoRate":5.5,"LfoPitch":8,"LfoDelay":0.2}'; Fx = '{"DelayMix":0.25,"DelayBeats":0.75,"ReverbMix":0.2}' }
+    'Lead - PWM strings'   = @{ Patch = '{"Osc1":"pulse","Level1":1,"Osc2":"pulse","Level2":0.7,"Detune2":8,"LfoRate":0.7,"LfoPwm":0.8,"Lfo2Rate":0.43,"Lfo2Pwm":0.5,"Filter":"lowpass","Cutoff":3000,"Attack":0.12,"Decay":0.4,"Sustain":0.8,"Release":0.5}'; Fx = '{"Chorus":0.5,"ReverbMix":0.3}' }
+    'Lead - FM brass blat' = @{ Patch = '{"Osc1":"sine","Level1":1,"Level2":0,"FmAmount":3,"FmRatio":1,"Fm2Amount":1.5,"Fm2Ratio":2,"FmDecay":0.25,"FmSustain":0.4,"Filter":"off","Attack":0.03,"Decay":0.3,"Sustain":0.8,"Release":0.2,"VelFm":0.6}'; Fx = '{"ReverbMix":0.2}' }
+    'Lead - chiptune'      = @{ Patch = '{"Osc1":"pulse","PulseWidth":0.25,"Level1":1,"Level2":0,"Bits":6,"Filter":"off","Attack":0.002,"Decay":0.15,"Sustain":0.7,"Release":0.08,"LfoRate":6,"LfoPitch":10,"LfoDelay":0.25}' }
+    'Lead - theremin glide' = @{ Patch = '{"Osc1":"sine","Level1":1,"Level2":0.15,"Osc2":"sine","Semi2":12,"Detune2":0,"PitchEnv":-5,"PitchDecay":0.2,"Filter":"off","Attack":0.15,"Decay":0.3,"Sustain":0.9,"Release":0.4,"LfoRate":5.8,"LfoPitch":28,"LfoDelay":0.5,"Drift":0.4}'; Fx = '{"ReverbMix":0.35}' }
+    'Lead - hoover'        = @{ Patch = '{"Osc1":"saw","Level1":1,"Osc2":"saw","Level2":0.8,"Detune2":-14,"Unison":7,"UnisonSpread":40,"PitchEnv":-7,"PitchDecay":0.35,"Fold":0.15,"Filter":"lowpass","Cutoff":1800,"Resonance":0.4,"Attack":0.005,"Decay":0.4,"Sustain":0.8,"Release":0.3}'; Fx = '{"Chorus":0.3,"ReverbMix":0.2}' }
+    'Bass - FM growl'      = @{ Patch = '{"Osc1":"sine","Level1":1,"Level2":0,"SubLevel":0.5,"FmAmount":2.5,"FmRatio":1,"FmFeedback":0.45,"Fm2Amount":1,"Fm2Ratio":2,"FmDecay":0.4,"FmSustain":0.4,"Filter":"lowpass","Cutoff":900,"Drive":0.3,"Attack":0.003,"Decay":0.3,"Sustain":0.8,"Release":0.15}' }
+    'Bass - wobble'        = @{ Patch = '{"Osc1":"saw","Level1":1,"Osc2":"square","Level2":0.5,"Detune2":6,"Unison":2,"Filter":"lowpass","Cutoff":300,"Resonance":0.6,"LfoShape":"tri","LfoRate":3,"LfoFilter":0.9,"Drive":0.4,"Attack":0.005,"Decay":0.3,"Sustain":0.9,"Release":0.1}' }
+    'Pad - formant drift'  = @{ Patch = '{"Osc1":"vowel","Level1":0.9,"Osc2":"additive","Level2":0.3,"Semi2":12,"Detune2":4,"Vowel":1,"VowelEnd":4,"Morph":0.4,"Lfo2Morph":0.8,"Lfo2Rate":0.08,"Lfo2Shape":"smooth","Harmonics":32,"Tilt":1.2,"Unison":3,"UnisonSpread":16,"Filter":"lowpass","Cutoff":4500,"Attack":1.8,"Decay":1,"Sustain":0.9,"Release":3,"Drift":0.5}'; Fx = '{"Chorus":0.35,"ReverbMix":0.55,"ReverbSize":0.9}' }
+    'Pad - glass additive' = @{ Patch = '{"Osc1":"additive","Level1":1,"Level2":0.4,"Osc2":"additive","Semi2":19,"Detune2":3,"Harmonics":40,"Tilt":0.6,"TiltEnd":2,"Morph":0.3,"Lfo2Morph":0.8,"Lfo2Rate":0.1,"Lfo2Shape":"tri","Unison":3,"UnisonSpread":12,"Filter":"off","Attack":1.5,"Decay":1,"Sustain":0.9,"Release":3}'; Fx = '{"Chorus":0.3,"ReverbMix":0.5,"ReverbSize":0.85}' }
+    'Pad - ice shimmer'    = @{ Patch = '{"Osc1":"bell","Level1":0.8,"Level2":0.4,"Osc2":"sine","Semi2":12,"Detune2":5,"Inharmonic":0.9,"Ring":6,"Damping":0.08,"Filter":"off","Attack":0.8,"Decay":1,"Sustain":1,"Release":3,"Lfo2Amp":0.3,"Lfo2Rate":0.25}'; Fx = '{"Chorus":0.4,"ReverbMix":0.6,"ReverbSize":0.9}' }
+    'Drone - dark additive' = @{ Patch = '{"Osc1":"additive","Level1":1,"Level2":0.5,"Osc2":"additive","Semi2":-12,"Detune2":3,"Harmonics":24,"Tilt":1.6,"TiltEnd":0.7,"Morph":0.2,"Lfo2Morph":0.7,"Lfo2Rate":0.05,"Lfo2Shape":"smooth","Unison":2,"UnisonSpread":10,"Drift":0.8,"Filter":"lowpass","Cutoff":1800,"Attack":3,"Decay":1,"Sustain":1,"Release":4}'; Fx = '{"ReverbMix":0.5,"ReverbSize":0.95}' }
+    'Texture - vinyl crackle' = @{ Patch = '{"Osc1":"sine","Level1":0,"Level2":0,"NoiseLevel":0.8,"Noise":"dust","NoiseRate":45,"Filter":"highpass","Cutoff":900,"Attack":0.3,"Decay":1,"Sustain":1,"Release":0.5}' }
+    'Texture - wind'       = @{ Patch = '{"Level1":0,"Level2":0,"NoiseLevel":0.9,"Noise":"pink","Filter":"bandpass","Cutoff":700,"Resonance":0.6,"Lfo2Rate":0.13,"Lfo2Shape":"smooth","Lfo2Filter":0.7,"LfoRate":0.37,"LfoFilter":0.3,"Attack":2,"Decay":1,"Sustain":1,"Release":3}'; Fx = '{"ReverbMix":0.4,"ReverbSize":0.85}' }
+    'Texture - digital rain' = @{ Patch = '{"Level1":0,"Level2":0,"NoiseLevel":0.8,"Noise":"bits","NoiseRate":900,"Filter":"bandpass","Cutoff":3000,"Resonance":0.5,"LfoShape":"sh","LfoRate":9,"LfoFilter":0.6,"Attack":0.5,"Decay":1,"Sustain":1,"Release":1}'; Fx = '{"DelayMix":0.3,"DelayBeats":0.375,"ReverbMix":0.3}' }
+    'FX - impact boom'     = @{ Patch = '{"Osc1":"sine","Level1":1,"Level2":0,"NoiseLevel":0.3,"Noise":"brown","PitchEnv":30,"PitchDecay":0.25,"Drive":0.3,"Filter":"lowpass","Cutoff":2500,"Attack":0.001,"Decay":2.5,"Sustain":0,"Release":1}'; Fx = '{"ReverbMix":0.6,"ReverbSize":0.9}' }
+    'FX - laser zap'       = @{ Patch = '{"Osc1":"saw","Level1":1,"Level2":0,"PitchEnv":48,"PitchDecay":0.12,"Filter":"bandpass","Cutoff":2500,"Resonance":0.5,"Attack":0.001,"Decay":0.3,"Sustain":0,"Release":0.1}'; Fx = '{"DelayMix":0.25,"DelayBeats":0.375}' }
+    'Perc - metal clang'   = @{ Patch = '{"Osc1":"sine","Level1":1,"Osc2":"sine","Level2":1,"Semi2":7.3,"Detune2":0,"RingAmount":1,"Filter":"off","Attack":0.001,"Decay":0.6,"Sustain":0,"Release":0.3}'; Fx = '{"ReverbMix":0.3}' }
+}
+
+function Add-StudioPresetTrack($P, [string]$Name, [int]$Replace = -1) {
+    $pre = $script:StudioPresets[$Name]; if (-not $pre) { return $null }
+    $t = if ($Replace -ge 0) { $P.Tracks[$Replace] } else { New-StudioTrack $Name 'patch' }
+    $t.Synth = 'patch'; $t.Patch = New-Object HbStudio.Patch; $t.Fx = New-Object HbStudio.Fx
+    [void](Set-StudioObjectFromJson $t.Patch ($pre.Patch | ConvertFrom-Json))
+    if ($pre.Fx) { [void](Set-StudioObjectFromJson $t.Fx ($pre.Fx | ConvertFrom-Json)) }
+    if ($Replace -lt 0) { $P.Tracks.Add($t) }
+    return $t
+}
+
+function Get-StudioDemoNotes($P) {
+    # A starter groove so the roll is not empty: broken kick/snare, 16th hats, acid line.
+    $dr = $P.Tracks[0]; $ac = $P.Tracks[1]
+    foreach ($bar in 0..($P.Bars - 1)) {
+        $o = $bar * $P.BarBeats
+        foreach ($b in @(0, 1.75, 2.5)) { $dr.Notes.Add((New-Object HbStudio.Note 36, ($o + $b), 0.25, 115)) }
+        foreach ($b in @(1, 3)) { $dr.Notes.Add((New-Object HbStudio.Note 38, ($o + $b), 0.25, 105)) }
+        foreach ($i in 0..15) { if ($i * 0.25 -lt $P.BarBeats) { $dr.Notes.Add((New-Object HbStudio.Note 42, ($o + $i * 0.25), 0.1, $(if ($i % 4 -eq 2) { 100 } else { 60 }))) } }
+    }
+    $line = @(45, 0, 57, 45, 0, 48, 45, 52, 0, 45, 57, 0, 55, 45, 0, 43)
+    foreach ($i in 0..15) { if ($line[$i] -gt 0) { $ac.Notes.Add((New-Object HbStudio.Note $line[$i], ($i * 0.25), 0.22, $(if ($i % 3 -eq 0) { 120 } else { 90 }))) } }
+}
+
+# ---------------------------------------------------------------------------------------------------------------
+# SuperCollider bridge
+# ---------------------------------------------------------------------------------------------------------------
+
+function Find-StudioSuperCollider {
+    $cfg = Join-Path (Get-StudioDir) 'settings.json'
+    if (Test-Path -LiteralPath $cfg) {
+        try { $p = [string](Get-Content -LiteralPath $cfg -Raw | ConvertFrom-Json).sclang; if ($p -and (Test-Path -LiteralPath $p -PathType Leaf)) { return $p } } catch { }
+    }
+    $c = Get-Command sclang.exe -ErrorAction SilentlyContinue
+    if ($c) { return $c.Source }
+    $roots = @($env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:LOCALAPPDATA) | Where-Object { $_ }
+    try { if ($PSScriptRoot) { $roots += (Join-Path $PSScriptRoot '..\Tools') } } catch { }
+    try { if (Get-Command Get-ToolsDir -ErrorAction SilentlyContinue) { $roots += (Get-ToolsDir) } } catch { }
+    foreach ($r in $roots) {
+        if (-not (Test-Path -LiteralPath $r)) { continue }
+        $hit = Get-ChildItem -LiteralPath $r -Directory -Filter 'SuperCollider*' -ErrorAction SilentlyContinue | ForEach-Object { Join-Path $_.FullName 'sclang.exe' } | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+        if ($hit) { return $hit }
+    }
+    return $null
+}
+
+function Save-StudioSclangPath([string]$Path) {
+    $cfg = Join-Path (Get-StudioDir) 'settings.json'
+    (@{ sclang = $Path } | ConvertTo-Json) | Set-Content -LiteralPath $cfg -Encoding UTF8
+}
+
+function Get-StudioSynthDefs {
+    return @'
+// --- Humble Baker Studio built-in instruments ---------------------------------------------------------------
+SynthDef(\hbfx, { |in=0, out=0, dtime=0.4, fb=0.4, mix=0.2, gain=0.9|
+    var dry = In.ar(in, 2), loc = LocalIn.ar(2), wet;
+    wet = DelayC.ar(dry + (loc * fb), 4, dtime);
+    LocalOut.ar(wet.reverse);
+    Out.ar(out, ((dry + (wet * mix)) * gain).tanh);
+}).add;
+~hbVoice = { |name, osc|
+    SynthDef(name, { |out=0, freq=110, amp=0.3, pan=0, cutoff=2400, res=0.3, envamt=0.6, atk=0.005, rel=0.15, crush=16, sustain=0.2|
+        var env = EnvGen.ar(Env.linen(atk, sustain, rel, 1, -4), doneAction: 2);
+        var fenv = EnvGen.ar(Env.perc(0.001, 0.25, 1, -4));
+        var sig = SynthDef.wrap(osc, nil, [freq]);
+        var q = 1 - res.clip(0, 0.95);
+        var steps = 2 ** (crush.clip(2, 16) - 1);
+        sig = RLPF.ar(sig, (cutoff * (1 + (fenv * envamt * 4))).clip(40, 16000), q.clip(0.05, 1));
+        sig = (sig * steps).round / steps;
+        Out.ar(out, Pan2.ar(sig.tanh * env * amp, pan));
+    }).add;
+};
+~hbVoice.(\hbacid, { |f| Saw.ar(f) });
+~hbVoice.(\hbsaw, { |f| Saw.ar(f) });
+~hbVoice.(\hbsquare, { |f| Pulse.ar(f, 0.5) });
+~hbVoice.(\hbtri, { |f| LFTri.ar(f) });
+~hbVoice.(\hbsine, { |f| SinOsc.ar(f) });
+~hbVoice.(\hbfm, { |f| SinOsc.ar(f, SinOsc.ar(f * 2) * 3) });
+~hbVoice.(\hbpad, { |f| Mix([Saw.ar(f), Saw.ar(f * 1.006), Saw.ar(f * 0.994)]) / 3 });
+~hbVoice.(\hbnoise, { |f| WhiteNoise.ar });
+SynthDef(\hbpluck, { |out=0, freq=220, amp=0.3, pan=0, rel=0.3, sustain=0.5, cutoff=4000, crush=16|
+    var sig = Pluck.ar(WhiteNoise.ar, Impulse.ar(0), 0.2, freq.reciprocal, sustain + rel, 0.4);
+    var steps = 2 ** (crush.clip(2, 16) - 1);
+    sig = (LPF.ar(sig, cutoff) * steps).round / steps;
+    DetectSilence.ar(sig, 0.001, 0.2, doneAction: 2);
+    Out.ar(out, Pan2.ar(sig * amp * 2, pan));
+}).add;
+SynthDef(\hbkick, { |out=0, amp=0.5, pan=0, crush=16|
+    var env = EnvGen.ar(Env.perc(0.001, 0.4, 1, -6), doneAction: 2);
+    var sig = SinOsc.ar(EnvGen.ar(Env([200, 48, 42], [0.02, 0.3], -6))) * env;
+    sig = sig + (WhiteNoise.ar * EnvGen.ar(Env.perc(0.0005, 0.01)) * 0.4);
+    Out.ar(out, Pan2.ar((sig * 1.6).tanh * amp, pan));
+}).add;
+SynthDef(\hbsnare, { |out=0, amp=0.5, pan=0|
+    var env = EnvGen.ar(Env.perc(0.001, 0.2, 1, -6), doneAction: 2);
+    var sig = (WhiteNoise.ar * env) + (SinOsc.ar(190) * EnvGen.ar(Env.perc(0.001, 0.08)) * 0.7);
+    Out.ar(out, Pan2.ar(sig * amp, pan));
+}).add;
+SynthDef(\hbclap, { |out=0, amp=0.5, pan=0|
+    var env = EnvGen.ar(Env([0, 1, 0.2, 1, 0.2, 1, 0], [0.001, 0.01, 0.001, 0.01, 0.001, 0.2], -4), doneAction: 2);
+    Out.ar(out, Pan2.ar(BPF.ar(WhiteNoise.ar, 1500, 0.5) * env * amp * 2, pan));
+}).add;
+SynthDef(\hbhat, { |out=0, amp=0.5, pan=0, rel=0.06|
+    var env = EnvGen.ar(Env.perc(0.0005, rel, 1, -6), doneAction: 2);
+    Out.ar(out, Pan2.ar(HPF.ar(WhiteNoise.ar, 7000) * env * amp, pan));
+}).add;
+SynthDef(\hbtom, { |out=0, freq=110, amp=0.5, pan=0|
+    var env = EnvGen.ar(Env.perc(0.001, 0.3, 1, -5), doneAction: 2);
+    Out.ar(out, Pan2.ar(SinOsc.ar(freq * (1 + EnvGen.ar(Env.perc(0.001, 0.05)))) * env * amp, pan));
+}).add;
+SynthDef(\hbperc, { |out=0, freq=400, amp=0.5, pan=0|
+    var env = EnvGen.ar(Env.perc(0.001, 0.1, 1, -6), doneAction: 2);
+    Out.ar(out, Pan2.ar(SinOsc.ar(freq) * env * amp, pan));
+}).add;
+'@
+}
+
+function ConvertTo-ScNum([double]$V) { return $V.ToString('0.######', [Globalization.CultureInfo]::InvariantCulture) }
+
+function Get-StudioDrumInstrument([int]$Pitch) {
+    switch ($Pitch) {
+        { $_ -in 35, 36 } { return 'hbkick' }
+        { $_ -in 38, 40 } { return 'hbsnare' }
+        39 { return 'hbclap' }
+        { $_ -in 42, 44 } { return 'hbhat' }
+        46 { return 'hbhat' }
+        { $_ -in 41, 43, 45, 47, 48, 50 } { return 'hbtom' }
+        default { return 'hbperc' }
+    }
+}
+
+function Get-StudioScOsc($Wave, [string]$Freq, [string]$Pw) {
+    switch ("$Wave") {
+        'square' { return "Pulse.ar($Freq, 0.5)" }
+        'pulse' { return "Pulse.ar($Freq, $Pw)" }
+        'tri' { return "LFTri.ar($Freq)" }
+        'sine' { return "SinOsc.ar($Freq)" }
+        'noise' { return 'WhiteNoise.ar' }
+        default { return "Saw.ar($Freq)" }
+    }
+}
+
+function Get-StudioPatchSynthDef($P, [string]$Name) {
+    $n = { param($v) ConvertTo-ScNum ([double]$v) }
+    $uni = [math]::Max(1, [math]::Min(7, [int][math]::Round($P.Unison)))
+    $pw = & $n $P.PulseWidth
+    $det = if ($uni -gt 1) { "((u / $($uni - 1)) - 0.5) * 2 * $(& $n $P.UnisonSpread)" } else { '0' }
+    $o1 = if ($P.FmAmount -gt 0) { Get-StudioScOsc $P.Osc1 "(fu * (1 + ($(& $n $P.FmAmount) * SinOsc.ar(fu * $(& $n $P.FmRatio)))))" $pw } else { Get-StudioScOsc $P.Osc1 'fu' $pw }
+    $parts = @()
+    if ($P.Level1 -gt 0) { $parts += "($(& $n $P.Level1) * $o1)" }
+    if ($P.Level2 -gt 0) { $parts += "($(& $n $P.Level2) * $(Get-StudioScOsc $P.Osc2 "(fu * $(& $n ([math]::Pow(2, $P.Semi2 / 12.0) * [math]::Pow(2, $P.Detune2 / 1200.0))))" $pw))" }
+    if ($P.Level3 -gt 0) { $parts += "($(& $n $P.Level3) * $(Get-StudioScOsc $P.Osc3 "(fu * $(& $n ([math]::Pow(2, $P.Semi3 / 12.0))))" $pw))" }
+    if (-not $parts) { $parts = @('0') }
+    $noise = switch ("$($P.Noise)") { 'pink' { 'PinkNoise.ar' } 'brown' { 'BrownNoise.ar' } default { 'WhiteNoise.ar' } }
+    $sb = New-Object Text.StringBuilder
+    [void]$sb.AppendLine("SynthDef(\$Name, { |out = 0, freq = 440, amp = 0.3, sustain = 0.3, pan = 0, gate = 1|")
+    [void]$sb.AppendLine('    var lfo, f, sig, env, fenv, fc, penv, sub;')
+    [void]$sb.AppendLine("    lfo = SinOsc.kr($(& $n $P.LfoRate));")
+    [void]$sb.AppendLine("    penv = EnvGen.kr(Env([1, 0], [$(& $n ([math]::Max(0.002, $P.PitchDecay) * 4))], -4));")
+    [void]$sb.AppendLine("    f = freq * (2 ** (penv * $(& $n $P.PitchEnv) / 12)) * (2 ** (lfo * $(& $n $P.LfoPitch) / 1200));")
+    [void]$sb.AppendLine("    sig = Mix.fill($uni, { |u| var fu = f * (2 ** (($det) / 1200)); ($($parts -join ' + ')) }) * $(& $n (0.5 / [math]::Sqrt($uni)));")
+    if ($P.SubLevel -gt 0) { [void]$sb.AppendLine("    sig = sig + (SinOsc.ar(f * 0.5) * $(& $n ($P.SubLevel * 0.6)));") }
+    if ($P.NoiseLevel -gt 0) { [void]$sb.AppendLine("    sig = sig + ($noise * $(& $n ($P.NoiseLevel * 0.5)));") }
+    if ("$($P.Filter)" -ne 'off') {
+        $ug = switch ("$($P.Filter)") { 'highpass' { 'RHPF' } 'bandpass' { 'BPF' } default { 'RLPF' } }
+        $rq = if ($ug -eq 'BPF') { "$(& $n ([math]::Max(0.05, 1 - $P.Resonance)))" } else { "$(& $n ([math]::Max(0.05, 1 - $P.Resonance)))" }
+        [void]$sb.AppendLine("    fenv = EnvGen.kr(Env([1, 0], [$(& $n ([math]::Max(0.01, $P.FilterDecay) * 3))], -4));")
+        [void]$sb.AppendLine("    fc = ($(& $n $P.Cutoff) * (2 ** ((fenv * $(& $n ($P.FilterEnv * 5))) + (lfo * $(& $n ($P.LfoFilter * 2))) + ($(& $n $P.KeyTrack) * ((freq.cpsmidi - 60) / 12))))).clip(30, 12000);")
+        [void]$sb.AppendLine("    sig = $ug.ar(sig, fc, $rq);")
+    }
+    if ($P.Drive -gt 0) { [void]$sb.AppendLine("    sig = (sig * $(& $n (1 + $P.Drive * 12))).tanh * 0.6;") }
+    if ($P.Fold -gt 0) { [void]$sb.AppendLine("    sig = XFade2.ar(sig, (sig * $(& $n (1 + $P.Fold * 8))).fold2(1), $(& $n ($P.Fold * 2 - 1)));") }
+    if ($P.Bits -lt 16) { [void]$sb.AppendLine("    sig = sig.round(2 ** (1 - $(& $n $P.Bits)));") }
+    $dec = [math]::Max(0.01, $P.Decay); $atk = [math]::Max(0.001, $P.Attack)
+    [void]$sb.AppendLine("    env = EnvGen.ar(Env([0, 1, $(& $n $P.Sustain), $(& $n $P.Sustain), 0], [$(& $n $atk), $(& $n $dec), (sustain - $(& $n ($atk + $dec))).max(0), $(& $n ([math]::Max(0.005, $P.Release)))]), doneAction: 2);")
+    [void]$sb.AppendLine("    env = env * (1 - ($(& $n $P.LfoAmp) * (0.5 + (0.5 * lfo))));")
+    [void]$sb.AppendLine("    Out.ar(out, Pan2.ar(sig * env * amp * $(& $n ($P.Gain * 1.6)), pan));")
+    [void]$sb.Append('}).add;')
+    return $sb.ToString()
+}
+
+function Get-StudioFxSynthDef($F, [string]$Name, [double]$Spb) {
+    $n = { param($v) ConvertTo-ScNum ([double]$v) }
+    $sb = New-Object Text.StringBuilder
+    [void]$sb.AppendLine("SynthDef(\$Name, { |in = 0, out = 0|")
+    [void]$sb.AppendLine('    var sig = In.ar(in, 2), l, r;')
+    if ("$($F.Filter)" -ne 'off') {
+        $ug = switch ("$($F.Filter)") { 'highpass' { 'RHPF' } 'bandpass' { 'BPF' } default { 'RLPF' } }
+        $fc = & $n $F.Cutoff
+        if ($F.FilterLfoRate -gt 0) { $fc = "($fc * (2 ** (SinOsc.kr($(& $n $F.FilterLfoRate)) * $(& $n ($F.FilterLfoDepth * 3))))).clip(30, 12000)" }
+        [void]$sb.AppendLine("    sig = $ug.ar(sig, $fc, $(& $n ([math]::Max(0.05, 1 - $F.Resonance))));")
+    }
+    if ($F.Fold -gt 0) { [void]$sb.AppendLine("    sig = XFade2.ar(sig, (sig * $(& $n (1 + $F.Fold * 8))).fold2(1), $(& $n ($F.Fold * 2 - 1)));") }
+    if ($F.Drive -gt 0) { [void]$sb.AppendLine("    sig = (sig * $(& $n (1 + $F.Drive * 12))).tanh * 0.5;") }
+    if ($F.Downsample -gt 1) { [void]$sb.AppendLine("    sig = Latch.ar(sig, Impulse.ar(SampleRate.ir / $(& $n $F.Downsample)));") }
+    if ($F.Bits -lt 16) { [void]$sb.AppendLine("    sig = sig.round(2 ** (1 - $(& $n $F.Bits)));") }
+    if ($F.RingMix -gt 0 -and $F.RingFreq -gt 0) { [void]$sb.AppendLine("    sig = XFade2.ar(sig, sig * SinOsc.ar($(& $n $F.RingFreq)), $(& $n ($F.RingMix * 2 - 1)));") }
+    if ($F.Chorus -gt 0) { [void]$sb.AppendLine("    sig = sig + ($(& $n $F.Chorus) * DelayC.ar(sig, 0.05, [0.010, 0.010] + (SinOsc.kr($(& $n $F.ChorusRate), [0, 1.57]) * $(& $n (0.007 * $F.ChorusDepth)))));") }
+    if ($F.DelayMix -gt 0) {
+        [void]$sb.AppendLine("    l = sig; sig = LocalIn.ar(2) * $(& $n $F.DelayFeedback) + l;")
+        [void]$sb.AppendLine("    sig = DelayC.ar(sig, 4, $(& $n ([math]::Min(3.9, $F.DelayBeats * $Spb))));")
+        [void]$sb.AppendLine('    LocalOut.ar(sig.reverse);')
+        [void]$sb.AppendLine("    sig = l + (sig * $(& $n $F.DelayMix));")
+    }
+    if ($F.ReverbMix -gt 0) { [void]$sb.AppendLine("    sig = FreeVerb2.ar(sig[0], sig[1], $(& $n $F.ReverbMix), $(& $n $F.ReverbSize), 0.25);") }
+    [void]$sb.AppendLine("    Out.ar(out, sig * $(& $n $F.Gain));")
+    [void]$sb.Append('}).add;')
+    return $sb.ToString()
+}
+
+function Get-StudioSampleSynthDefs {
+@'
+SynthDef(\hbsamp, { |out = 0, buf = 0, freq = 440, rootfreq = 261.63, amp = 0.3, sustain = 0.3, pan = 0|
+    var sig = PlayBuf.ar(1, buf, BufRateScale.kr(buf) * (freq / rootfreq), doneAction: 2);
+    Out.ar(out, Pan2.ar(sig * amp, pan));
+}).add;
+SynthDef(\hbsampg, { |out = 0, buf = 0, freq = 440, rootfreq = 261.63, amp = 0.3, sustain = 0.3, rel = 0.05, pan = 0|
+    var sig = PlayBuf.ar(1, buf, BufRateScale.kr(buf) * (freq / rootfreq), doneAction: 2);
+    sig = sig * EnvGen.ar(Env([1, 1, 0], [sustain, rel]), doneAction: 2);
+    Out.ar(out, Pan2.ar(sig * amp, pan));
+}).add;
+'@
+}
+
+function Get-StudioScdPattern($P, $T, [int]$Index = 0, [string]$OutBus = '~hbbus') {
+    $evs = @([HbStudio.Engine]::Events($P, $T))
+    if ($evs.Count -eq 0) { return $null }
+    $loop = $P.LoopBeats
+    $instr = New-Object Collections.Generic.List[string]; $freq = New-Object Collections.Generic.List[string]
+    $dur = New-Object Collections.Generic.List[string]; $sus = New-Object Collections.Generic.List[string]; $amp = New-Object Collections.Generic.List[string]
+    $isDrum = ($T.Synth -eq 'drums')
+    $synthName = if ($isDrum) { '' } elseif ($T.Synth -eq 'patch') { "hbp$Index" } elseif ($T.Synth -eq 'sample') { if ($T.SampleGate) { 'hbsampg' } else { 'hbsamp' } } elseif ($script:StudioSynths -contains $T.Synth) { 'hb' + $T.Synth } else { $T.Synth }
+    function Add-Row($i, $f, $d, $s, $a) { $instr.Add($i); $freq.Add($f); $dur.Add((ConvertTo-ScNum $d)); $sus.Add($s); $amp.Add($a) }
+    if ($evs[0].Start -gt 0.0001) { Add-Row ($(if ($isDrum) { '\hbkick' } else { "\$synthName" })) '\rest' $evs[0].Start '0.1' '0' }
+    for ($i = 0; $i -lt $evs.Count; $i++) {
+        $e = $evs[$i]
+        $next = if ($i -lt $evs.Count - 1) { $evs[$i + 1].Start } else { $loop }
+        $inst = if ($isDrum) { '\' + (Get-StudioDrumInstrument $e.Pitch) } else { "\$synthName" }
+        $f = ConvertTo-ScNum (440.0 * [math]::Pow(2, ($e.Pitch - 69) / 12.0))
+        $a = ConvertTo-ScNum ($T.Vol * $e.Vel / 127.0 * 0.45)
+        $rel = if ($inst -eq '\hbhat' -and $e.Pitch -eq 46) { 0.4 } elseif ($inst -eq '\hbhat') { 0.06 } else { $T.Rel }
+        Add-Row $inst $f ([math]::Max(0.0, $next - $e.Start)) (ConvertTo-ScNum $e.Len) $a
+    }
+    $kv = @(
+        "\instrument, Pseq([$($instr -join ', ')], 1)", "\freq, Pseq([$($freq -join ', ')], 1)", "\dur, Pseq([$($dur -join ', ')], 1)",
+        "\sustain, Pseq([$($sus -join ', ')], 1)", "\amp, Pseq([$($amp -join ', ')], 1)", "\out, $OutBus", "\pan, $(ConvertTo-ScNum $T.Pan)",
+        "\cutoff, $(ConvertTo-ScNum $T.Cutoff)", "\res, $(ConvertTo-ScNum $T.Res)", "\envamt, $(ConvertTo-ScNum $T.EnvAmt)",
+        "\atk, $(ConvertTo-ScNum $T.Atk)", "\rel, $(ConvertTo-ScNum $T.Rel)", "\crush, $(ConvertTo-ScNum $T.Crush)"
+    )
+    if ($T.Synth -eq 'sample') { $kv += "\buf, ~hbbuf$Index"; $kv += "\rootfreq, $(ConvertTo-ScNum (440.0 * [math]::Pow(2, ($T.SampleRoot - 69) / 12.0)))" }
+    return 'Pbind(' + ($kv -join ",`n    ") + ')'
+}
+
+function Get-StudioScd($P, [string]$Custom, [string]$Mode, [string]$OutPath, [string]$StopFile) {
+    $spb = 60.0 / $P.Bpm
+    $pats = @(); $defs = New-Object Collections.Generic.List[string]; $bufs = New-Object Collections.Generic.List[string]; $fxs = New-Object Collections.Generic.List[string]
+    $needSamp = $false
+    for ($i = 0; $i -lt $P.Tracks.Count; $i++) {
+        $t = $P.Tracks[$i]; if ($t.Mute) { continue }
+        $out = '~hbbus'
+        if ($t.Fx -and $t.Fx.Active) {
+            $out = "~hbt$i"
+            $bufs.Add("$out = Bus.audio(s, 2);")
+            $defs.Add((Get-StudioFxSynthDef $t.Fx "hbfx$i" $spb))
+            $fxs.Add("Synth(\hbfx$i, [\in, $out, \out, ~hbbus], addToTail: true);")
+        }
+        if ($t.Synth -eq 'patch' -and $t.Patch) { $defs.Add((Get-StudioPatchSynthDef $t.Patch "hbp$i")) }
+        if ($t.Synth -eq 'sample' -and $t.Sample) {
+            $needSamp = $true
+            $wav = Join-Path (Get-StudioDir) "sample_$i.wav"
+            [HbStudio.Dsp]::WriteWavMono($wav, $t.Sample)
+            $bufs.Add("~hbbuf$i = Buffer.read(s, `"$($wav.Replace('\', '/'))`");")
+        }
+        $pat = Get-StudioScdPattern $P $t $i $out; if ($pat) { $pats += $pat }
+    }
+    if ($needSamp) { $defs.Insert(0, (Get-StudioSampleSynthDefs)) }
+    $fx = "~hbfx = Synth(\hbfx, [\in, ~hbbus, \dtime, $(ConvertTo-ScNum ($P.DelayBeats * $spb)), \fb, $(ConvertTo-ScNum $P.DelayFb), \mix, $(ConvertTo-ScNum $P.DelayMix)], addToTail: true);"
+    $ppar = if ($pats.Count) { "Ppar([`n" + ($pats -join ",`n") + "`n])" } else { 'Pbind(\freq, \rest, \dur, 1)' }
+    $sb = New-Object Text.StringBuilder
+    [void]$sb.AppendLine('s.options.numOutputBusChannels = 2;')
+    [void]$sb.AppendLine('s.waitForBoot({')
+    [void]$sb.AppendLine('~hbbus = Bus.audio(s, 2);')
+    [void]$sb.AppendLine((Get-StudioSynthDefs))
+    foreach ($d in $defs) { [void]$sb.AppendLine($d) }
+    foreach ($b in $bufs) { [void]$sb.AppendLine($b) }
+    if ($Custom) { [void]$sb.AppendLine('// --- custom code ---'); [void]$sb.AppendLine($Custom) }
+    [void]$sb.AppendLine('s.sync;')
+    foreach ($x in $fxs) { [void]$sb.AppendLine($x) }
+    [void]$sb.AppendLine($fx)
+    [void]$sb.AppendLine("~hbclock = TempoClock($(ConvertTo-ScNum ($P.Bpm / 60.0)));")
+    if ($Mode -eq 'render') {
+        $secs = $P.LoopBeats * $spb + 2.0
+        $recPath = $OutPath.Replace('\', '/')
+        [void]$sb.AppendLine("s.record(`"$recPath`", numChannels: 2);")
+        [void]$sb.AppendLine('0.3.wait;')
+        [void]$sb.AppendLine("$ppar.play(~hbclock, quant: 0);")
+        [void]$sb.AppendLine("$(ConvertTo-ScNum $secs).wait;")
+        [void]$sb.AppendLine('s.stopRecording; 0.5.wait; s.quit; 0.3.wait; 0.exit;')
+    } else {
+        [void]$sb.AppendLine("Pn($ppar, inf).play(~hbclock, quant: 0);")
+        $sf = $StopFile.Replace('\', '/')
+        [void]$sb.AppendLine("fork { loop { 0.25.wait; if(File.exists(`"$sf`")) { s.quit; 0.3.wait; 0.exit } } };")
+    }
+    [void]$sb.AppendLine('});')
+    return $sb.ToString()
+}
+
+# ---------------------------------------------------------------------------------------------------------------
+# AI helpers
+# ---------------------------------------------------------------------------------------------------------------
+
+function Invoke-StudioModel([string]$Model, [string]$System, [string]$User, [int]$MaxTokens = 3000) {
+    if (-not (Get-Command Invoke-OneShotModel -ErrorAction SilentlyContinue)) { throw 'AI tools need the Humble Baker model server (open the Studio from inside the app).' }
+    if (-not (Test-Api) -and -not (Start-Ollama)) { throw 'The model server is not running.' }
+    if (-not $Model) { $Model = Resolve-DelegateModel '' 'general' $false }
+    if (-not $Model) { throw 'No chat model is installed.' }
+    return (Invoke-OneShotModel $Model $System $User @() $MaxTokens $false 0 0.8)
+}
+
+# Calls the model and runs $Parse on the reply. If parsing fails (cut-off or chatty output) it retries once, telling the model what broke.
+function Invoke-StudioJsonModel([string]$Model, [string]$System, [string]$User, [int]$MaxTokens, [scriptblock]$Parse) {
+    $reply = Invoke-StudioModel $Model $System $User $MaxTokens
+    try { return @{ Reply = $reply; Value = (& $Parse $reply) } }
+    catch {
+        $why = $_.Exception.Message
+        $retry = $User + "`n`nYour previous reply could not be used ($why). Reply again with ONLY compact, valid JSON in the requested shape. Keep it short and finish every bracket."
+        $reply2 = Invoke-StudioModel $Model $System $retry $MaxTokens
+        return @{ Reply = $reply2; Value = (& $Parse $reply2) }
+    }
+}
+
+function Get-StudioDrumPitch($Name) {
+    $s = ([string]$Name).ToLower()
+    if ($s -match '^\d+$') { return [math]::Max(0, [math]::Min(127, [int]$s)) }
+    if ($s -match 'ptom|pitch.*tom|tuned') { return 64 }
+    if ($s -match 'pitch|phat') { return 78 }
+    if ($s -match 'open|oh\b') { return 46 }
+    if ($s -match 'hat|hh|closed') { return 42 }
+    if ($s -match 'kick|bd|bass') { return 36 }
+    if ($s -match 'snare|sn') { return 38 }
+    if ($s -match 'clap') { return 39 }
+    if ($s -match 'rim|side') { return 37 }
+    if ($s -match 'tomhi|high|tom.*hi') { return 48 }
+    if ($s -match 'tomlo|low|tom.*lo') { return 41 }
+    if ($s -match 'tom') { return 45 }
+    if ($s -match 'crash|cym') { return 49 }
+    if ($s -match 'ride') { return 51 }
+    return 54
+}
+
+# Turns a step-grid drum reply ({"lanes":[{"drum":"kick","steps":"x...x..."}]}) into notes. Each steps string is one 16th per character and is tiled over the loop.
+function ConvertFrom-StudioDrumJson([string]$Reply, [int]$StepsPerBar, [double]$LoopBeats, [bool]$LanesOnly = $false) {
+    $raw = Repair-StudioJson $Reply
+    if (-not $raw) { throw 'The model did not return any drum pattern.' }
+    try { $j = $raw | ConvertFrom-Json } catch { throw ('The model returned malformed JSON (' + $_.Exception.Message + ').') }
+    $lanes = @()
+    $src = if ($j.lanes) { $j.lanes } elseif ($j.drums) { $j.drums } elseif ($j.pattern) { $j.pattern } else { $j }
+    if ($src -is [Collections.IEnumerable] -and $src -isnot [string] -and $src -isnot [Management.Automation.PSCustomObject]) {
+        foreach ($l in @($src)) {
+            $nm = $null; foreach ($k in @('drum', 'name', 'instrument', 'lane', 'sound')) { if ($l.$k) { $nm = $l.$k; break } }
+            if ($null -eq $nm -and $null -ne $l.pitch) { $nm = [string]$l.pitch }
+            $st = $null; foreach ($k in @('steps', 'pattern', 'hits', 'seq')) { if ($null -ne $l.$k) { $st = $l.$k; break } }
+            if ($nm -and $null -ne $st) { $lanes += , @($nm, $st) }
+        }
+    } else {
+        foreach ($pr in $src.PSObject.Properties) { if ($pr.Name -notin 'swing', 'tempo', 'bpm') { $lanes += , @($pr.Name, $pr.Value) } }
+    }
+    if ($LanesOnly) { if ($lanes.Count -lt 2) { throw 'The reply held fewer than two drum lanes.' }; return , $lanes }
+    return (ConvertFrom-StudioDrumLanes $lanes $StepsPerBar $LoopBeats)
+}
+
+# Pitches and velocities for one roll of tuned drums. Pitched drums are only ever tuned hats (72-95) or tuned toms (60-71), and the
+# notes stay in the key. Each roll picks a different melodic contour instead of climbing one semitone or tone at a time.
+function Get-StudioRollPitches([int]$N, [string]$Kind, $Mask, [int]$Seed) {
+    $rnd = New-Object Random $Seed
+    $lo, $hi = if ($Kind -eq 'tom') { 60, 71 } else { 72, 95 }
+    $pool = @($lo..$hi | Where-Object { (-not $Mask) -or $Mask[$_ % 12] })
+    if ($pool.Count -lt 5) { $pool = @($lo..$hi | Where-Object { @(0, 2, 4, 7, 9) -contains (($_ - $lo) % 12) }) }
+    $m = $pool.Count; $n = [math]::Max(1, $N)
+    $contours = if ($Kind -eq 'tom') { @('fall', 'arch', 'arp', 'skip', 'leap', 'echo', 'pedal') } else { @('climb', 'fall', 'arch', 'pendulum', 'skip', 'arp', 'pedal', 'walk', 'echo', 'leap') }
+    $c = if ($n -le 1) { 'one' } else { $contours[$rnd.Next(0, $contours.Count)] }
+    $startMax = [math]::Max(1, [int]($m * 0.45)); $s0 = $rnd.Next(0, $startMax); $walk = $s0
+    $arpOff = @(0, 2, 4, 7); $idx = New-Object 'int[]' $n
+    for ($i = 0; $i -lt $n; $i++) {
+        $k = switch ($c) {
+            'climb' { $s0 + $i }
+            'fall' { ($m - 1 - [math]::Min($s0, 2)) - $i }
+            'arch' { $peak = [math]::Floor(($n - 1) / 2.0); if ($i -le $peak) { $s0 + $i } else { $s0 + $peak - ($i - $peak) } }
+            'pendulum' { if ($i % 2 -eq 0) { $s0 + [math]::Floor($i / 2.0) } else { $s0 + 3 + [math]::Floor($i / 2.0) } }
+            'skip' { $s0 + [math]::Floor($i / 2.0) + ($i % 2) * 2 }
+            'arp' { $s0 + $arpOff[$i % 4] }
+            'pedal' { if ($i % 2 -eq 0) { $s0 } else { $s0 + 2 + [math]::Floor($i / 2.0) } }
+            'walk' { $walk += @(-2, -1, 1, 2, 1)[$rnd.Next(0, 5)]; $walk }
+            'echo' { $s0 + [math]::Floor($i / 2.0) }
+            'leap' { $s0 + ($i % 2) * 4 + [math]::Floor($i / 4.0) }
+            default { $s0 + $rnd.Next(0, 3) }
+        }
+        $k = [int]$k; if ($k -lt 0) { $k = -$k }; if ($k -ge $m) { $k = [math]::Max(0, 2 * ($m - 1) - $k) }
+        $idx[$i] = [math]::Max(0, [math]::Min($m - 1, $k))
+    }
+    $vc = @('cres', 'swell', 'accent3', 'decres', 'cres')[$rnd.Next(0, 5)]; $pit = @(); $vel = @()
+    for ($i = 0; $i -lt $n; $i++) {
+        $f = if ($n -gt 1) { $i / [double]($n - 1) } else { 0.5 }
+        $v = switch ($vc) { 'cres' { 66 + 54 * $f } 'swell' { 70 + 50 * [math]::Sin($f * [math]::PI) } 'accent3' { $(if ($i % 3 -eq 0) { 118 } else { 78 }) } default { 120 - 48 * $f } }
+        $pit += [int]$pool[$idx[$i]]; $vel += [int][math]::Max(40, [math]::Min(127, $v + $rnd.Next(-4, 5)))
+    }
+    return @{ Pitches = $pit; Vels = $vel; Contour = $c }
+}
+
+# Lanes are @(name, steps) pairs. Lanes named like "pitchhat" or "pitchtom" are tuned drums: each run of consecutive hits gets its own melodic contour in the key.
+function ConvertFrom-StudioDrumLanes($lanes, [int]$StepsPerBar, [double]$LoopBeats, [int]$MinLanes = 2, $Mask = $null, [int]$Seed = -1) {
+    $loopSteps = [int][math]::Round($LoopBeats * 4)
+    $out = New-Object Collections.Generic.List[object]; $used = 0
+    if ($Seed -lt 0) { $Seed = Get-Random -Maximum 100000 }
+    foreach ($ln in $lanes) {
+        $pitch = Get-StudioDrumPitch $ln[0]; $st = $ln[1]; $chars = New-Object Collections.Generic.List[string]
+        $isP = ([string]$ln[0]) -match 'pitch|phat|ptom|tuned'; $pk = if (([string]$ln[0]) -match 'tom') { 'tom' } else { 'hat' }
+        $run = New-Object Collections.Generic.List[object]; $runNo = 0
+        if ($st -is [string]) { foreach ($c in $st.ToCharArray()) { if ($c -ne ' ' -and $c -ne '|' -and $c -ne ',') { $chars.Add([string]$c) } } }
+        else { # array of step indices
+            $idx = @($st | ForEach-Object { try { [int]$_ } catch { -1 } }); $mx = if ($idx.Count) { ($idx | Measure-Object -Maximum).Maximum } else { 0 }
+            $n = [math]::Max($StepsPerBar, $mx + 1); for ($i = 0; $i -lt $n; $i++) { $chars.Add($(if ($idx -contains $i) { 'x' } else { '.' })) }
+        }
+        if ($chars.Count -eq 0) { continue }
+        $hit = 0
+        for ($i = 0; $i -lt $loopSteps; $i++) {
+            $c = $chars[$i % $chars.Count]; $b = $i * 0.25
+            if ($c -notin 'x', 'X', 'o', '1', 'h', 'H', '2', '3', '4', '5', '6') {
+                if ($run.Count) { $rp = Get-StudioRollPitches $run.Count $pk $Mask ($Seed + 97 * $runNo + $i); for ($q = 0; $q -lt $run.Count; $q++) { $run[$q].Pitch = $rp.Pitches[$q]; $run[$q].Vel = $rp.Vels[$q] }; $run.Clear(); $runNo++ }
+                continue
+            }
+            $subs = if ($c -match '^[2-6]$') { [int]$c } else { 1 }
+            for ($r = 0; $r -lt $subs; $r++) {
+                $vel = if ($c -ceq 'X') { 122 } elseif ($c -ceq 'o') { 45 } elseif ($subs -gt 1) { 90 + [math]::Min(20, $r * 4) } else { 100 }
+                $len = if ($subs -gt 1) { [math]::Min(0.12, 0.25 / $subs) } elseif ($c -ceq 'o') { 0.1 } else { 0.12 }
+                $nn = New-Object HbStudio.Note $pitch, ($b + $r * 0.25 / $subs), $len, ([int]$vel)
+                $out.Add($nn); if ($isP) { $run.Add($nn) }
+            }
+            $hit++
+        }
+        if ($run.Count) { $rp = Get-StudioRollPitches $run.Count $pk $Mask ($Seed + 97 * $runNo + 7); for ($q = 0; $q -lt $run.Count; $q++) { $run[$q].Pitch = $rp.Pitches[$q]; $run[$q].Vel = $rp.Vels[$q] }; $run.Clear() }
+        if ($hit) { $used++ }
+    }
+    if ($used -lt $MinLanes) { throw "The reply held fewer than $MinLanes drum lanes with hits." }
+    return , $out
+}
+
+# Rule-based groove builder. It reads the user's words (dance, breakbeat, syncopation, snares, hat rolls, pitched...) and always produces a full multi-lane pattern,
+# so a weak or off-brief model reply can be completed or replaced. Returns @(name, steps) pairs for ConvertFrom-StudioDrumLanes.
+function New-StudioGroove([string]$Ask, [string]$Style, [int]$Dens, [int]$Weird, [int]$Spb, [int]$Bars, $Hint = $null) {
+    $rnd = New-Object Random; $total = $Spb * $Bars
+    $all = ($Ask + ' ' + $Style).ToLower()
+    $genre = '(dance|house|techno|club|four|floor|disco|trance|rave|break|idm|jungle|dnb|drum.?n|drill|amen|chop|glitch|half.?time|dub|trap|garage|boom|electro)'
+    $g = if ($Ask.ToLower() -match $genre) { $Ask.ToLower() } else { $all }
+    $dance = $g -match 'dance|house|techno|club|four|floor|disco|trance|rave|garage|electro'
+    $break = $g -match 'break|idm|jungle|dnb|drum.?n|drill|amen|chop|glitch|boom'
+    $half = $g -match 'half.?time|dub|trap|slow'
+    if (-not ($dance -or $break -or $half)) { $break = $true }
+    $sync = $all -match 'sync|cync|off.?beat|funk|bounce|bouncy'
+    $ghost = $all -match 'snare|ghost|funk|shuffle|break|roll'
+    $roll = $all -match 'roll|ratchet|stutter|flutter|pitch'
+    if ($Hint) { # decisions from the AI creative brief
+        $hg = ([string]$Hint.groove).ToLower()
+        if ($hg -match 'dance|house|techno|four') { $dance = $true; $break = $false; $half = $false }
+        elseif ($hg -match 'break|idm|jungle|dnb') { $break = $true; $dance = $false; $half = $false }
+        elseif ($hg -match 'half|dub|slow') { $half = $true; $dance = $false; $break = $false }
+        if ($Hint.syncopated -eq $true) { $sync = $true }
+        if ($Hint.ghost_snares -eq $true) { $ghost = $true }
+        if ($Hint.hat_rolls -eq $true -or $Hint.pitched_rolls -eq $true) { $roll = $true }
+    }
+    $L = [ordered]@{}
+    function PutStep([string]$n, [int]$i, [string]$c) { if ($i -lt 0 -or $i -ge $total) { return }; if (-not $L.Contains($n)) { $L[$n] = [char[]]('.' * $total) }; $L[$n][$i] = $c[0] }
+    function Get1([string]$n, [int]$i) { if ($L.Contains($n) -and $i -ge 0 -and $i -lt $total) { return [string]$L[$n][$i] } else { return '.' } }
+    function StepAt([double]$x) { return [int][math]::Min($Spb - 1, [math]::Round($x * $Spb / 16.0)) }
+    for ($b = 0; $b -lt $Bars; $b++) {
+        $o = $b * $Spb; $last = ($b -eq $Bars - 1) -and ($Bars -gt 1); $odd = ($b % 2 -eq 1)
+        # kick
+        if ($dance) {
+            for ($s = 0; $s -lt $Spb; $s += 4) { PutStep 'kick' ($o + $s) $(if ($s -eq 0) { 'X' } else { 'x' }) }
+            if ($sync -or $Dens -ge 7) { foreach ($s in @(7, 11, 15)) { if ($rnd.NextDouble() -lt (0.35 + $Weird * 0.04)) { PutStep 'kick' ($o + (StepAt $s)) 'o' } } }
+        } elseif ($half) {
+            PutStep 'kick' $o 'X'; PutStep 'kick' ($o + (StepAt 10)) 'x'; if ($sync) { PutStep 'kick' ($o + (StepAt 7)) 'o' }
+        } else {
+            PutStep 'kick' $o 'X'; PutStep 'kick' ($o + (StepAt 10)) 'x'
+            $extra = 1 + [int]($Dens / 3) + [int]($Weird / 5)
+            for ($k = 0; $k -lt $extra; $k++) { $cand = @(3, 6, 7, 13, 14, 2, 15, 9)[$rnd.Next(0, 8)]; $s = StepAt $cand; if ((Get1 'kick' ($o + $s)) -eq '.') { PutStep 'kick' ($o + $s) $(if ($rnd.NextDouble() -lt 0.5) { 'x' } else { 'o' }) } }
+        }
+        if ($sync -and ($dance -or $half)) { PutStep 'kick' ($o + (StepAt 10)) 'x' }
+        # snare and clap
+        if ($half) { PutStep 'snare' ($o + (StepAt 8)) 'X' } else { PutStep 'snare' ($o + (StepAt 4)) 'X'; PutStep 'snare' ($o + (StepAt 12)) 'X' }
+        if ($dance) { PutStep 'clap' ($o + (StepAt 4)) 'x'; PutStep 'clap' ($o + (StepAt 12)) 'x' }
+        if ($ghost) {
+            $ng = [int][math]::Max(1, $Dens / 2)
+            for ($k = 0; $k -lt $ng; $k++) { $cand = @(1, 3, 6, 7, 9, 11, 14, 15)[$rnd.Next(0, 8)]; $s = StepAt $cand; if ((Get1 'snare' ($o + $s)) -eq '.' -and (Get1 'kick' ($o + $s)) -eq '.') { PutStep 'snare' ($o + $s) 'o' } }
+        }
+        # hats
+        $stp = if ($Dens -ge 6) { 1 } elseif ($Dens -ge 4) { 2 } else { 4 }
+        for ($s = 0; $s -lt $Spb; $s += $stp) {
+            $c = if ($stp -eq 1) { if ($s % 4 -eq 2) { 'X' } elseif ($s % 2 -eq 0) { 'x' } else { 'o' } } elseif ($stp -eq 2) { if ($s % 4 -eq 2) { 'X' } else { 'x' } } else { 'x' }
+            if ($dance -and $s % 4 -eq 2) { PutStep 'openhat' ($o + $s) 'x'; continue }
+            if ($dance -and $c -eq 'x') { $c = 'o' }
+            if ($Weird -ge 6 -and $c -ne 'o' -and $rnd.NextDouble() -lt 0.12) { $c = '2' }
+            PutStep 'hat' ($o + $s) $c
+        }
+        if ($Weird -ge 4 -or $break) {
+            $np = 1 + [int]($Weird / 4)
+            for ($k = 0; $k -lt $np; $k++) { PutStep 'perc' ($o + $rnd.Next(0, $Spb)) $(if ($rnd.NextDouble() -lt 0.5) { 'x' } else { 'o' }) }
+            if ($Weird -ge 5) { $cand = @(5, 10, 13)[$rnd.Next(0, 3)]; PutStep 'rim' ($o + (StepAt $cand)) 'x' }
+        }
+        # tuned hat and tom rolls: each run gets its own contour in the key (see Get-StudioRollPitches); the roll rhythm changes too
+        if ($roll -and $Spb -ge 8) {
+            if ($odd -or $last -or $Bars -eq 1) {
+                $start = $Spb - 4; $rv = @('x234', 'xx24', '2x34', 'x2x4', '3x3x', 'xxxx', 'x.x4', '23x4')[$rnd.Next(0, 8)]
+                for ($k = 0; $k -lt 4; $k++) { PutStep 'pitchhat' ($o + $start + $k) ([string]$rv[$k]); PutStep 'hat' ($o + $start + $k) '.'; PutStep 'openhat' ($o + $start + $k) '.' }
+            }
+            if ($Dens -ge 4) { $m = StepAt 6; $mv = @('23', 'x2', 'xx', '3x')[$rnd.Next(0, 4)]; PutStep 'pitchhat' ($o + $m) ([string]$mv[0]); PutStep 'pitchhat' ($o + $m + 1) ([string]$mv[1]); PutStep 'hat' ($o + $m) '.'; PutStep 'hat' ($o + $m + 1) '.'; PutStep 'openhat' ($o + $m) '.' }
+            if ($Weird -ge 5 -and ($last -or ($odd -and $rnd.NextDouble() -lt 0.3))) {
+                $tv = @('x.xx', 'xx2x', 'x2.x', 'xxx.')[$rnd.Next(0, 4)]; $ts = $Spb - 8
+                for ($k = 0; $k -lt 4; $k++) { PutStep 'pitchtom' ($o + $ts + $k) ([string]$tv[$k]) }
+            }
+        }
+        # fill
+        if ($last -and $Spb -ge 8) {
+            PutStep 'snare' ($o + $Spb - 4) 'x'; PutStep 'snare' ($o + $Spb - 3) 'x'; PutStep 'snare' ($o + $Spb - 2) '3'; PutStep 'snare' ($o + $Spb - 1) '4'
+            PutStep 'kick' ($o + $Spb - 4) 'X'
+        }
+    }
+    $res = New-Object Collections.Generic.List[object]
+    foreach ($k in $L.Keys) { $res.Add(@($k, (-join $L[$k]))) }
+    return , $res
+}
+
+# Keeps the model's lanes, then adds any core lane the model skipped or left thin (under about 2 hits per bar) from the rule-based groove.
+function Merge-StudioDrumLanes($AiLanes, $Groove, [int]$Spb, [int]$Bars, [bool]$Roll) {
+    $merged = New-Object Collections.Generic.List[object]; $have = @{}
+    foreach ($ln in @($AiLanes)) {
+        $p = Get-StudioDrumPitch $ln[0]
+        $hits = if ($ln[1] -is [string]) { ([regex]::Matches([string]$ln[1], '[xXo2-6]')).Count } else { @($ln[1]).Count }
+        $perBar = $hits * [double]$Spb / [math]::Max(1, $(if ($ln[1] -is [string]) { ([string]$ln[1]).Length } else { $Spb * $Bars }))
+        if ($perBar -ge $(if ($p -in 38, 39) { 2 } else { 3 }) -or ([string]$ln[0]) -match 'pitch|ptom') { $merged.Add($ln); $have[$p] = $true }
+    }
+    foreach ($ln in $Groove) {
+        $p = Get-StudioDrumPitch $ln[0]
+        if ($ln[0] -match 'pitch') { if (-not $have.ContainsKey($p)) { $merged.Add($ln); $have[$p] = $true }; continue }
+        if (-not $have.ContainsKey($p)) { $merged.Add($ln); $have[$p] = $true }
+    }
+    return , $merged
+}
+
+function ConvertTo-StudioMidiPitch($P) {
+    if ($null -eq $P) { return $null }
+    $s = ([string]$P).Trim()
+    if ($s -match '^-?\d+(\.\d+)?$') { return [math]::Max(0, [math]::Min(127, [int][double]$s)) }
+    $m = [regex]::Match($s, '^([A-Ga-g])([#b]?)(-?\d)$')
+    if (-not $m.Success) { return $null }
+    $pc = @{ C = 0; D = 2; E = 4; F = 5; G = 7; A = 9; B = 11 }[$m.Groups[1].Value.ToUpper()]
+    if ($m.Groups[2].Value -eq '#') { $pc++ } elseif ($m.Groups[2].Value -eq 'b') { $pc-- }
+    return [math]::Max(0, [math]::Min(127, ([int]$m.Groups[3].Value + 1) * 12 + $pc))
+}
+
+# Melody reply: {"notes":[{"step":0,"pitch":"C3","len":2,"vel":100}]} where step/len are in 16th steps within the written phrase.
+function ConvertFrom-StudioMelodyJson([string]$Reply, [int]$StepsPerBar, [int]$PhraseBars, [double]$LoopBeats, [bool]$Repeat, $Mask, [bool]$Stay, [int]$LoPitch) {
+    $raw = Repair-StudioJson $Reply
+    if (-not $raw) { throw 'The model did not return any notes.' }
+    try { $j = $raw | ConvertFrom-Json } catch { throw ('The model returned malformed JSON (' + $_.Exception.Message + ').') }
+    $arr = if ($j.notes) { @($j.notes) } elseif ($j.melody) { @($j.melody) } else { @($j) }
+    $phraseSteps = $StepsPerBar * $PhraseBars; $phraseBeats = $phraseSteps * 0.25
+    $base = New-Object Collections.Generic.List[object]
+    foreach ($n in $arr) {
+        $p = $null; $s = $null; $l = 1; $v = 100
+        foreach ($k in @('pitch', 'p', 'note')) { if ($null -ne $n.$k) { $p = $n.$k; break } }
+        foreach ($k in @('step', 's', 'start', 't')) { if ($null -ne $n.$k) { $s = $n.$k; break } }
+        foreach ($k in @('len', 'l', 'length', 'dur')) { if ($null -ne $n.$k) { $l = $n.$k; break } }
+        foreach ($k in @('vel', 'v', 'velocity')) { if ($null -ne $n.$k) { $v = $n.$k; break } }
+        $mp = ConvertTo-StudioMidiPitch $p
+        if ($null -eq $mp -or $null -eq $s) { continue }
+        $s = [double]$s; if ($s -lt 0 -or $s -ge $phraseSteps) { continue }
+        $l = [math]::Max(0.25, [math]::Min([double]$l, $phraseSteps - $s))
+        # shift into the requested register by octaves, then keep it in key if asked
+        while ($mp -lt $LoPitch - 2) { $mp += 12 }; while ($mp -gt $LoPitch + 26) { $mp -= 12 }
+        if ($Stay -and $Mask) { $mp = [HbStudio.Scales]::Snap([int]$mp, $Mask) }
+        $base.Add(@($mp, ($s * 0.25), ($l * 0.25 * 0.95), [math]::Max(1, [math]::Min(127, [int]$v))))
+    }
+    if ($base.Count -eq 0) { throw 'The reply held no usable notes.' }
+    $out = New-Object Collections.Generic.List[object]
+    $reps = if ($Repeat) { [int][math]::Ceiling($LoopBeats / $phraseBeats) } else { 1 }
+    for ($r = 0; $r -lt $reps; $r++) {
+        foreach ($b in $base) {
+            $st = $b[1] + $r * $phraseBeats; if ($st -ge $LoopBeats - 1e-9) { continue }
+            $out.Add((New-Object HbStudio.Note ([int]$b[0]), $st, ([math]::Min($b[2], $LoopBeats - $st)), ([int]$b[3])))
+        }
+    }
+    return , $out
+}
+
+function ConvertFrom-StudioNotesJson([string]$Reply, [bool]$Drums, [double]$LoopBeats) {
+    $raw = Repair-StudioJson $Reply
+    if (-not $raw) { throw 'The model did not return any notes.' }
+    try { $j = $raw | ConvertFrom-Json } catch { throw ('The model returned malformed JSON (' + $_.Exception.Message + ').') }
+    $arr = if ($j.notes) { @($j.notes) } else { @($j) }
+    $out = New-Object Collections.Generic.List[object]
+    foreach ($n in $arr) {
+        $p = $null; $s = $null; $l = $null; $v = 100
+        if ($n -is [array] -or $n -is [Collections.IList]) { if ($n.Count -ge 3) { $p = $n[0]; $s = $n[1]; $l = $n[2]; if ($n.Count -ge 4) { $v = $n[3] } } }
+        else {
+            foreach ($k in @('p', 'pitch', 'note')) { if ($null -ne $n.$k) { $p = $n.$k; break } }
+            foreach ($k in @('s', 'start', 't', 'time')) { if ($null -ne $n.$k) { $s = $n.$k; break } }
+            foreach ($k in @('l', 'len', 'length', 'd', 'dur')) { if ($null -ne $n.$k) { $l = $n.$k; break } }
+            foreach ($k in @('v', 'vel', 'velocity')) { if ($null -ne $n.$k) { $v = $n.$k; break } }
+        }
+        if ($null -eq $p -or $null -eq $s) { continue }
+        if ($null -eq $l) { $l = 0.25 }
+        $s = [double]$s
+        if ($s -lt 0 -or $s -ge $LoopBeats) { continue }
+        $out.Add((New-Object HbStudio.Note ([math]::Max(0, [math]::Min(127, [int]$p))), $s, ([math]::Max(0.03, [math]::Min([double]$l, 32))), ([math]::Max(1, [math]::Min(127, [int]$v)))))
+    }
+    if ($out.Count -eq 0) { throw 'The reply held no usable notes.' }
+    return , $out
+}
+
+# ---------------------------------------------------------------------------------------------------------------
+# Instrument library: synth patches, morphs, spectral sounds and samples saved as "instrument styles".
+# The melody writer, the track AI and the Studio agent read these with a plain-language profile, so the model knows
+# what each instrument sounds like and how to write for it. Everything here is plain functions (no form needed).
+# ---------------------------------------------------------------------------------------------------------------
+
+$script:StudioInstrumentRoles = @('any', 'lead', 'bass', 'arpeggio', 'pad', 'counter', 'hook', 'texture', 'percussion')
+$script:StudioRoleToMelody = @{ lead = 'Lead melody'; bass = 'Bassline'; arpeggio = 'Arpeggio'; pad = 'Chords / pad'; counter = 'Counter-melody'; hook = 'Hook / motif' }
+$script:StudioInstrumentCache = @{}
+$script:StudioNoteNames = @('C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B')
+$script:StudioBuiltinSynthInfo = @{
+    acid = 'squelchy resonant 303-style saw, good for basslines and acid leads'; saw = 'bright buzzy sawtooth'; square = 'hollow square wave'
+    tri = 'soft triangle'; sine = 'pure sine (sub bass or soft bell-like lead)'; pad = 'slow-attack soft pad that sustains and blends'
+    fm = 'FM bell / electric piano tone'; pluck = 'short plucked string that decays quickly'; noise = 'filtered noise, percussive texture'
+    drums = 'drum kit (36 kick, 38 snare, 39 clap, 37 rim, 42 hat, 46 open hat, 45 tom, 49 crash, 51 ride)'
+}
+
+function ConvertTo-StudioNoteName([int]$Midi) { return $script:StudioNoteNames[$Midi % 12] + [string]([math]::Floor($Midi / 12) - 1) }
+
+function Get-StudioInstrumentDir {
+    $d = Join-Path (Get-StudioDir) 'instruments'
+    New-Item -ItemType Directory -Force -Path $d | Out-Null
+    return $d
+}
+
+function ConvertTo-StudioSlug([string]$Name) {
+    $s = ([regex]::Replace($Name.Trim().ToLower(), '[^a-z0-9]+', '-')).Trim('-')
+    if (-not $s) { $s = 'instrument' }
+    return $s
+}
+
+function Get-StudioInstruments {
+    $list = New-Object Collections.Generic.List[object]
+    foreach ($fi in @(Get-ChildItem -LiteralPath (Get-StudioInstrumentDir) -Filter '*.json' -ErrorAction SilentlyContinue | Sort-Object Name)) {
+        try {
+            $j = [IO.File]::ReadAllText($fi.FullName, [Text.Encoding]::UTF8) | ConvertFrom-Json
+            if ($j.name -and $j.kind) { $j | Add-Member -NotePropertyName _file -NotePropertyValue $fi.FullName -Force; $list.Add($j) }
+        } catch { }
+    }
+    $sorted = @($list | Sort-Object { [string]$_.name })
+    return $sorted
+}
+
+function Get-StudioInstrument([string]$Name) {
+    if (-not $Name) { return $null }
+    foreach ($i in @(Get-StudioInstruments)) { if (([string]$i.name) -ieq $Name.Trim()) { return $i } }
+    return $null
+}
+
+function Find-StudioInstrument([string]$Name) {
+    $all = @(Get-StudioInstruments); if (-not $Name -or -not $all.Count) { return $null }
+    $n = $Name.Trim().ToLower(); $slug = ConvertTo-StudioSlug $Name
+    foreach ($i in $all) { if (([string]$i.name).ToLower() -eq $n) { return $i } }
+    foreach ($i in $all) { if ((ConvertTo-StudioSlug ([string]$i.name)) -eq $slug) { return $i } }
+    foreach ($i in $all) { $low = ([string]$i.name).ToLower(); if ($low.Contains($n) -or $n.Contains($low)) { return $i } }
+    return $null
+}
+
+function Save-StudioInstrument($Inst) {
+    $path = Join-Path (Get-StudioInstrumentDir) ((ConvertTo-StudioSlug ([string]$Inst.name)) + '.json')
+    $copy = [ordered]@{}
+    if ($Inst -is [Collections.IDictionary]) { foreach ($k in $Inst.Keys) { $copy[$k] = $Inst[$k] } }
+    else { foreach ($pr in $Inst.PSObject.Properties) { if ($pr.Name -ne '_file') { $copy[$pr.Name] = $pr.Value } } }
+    [IO.File]::WriteAllText($path, ($copy | ConvertTo-Json -Depth 8), (New-Object Text.UTF8Encoding($true)))
+    return $path
+}
+
+function Remove-StudioInstrument($Inst) {
+    if ($Inst -and $Inst._file -and (Test-Path -LiteralPath $Inst._file)) { Remove-Item -LiteralPath $Inst._file -Force }
+}
+
+function New-StudioInstrumentBase([string]$Name, [string]$Kind, [string]$Role, [int]$Octave, [string]$Notes) {
+    return [ordered]@{ version = 1; name = $Name.Trim(); kind = $Kind; role = $(if ($Role) { $Role } else { 'any' }); octave = $Octave; notes = $Notes; created = (Get-Date).ToString('s') }
+}
+
+function New-StudioPatchInstrument([string]$Name, $Patch, $Fx, [string]$Role = 'any', [int]$Octave = 0, [string]$Notes = '') {
+    $i = New-StudioInstrumentBase $Name 'patch' $Role $Octave $Notes
+    $i.patch = ConvertTo-StudioMap $Patch
+    $i.fx = $(if ($Fx) { ConvertTo-StudioMap $Fx } else { $null })
+    return $i
+}
+
+function New-StudioMorphInstrument([string]$Name, $Slots, $Set, [string]$Role = 'any', [int]$Octave = 0, [string]$Notes = '') {
+    $i = New-StudioInstrumentBase $Name 'morph' $Role $Octave $Notes
+    $i.slots = @($Slots | ForEach-Object { ConvertTo-StudioMap $_ })
+    $i.meta = ConvertTo-StudioMap $Set
+    return $i
+}
+
+# Spectral canvases are stored as one byte per cell (0-255), which is plenty for loudness and keeps the files small.
+function ConvertTo-StudioGridData($Grid) {
+    $b = New-Object byte[] $Grid.A.Length
+    for ($k = 0; $k -lt $b.Length; $k++) { $v = [double]$Grid.A[$k]; if ($v -lt 0) { $v = 0 } elseif ($v -gt 1) { $v = 1 }; $b[$k] = [byte][math]::Round($v * 255) }
+    return [ordered]@{ cols = $Grid.Cols; rows = $Grid.Rows; data = [Convert]::ToBase64String($b) }
+}
+function ConvertFrom-StudioGridData($d) {
+    $g = New-Object HbStudio.SpectralGrid ([int]$d.cols), ([int]$d.rows)
+    $b = [Convert]::FromBase64String([string]$d.data)
+    $n = [math]::Min($b.Length, $g.A.Length)
+    for ($k = 0; $k -lt $n; $k++) { $g.A[$k] = [single]($b[$k] / 255.0) }
+    return $g
+}
+
+function New-StudioSpectralInstrument([string]$Name, $Grid, $Settings, [int]$Root = 60, [bool]$Gate = $true, [string]$Role = 'any', [int]$Octave = 0, [string]$Notes = '') {
+    $i = New-StudioInstrumentBase $Name 'spectral' $Role $Octave $Notes
+    $i.grid = ConvertTo-StudioGridData $Grid
+    $i.spectral = ConvertTo-StudioMap $Settings
+    $i.root = $Root; $i.gate = $Gate
+    return $i
+}
+
+function New-StudioSampleInstrument([string]$Name, $Track, [string]$Role = 'any', [int]$Octave = 0, [string]$Notes = '') {
+    $i = New-StudioInstrumentBase $Name 'sample' $Role $Octave $Notes
+    $i.sample = [HbStudio.Dsp]::SampleToBase64($Track.Sample)
+    $i.root = $Track.SampleRoot; $i.gate = $Track.SampleGate
+    $i.fx = ConvertTo-StudioMap $Track.Fx
+    return $i
+}
+
+function Get-StudioInstrumentPatch($Inst) {
+    if ([string]$Inst.kind -eq 'morph') {
+        $arr = New-Object 'HbStudio.Patch[]' 4; $src = @($Inst.slots)
+        for ($k = 0; $k -lt 4; $k++) { $p = New-Object HbStudio.Patch; if ($src.Count) { [void](Set-StudioObjectFromJson $p $src[[math]::Min($k, $src.Count - 1)]) }; $arr[$k] = $p }
+        $m = New-Object HbStudio.MetaSettings; if ($Inst.meta) { [void](Set-StudioObjectFromJson $m $Inst.meta) }
+        return [HbStudio.MetaSynth]::Bilinear($arr, [double]$m.X, [double]$m.Y)
+    }
+    $p = New-Object HbStudio.Patch; if ($Inst.patch) { [void](Set-StudioObjectFromJson $p $Inst.patch) }
+    return $p
+}
+
+# Samples for spectral instruments are rendered once and cached in memory (rendering is additive synthesis and takes a moment).
+# Sample instruments either embed the audio (user-saved voices) or point at a WAV in the AI hit libraries
+# (sampleFile), which is read on first use so importing hundreds of hits stays instant.
+function Get-StudioInstrumentSample($Inst) {
+    if ([string]$Inst.kind -eq 'sample') {
+        $sf = [string]$Inst.sampleFile
+        if ($sf) {
+            if (-not [IO.Path]::IsPathRooted($sf)) {
+                $rel = $sf
+                foreach ($r in @(Get-StudioSampleRoots)) {
+                    $p = Join-Path $r $rel
+                    if ([IO.File]::Exists($p)) { $sf = $p; break }
+                }
+                if (-not [IO.Path]::IsPathRooted($sf)) { $sf = Join-Path (Get-StudioDir) $rel }
+            }
+            $key = 'file|' + $sf
+            if ([IO.File]::Exists($sf)) { $key += '|' + [IO.File]::GetLastWriteTimeUtc($sf).Ticks }
+            if ($script:StudioInstrumentCache.ContainsKey($key)) { return , $script:StudioInstrumentCache[$key] }
+            $s = [HbStudio.WavIn]::ReadMono($sf, [ref]$null)
+            if ($s -and $s.Length -gt 64) {
+                $s = [HbStudio.WavIn]::Trim($s)
+                $cap = $(if ($Inst.seconds) { [double]$Inst.seconds } else { 4.0 })
+                if ($s) {
+                    if ([string]$Inst.hitMode -eq 'isolate') { $s = [HbStudio.WavIn]::ExtractHit($s, $cap) }
+                    elseif ([string]$Inst.hitMode -eq 'first') { $s = [HbStudio.WavIn]::ExtractFirstHit($s, $cap) }
+                    else { $s = [HbStudio.WavIn]::TrimTail($s, $cap) }
+                    if ($s) { $s = [HbStudio.WavIn]::NormalizePeak($s, 0.95) }
+                }
+            }
+            if (-not $s -or $s.Length -lt 16) { return $null }
+            $script:StudioInstrumentCache[$key] = $s
+            return , $s
+        }
+        $s = [HbStudio.Dsp]::SampleFromBase64([string]$Inst.sample); return , $s
+    }
+    $key = [string]$Inst._file + '|' + $(if ($Inst._file -and (Test-Path -LiteralPath $Inst._file)) { [IO.File]::GetLastWriteTimeUtc($Inst._file).Ticks } else { 0 })
+    if ($script:StudioInstrumentCache.ContainsKey($key)) { return , $script:StudioInstrumentCache[$key] }
+    $g = ConvertFrom-StudioGridData $Inst.grid; $st = New-Object HbStudio.SpectralSettings
+    if ($Inst.spectral) { [void](Set-StudioObjectFromJson $st $Inst.spectral) }
+    $smp = [HbStudio.Spectral]::Render($g, $st)
+    $script:StudioInstrumentCache[$key] = $smp
+    return , $smp
+}
+
+# Gives a track the sound of an instrument. Notes are left alone.
+function Set-StudioTrackFromInstrument($Track, $Inst) {
+    $Track.Fx = New-Object HbStudio.Fx
+    if ([string]$Inst.kind -in 'patch', 'morph') {
+        $Track.Patch = Get-StudioInstrumentPatch $Inst; $Track.Synth = 'patch'; $Track.Sample = $null
+    } else {
+        $Track.Sample = Get-StudioInstrumentSample $Inst; $Track.Synth = 'sample'
+        $Track.SampleRoot = $(if ($null -ne $Inst.root) { [int]$Inst.root } else { 60 }); $Track.SampleGate = [bool]$Inst.gate
+        # Library hits are recorded one-shots. Default them to One-shot so playing notes away from the
+        # recorded root does not stretch a 1-second hit into a slow, tape-like smear. Pitch/loop remain
+        # selectable in the Sound Lab.
+        $Track.SampleMode = $(if ($null -ne $Inst.sampleMode) { [int]$Inst.sampleMode } elseif ([bool]$Inst.sampleFile) { 1 } else { 0 })
+    }
+    if ($Inst.fx) { [void](Set-StudioObjectFromJson $Track.Fx $Inst.fx) }
+}
+
+# ---- AI hit libraries as instruments -------------------------------------------------------------------------------
+# OrchestralHits, GuitarHits and FoleyPercussion are one-shot WAVs rendered with Stable Audio. Each distinct sound
+# becomes a Sound Lab sample instrument that stores only the relative WAV path; the audio is loaded on first use.
+
+function ConvertFrom-StudioSampleTitle([string]$Text) {
+    $t = ($Text -replace '[-_]+', ' ').Trim()
+    if (-not $t) { return '' }
+    return [Globalization.CultureInfo]::InvariantCulture.TextInfo.ToTitleCase($t.ToLower())
+}
+
+function Get-StudioHitLibraryDirs {
+    $out = New-Object Collections.Generic.List[object]
+    foreach ($r in @(Get-StudioSampleRoots)) {
+        foreach ($name in @('OrchestralHits', 'GuitarHits', 'FoleyPercussion')) {
+            $d = Join-Path $r $name
+            if (-not (Test-Path -LiteralPath $d)) { continue }
+            $seen = $false
+            foreach ($e in $out) { if ($e.Kind -eq $name) { $seen = $true; break } }
+            if (-not $seen) { $out.Add([pscustomobject]@{ Kind = $name; Root = $r; Dir = $d }) }
+        }
+    }
+    return $out
+}
+
+function New-StudioSampleFileInstrument([string]$Name, [string]$RelativePath, [string]$Role = 'any', [int]$Octave = 4, [int]$Root = 60, [bool]$Gate = $true, [double]$Seconds = 4.0, [string]$Notes = '') {
+    $i = New-StudioInstrumentBase $Name 'sample' $Role $Octave $Notes
+    $i.sampleFile = $RelativePath
+    $i.root = $Root; $i.gate = $Gate; $i.seconds = $Seconds
+    return $i
+}
+
+# Picks the register and playing role from the sound name, so the AI writes for an orchestral stab or a foley
+# knock in a sensible octave instead of treating everything as a lead synth.
+function Get-StudioHitProfile([string]$Kind, [string]$Family, [string]$Sound) {
+    $s = $Sound.ToLower(); $fam = $Family.ToLower()
+    $low = $s -match 'tuba|double-bass|bass-drum|timpani|taiko|gong|cello|low-brass|sub-boom|heavy-impact'
+    $role = 'hook'; $oct = 4; $root = 60
+    if ($Kind -eq 'OrchestralHits') {
+        if ($fam -eq 'percussion') { $role = 'percussion'; $oct = 3 }
+        elseif ($fam -eq 'hybrid') { $role = 'texture'; $oct = 3 }
+        elseif ($fam -eq 'choir') { $role = 'pad'; $oct = 3 }
+        elseif ($s -match 'tremolo|roll') { $role = 'texture'; $oct = 4 }
+    } elseif ($Kind -eq 'GuitarHits') {
+        if ($s -match 'bass') { $role = 'bass'; $oct = 2; $root = 40 }
+        else { $role = 'hook'; $oct = 3 }
+    } else {
+        $role = 'percussion'; $oct = 3
+    }
+    if ($low) { if ($oct -gt 2) { $oct = 2 } }
+    # Root = middle of the octave the writer will use, so the one-shot plays at its recorded pitch
+    # (root 60 = C4, root 48 = C3, root 36 = C2) and only transposes a few semitones.
+    $root = 12 * ($oct + 1)
+    return [pscustomobject]@{ Role = $role; Octave = $oct; Root = $root }
+}
+
+# Creates one instrument per distinct sound. Existing instruments are left alone, so this is safe to re-run
+# after a new batch lands (and the foley batch is still filling its folders while the studio is open).
+function Import-StudioHitLibraries {
+    $added = 0; $kept = 0; $failed = 0
+    $existing = @{}
+    foreach ($i in @(Get-StudioInstruments)) { $existing[([string]$i.name).ToLower()] = $true }
+    foreach ($lib in @(Get-StudioHitLibraryDirs)) {
+        $sets = @{}
+        $files = @(Get-ChildItem -LiteralPath $lib.Dir -File -Filter *.wav -Recurse -ErrorAction SilentlyContinue)
+        foreach ($f in $files) {
+            $rel = $f.FullName.Substring(([string]$lib.Root).Length).TrimStart('\')
+            $family = ''; $sound = ''; $rank = 99
+            if ($lib.Kind -in 'OrchestralHits', 'GuitarHits') {
+                if ($f.BaseName -match '^(?<fam>[A-Za-z]+)--(?<snd>.+)-(?<lay>soft|mid|loud)$') {
+                    $family = $Matches.fam; $sound = $Matches.snd
+                    $rank = @{ mid = 0; loud = 1; soft = 2 }[$Matches.lay]
+                }
+            } else {
+                if ($f.BaseName -match '^(?<snd>.+)-(?<var>close|room|punch|far)$') {
+                    $family = $f.Directory.Name; $sound = $Matches.snd
+                    $rank = @{ close = 0; room = 1; punch = 2; far = 3 }[$Matches.var]
+                }
+            }
+            if (-not $sound) { continue }
+            $key = $family.ToLower() + '|' + $sound.ToLower()
+            if (-not $sets.ContainsKey($key) -or $rank -lt $sets[$key].Rank) {
+                $sets[$key] = [pscustomobject]@{ Family = $family; Sound = $sound; Rel = $rel; Rank = $rank }
+            }
+        }
+        foreach ($k in @($sets.Keys | Sort-Object)) {
+            $e = $sets[$k]
+            $title = ConvertFrom-StudioSampleTitle $e.Sound
+            $name = $(if ($lib.Kind -eq 'OrchestralHits') { "Orch $($e.Family) - $title" } elseif ($lib.Kind -eq 'GuitarHits') { "Guitar - $title" } else { "Foley $($e.Family) - $title" })
+            if ($existing.ContainsKey($name.ToLower())) { $kept++; continue }
+            try {
+                $pr = Get-StudioHitProfile $lib.Kind $e.Family $e.Sound
+                $cap = $(if ($lib.Kind -eq 'GuitarHits') { 3.0 } elseif ($lib.Kind -eq 'OrchestralHits') { 4.0 } else { 1.5 })
+                $notes = if ($lib.Kind -eq 'FoleyPercussion') { "AI-rendered one-shot from the $($lib.Kind) library ($($e.Family)), Stable Audio. Isolated to the first hit so it plays as a single knock; pitch it with the root note." } else { "AI-rendered one-shot from the $($lib.Kind) library ($($e.Family)), Stable Audio. Plays its full natural tail; pitch it with the root note." }
+                $inst = New-StudioSampleFileInstrument $name $e.Rel $pr.Role $pr.Octave $pr.Root $false $cap $notes
+                $inst.hitMode = $(if ($lib.Kind -eq 'FoleyPercussion') { 'first' } else { 'full' })
+                [void](Save-StudioInstrument $inst)
+                $existing[$name.ToLower()] = $true; $added++
+            } catch { $failed++ }
+        }
+    }
+    return [pscustomobject]@{ Added = $added; Kept = $kept; Failed = $failed }
+}
+
+# ---- plain-language profiles: what the instrument sounds like and how to write for it --------------------------------
+
+function Get-StudioPatchProfile($P) {
+    $d = New-Object Collections.Generic.List[string]; $o = New-Object Collections.Generic.List[string]
+    $oscNames = @{ pluck = 'plucked-string model'; bell = 'modal bell/mallet model'; vowel = 'vowel (voice formants)'; additive = 'additive harmonic stack'; sync = 'hard-synced saw' }
+    $oname = { param($w) if ($oscNames.ContainsKey([string]$w)) { $oscNames[[string]$w] } else { [string]$w } }
+    if ($P.Level1 -gt 0.05) { $o.Add((& $oname $P.Osc1)) }
+    if ($P.Level2 -gt 0.05) { $o.Add($(if ([math]::Abs($P.Detune2) -ge 2) { "$(& $oname $P.Osc2) detuned $([math]::Round($P.Detune2)) cents" } else { (& $oname $P.Osc2) })) }
+    if ($P.Level3 -gt 0.05) { $o.Add((& $oname $P.Osc3)) }
+    if ($P.SubLevel -gt 0.1) { $o.Add('sub sine') }
+    if ($P.NoiseLevel -gt 0.1 -or $P.ModNoise -gt 0.2) { $o.Add("$($P.Noise) noise") }
+    $d.Add($(if ($o.Count) { 'oscillators: ' + ($o -join ' + ') } else { 'no oscillators (silent)' }))
+    if ($P.Unison -ge 2) { $d.Add(('{0:0}-voice unison, {1:0} cents spread (wide and thick)' -f $P.Unison, $P.UnisonSpread)) }
+    if ($P.FmAmount -gt 0.3 -or $P.ModFm -gt 0.2) { $d.Add($(if ($P.FmAmount -lt 3) { 'FM (bell or electric-piano tone)' } else { 'strong FM (metallic, harsh)' }) + $(if ($P.Fm2Amount -gt 0.3) { ', 3-operator chain' } else { '' }) + $(if ($P.FmDecay -gt 0) { ', FM index decays so the attack is brighter than the tail' } else { '' }) + $(if ($P.FmFeedback -gt 0.3) { ', feedback grit' } else { '' })) }
+    if ($P.RingAmount -gt 0.3) { $d.Add('ring-modulated (clangorous)') }
+    $physOsc = (($P.Level1 -gt 0.1 -and [string]$P.Osc1 -in 'pluck', 'bell') -or ($P.Level2 -gt 0.1 -and [string]$P.Osc2 -in 'pluck', 'bell'))
+    if ($physOsc) { $d.Add(('physical model rings for about {0:0.0} s, {1}' -f $P.Ring, $(if ($P.Damping -gt 0.55) { 'muted and woody' } elseif ($P.Damping -lt 0.25) { 'bright and open' } else { 'balanced' }))) }
+    if ($P.Morph -gt 0.05 -or $P.LfoMorph -gt 0.1 -or $P.Lfo2Morph -gt 0.1 -or [math]::Abs($P.ModMorph) -gt 0.1) { $d.Add('wavetable morph: the timbre changes while the note sounds') }
+    if ($P.Lfo2Filter -gt 0.15 -or $P.Lfo2Fm -gt 0.15 -or $P.Lfo2Pitch -gt 8) { $d.Add(('second LFO movement at {0:0.00} Hz' -f $P.Lfo2Rate)) }
+    if ($P.ModNoise -gt 0.1) { $d.Add('breath or chiff noise at the start of each note') }
+    if ($P.Drift -gt 0.2) { $d.Add('analog drift') }
+    if ($P.Variation -gt 0.2) { $d.Add('every repeated note varies slightly (played feel)') }
+    if ($P.VelFilter -gt 0.2 -or $P.VelFm -gt 0.2) { $d.Add('velocity-sensitive: hard notes are brighter, soft notes mellow') }
+    $f = [string]$P.Filter
+    $bright = if ($f -eq 'off') { 'bright (unfiltered)' } elseif ($f -in 'comb', 'vowel') { "$f filter (resonant colouring)" } elseif ($P.Cutoff -lt 500) { 'very dark' } elseif ($P.Cutoff -lt 1500) { 'dark and warm' } elseif ($P.Cutoff -lt 5000) { 'balanced' } else { 'bright' }
+    $d.Add("tone: $bright" + $(if ($f -ne 'off' -and $P.Resonance -ge 0.7) { ', resonant and squelchy' } else { '' }))
+    if ($f -ne 'off' -and [math]::Abs($P.FilterEnv) -gt 0.3) { $d.Add($(if ($P.FilterDecay -lt 1.5) { 'filter snaps ' + $(if ($P.FilterEnv -gt 0) { 'open' } else { 'shut' }) + ' on every note (plucky, acid)' } else { 'slow filter sweep on every note' })) }
+    $d.Add($(if ($P.Attack -lt 0.02) { 'instant attack' } elseif ($P.Attack -lt 0.15) { 'soft attack' } elseif ($P.Attack -lt 0.6) { ('slow swell ({0:0.00} s attack)' -f $P.Attack) } else { ('very slow swell ({0:0.0} s attack)' -f $P.Attack) }))
+    if ($P.Sustain -lt 0.1) { $d.Add(('note dies away in about {0:0.0} s even if held (plucked or percussive)' -f $P.Decay)) } elseif ($P.Sustain -ge 0.5) { $d.Add('sustains while the note is held') }
+    if ($P.Release -gt 1.5) { $d.Add(('long {0:0.0} s release tail, notes ring into each other' -f $P.Release)) }
+    if ([math]::Abs($P.PitchEnv) -ge 3) { $d.Add('pitch envelope (drops or zaps into each note)') }
+    if ($P.LfoPitch -gt 5) { $d.Add('vibrato') }
+    if ($P.LfoFilter -gt 0.15) { $d.Add(('filter wobble at {0:0.0} Hz' -f $P.LfoRate)) }
+    if ($P.LfoAmp -gt 0.15) { $d.Add('tremolo') }
+    if ($P.Fold -gt 0.25 -or $P.Drive -gt 0.35) { $d.Add('distorted / saturated') }
+    if ($P.Bits -lt 10) { $d.Add('lo-fi bitcrushed') }
+    $perc = ([math]::Abs($P.PitchEnv) -ge 10 -and $P.Sustain -lt 0.2)
+    $class = if ($perc) { 'percussive' }
+        elseif ($P.Attack -ge 0.4 -or ($P.Release -ge 1.5 -and $P.Sustain -ge 0.5 -and $P.Attack -ge 0.15)) { 'pad' }
+        elseif ($physOsc -and $P.Ring -lt 6) { 'pluck' }
+        elseif (($P.Cutoff -lt 800 -and $f -ne 'off') -or $P.SubLevel -ge 0.5) { 'bass' }
+        elseif ($P.Sustain -lt 0.25 -and $P.Decay -lt 1.5) { 'pluck' }
+        else { 'lead' }
+    $role = 'lead'; $oct = 4; $adv = ''
+    switch ($class) {
+        'percussive' { $role = 'percussion'; $oct = 3; $adv = 'use very short notes on rhythmic positions; the pitch is a tone colour, so use few distinct pitches' }
+        'pad' { $role = 'pad'; $oct = 3; $adv = 'write sustained chords or long notes (at least one beat, ideally one or two bars) with 3-4 note voicings; avoid fast runs because the slow attack smears them' }
+        'bass' { $role = 'bass'; $oct = 2; $adv = 'write single low notes with a rhythmic 8th/16th feel, root-fifth-octave movement, no chords, stay below octave 3' }
+        'pluck' { $role = 'arpeggio'; $oct = 4; $adv = 'write fast arpeggios and rhythmic motifs with short notes (about an 8th or 16th), leave gaps because each note decays quickly' }
+        default { $role = 'lead'; $oct = 4; $adv = 'write an expressive singing line, mix long and short notes, stepwise motion with occasional leaps, legato is fine' }
+    }
+    if ($P.Attack -ge 0.1 -and $class -ne 'pad') { $adv += ('; notes shorter than about {0:0.00} s will barely speak' -f ($P.Attack * 0.8)) }
+    return [ordered]@{ Class = $class; Role = $role; Octave = $oct; Bright = $bright; Text = ($d -join '; '); Advice = $adv }
+}
+
+function Get-StudioSpectralProfile($Grid, $Set, [int]$Root, [bool]$Gate) {
+    $cols = $Grid.Cols; $rows = $Grid.Rows; $A = $Grid.A
+    $colE = New-Object 'double[]' $cols; $colC = New-Object 'double[]' $cols
+    $tot = 0.0; $wr = 0.0; $wr2 = 0.0
+    for ($c = 0; $c -lt $cols; $c++) {
+        $e = 0.0; $w = 0.0; $base = $c * $rows
+        for ($r = 0; $r -lt $rows; $r++) { $v = [double]$A[$base + $r]; if ($v -gt 0.02) { $e += $v; $w += $v * $r; $wr2 += $v * $r * $r } }
+        $colE[$c] = $e; $colC[$c] = $(if ($e -gt 0) { $w / $e } else { -1.0 }); $tot += $e; $wr += $w
+    }
+    if ($tot -lt 0.5) { return [ordered]@{ Class = 'empty'; Role = 'texture'; Octave = 4; Text = 'an empty spectral canvas (silent)'; Advice = 'nothing to play yet' } }
+    $mx = 0.0; $peakC = 0; for ($c = 0; $c -lt $cols; $c++) { if ($colE[$c] -gt $mx) { $mx = $colE[$c]; $peakC = $c } }
+    $first = -1; $last = -1; for ($c = 0; $c -lt $cols; $c++) { if ($colE[$c] -ge 0.15 * $mx) { if ($first -lt 0) { $first = $c }; $last = $c } }
+    $q = [math]::Max(1, [int]($cols / 4)); $head = 0.0; $tail = 0.0
+    for ($c = 0; $c -lt $q; $c++) { $head += $colE[$c]; $tail += $colE[$cols - 1 - $c] }
+    $head /= $q; $tail /= $q; $active = ($last - $first + 1) / [double]$cols
+    $class = if ($peakC -lt $cols * 0.3 -and $tail -lt 0.35 * $mx) { 'struck' } elseif ($peakC -gt $cols * 0.65 -and $head -lt 0.5 * $mx) { 'swell' } elseif ($active -gt 0.8 -and $tail -gt 0.5 * $mx -and $head -gt 0.5 * $mx) { 'drone' } else { 'evolving' }
+    $shape = switch ($class) { 'struck' { 'a struck sound that decays' } 'swell' { 'a swell that builds toward the end' } 'drone' { 'a sustained, steady texture' } default { 'an evolving sound with a rise and fall' } }
+    $meanRow = $wr / $tot; $sd = [math]::Sqrt([math]::Max(0.0, $wr2 / $tot - $meanRow * $meanRow))
+    $hz = [HbStudio.Spectral]::RowToHz($meanRow, $Set.MinHz, $Set.MaxHz, $rows)
+    $cs = 0.0; $cn = 0; $ce = 0.0; $cm = 0
+    for ($c = 0; $c -lt $q; $c++) { if ($colC[$c] -ge 0) { $cs += $colC[$c]; $cn++ }; if ($colC[$cols - 1 - $c] -ge 0) { $ce += $colC[$cols - 1 - $c]; $cm++ } }
+    $drift = ''
+    if ($cn -gt 0 -and $cm -gt 0) { $dd = $ce / $cm - $cs / $cn; if ($dd -gt 0.12 * $rows) { $drift = ', pitch rises over time' } elseif ($dd -lt -0.12 * $rows) { $drift = ', pitch falls over time' } }
+    $bw = $sd / $rows
+    $spec = if ($bw -gt 0.2) { 'broadband and noisy' } elseif ($bw -gt 0.08) { 'a rich spectrum of partials' } else { 'narrow and tonal' }
+    $secs = [double]$Set.Seconds
+    $txt = ('painted spectrum, {0:0.0} s long, {1}; {2}; energy centred near {3:0} Hz (range {4:0}-{5:0} Hz){6}' -f $secs, $shape, $spec, $hz, $Set.MinHz, $Set.MaxHz, $drift)
+    if ([string]$Set.Snap -ne 'off') { $txt += "; partials snapped to the $($Set.Snap) scale" }
+    if ($Set.Brightness -gt 0.4) { $txt += '; buzzy (added harmonics)' }
+    if ($Set.Noisiness -gt 0.4) { $txt += '; airy' }
+    $role = if ($hz -lt 180) { 'bass' } elseif ($secs -ge 3 -and $class -ne 'struck') { 'texture' } elseif ($class -eq 'struck') { 'hook' } else { 'lead' }
+    $oct = if ($role -eq 'bass') { 2 } else { 4 }
+    $adv = ('plays as a sampler voice rooted on {0} and pitch-shifted per note; each note replays the {1:0.0} s picture' -f (ConvertTo-StudioNoteName $Root), $secs)
+    $adv += $(if ($Gate) { ' (gated to note length, so short notes only play the start of it)' } else { ' (not gated, long and overlapping notes pile up, so keep it sparse)' })
+    $adv += '; use few, well-spaced notes or slow chords rather than fast runs, and keep transposition within about an octave of the root'
+    return [ordered]@{ Class = $class; Role = $role; Octave = $oct; Text = $txt; Advice = $adv }
+}
+
+function Get-StudioInstrumentProfile($Inst) {
+    $key = 'profile|' + [string]$Inst._file + '|' + $(if ($Inst._file -and (Test-Path -LiteralPath $Inst._file)) { [IO.File]::GetLastWriteTimeUtc($Inst._file).Ticks } else { 0 })
+    if ($Inst._file -and $script:StudioInstrumentCache.ContainsKey($key)) { return $script:StudioInstrumentCache[$key] }
+    $kind = [string]$Inst.kind; $pr = $null
+    switch ($kind) {
+        'patch' { $pr = Get-StudioPatchProfile (Get-StudioInstrumentPatch $Inst) }
+        'morph' {
+            $arr = @(); $src = @($Inst.slots); $names = 'A', 'B', 'C', 'D'; $bits = @()
+            for ($k = 0; $k -lt [math]::Min(4, $src.Count); $k++) { $p = New-Object HbStudio.Patch; [void](Set-StudioObjectFromJson $p $src[$k]); $pp = Get-StudioPatchProfile $p; $bits += ('{0}: {1}, {2}' -f $names[$k], $pp.Bright, $pp.Class); $arr += $pp }
+            $cur = Get-StudioPatchProfile (Get-StudioInstrumentPatch $Inst)
+            $pr = [ordered]@{ Class = $cur.Class; Role = $cur.Role; Octave = $cur.Octave; Text = ('morph of four patches (' + ($bits -join '; ') + '); as an instrument it plays the blended patch at its saved pad position: ' + $cur.Text); Advice = $cur.Advice }
+        }
+        'spectral' {
+            $g = ConvertFrom-StudioGridData $Inst.grid; $st = New-Object HbStudio.SpectralSettings; if ($Inst.spectral) { [void](Set-StudioObjectFromJson $st $Inst.spectral) }
+            $pr = Get-StudioSpectralProfile $g $st $(if ($null -ne $Inst.root) { [int]$Inst.root } else { 60 }) ([bool]$Inst.gate)
+        }
+        default {
+            $smp = $null
+            try { $smp = Get-StudioInstrumentSample $Inst } catch { }
+            $secs = $(if ($smp) { $smp.Length / 44100.0 } else { 0.0 })
+            $sr = $(if ($null -ne $Inst.root) { ConvertTo-StudioNoteName ([int]$Inst.root) } else { 'C4' })
+            $fromLib = [bool]$Inst.sampleFile
+            $pr = [ordered]@{
+                Class = $(if ($fromLib) { 'sampled one-shot' } else { 'sample' }); Role = $(if ([string]$Inst.role -and [string]$Inst.role -ne 'any') { [string]$Inst.role } elseif ($secs -gt 3) { 'texture' } else { 'hook' }); Octave = $(if ($null -ne $Inst.octave -and [int]$Inst.octave -gt 0) { [int]$Inst.octave } else { 4 })
+                Text = $(if ($fromLib) { 'recorded one-shot of {0:0.0} s rooted on {1}' -f $secs, $sr } else { 'sampled sound of {0:0.0} s rooted on {1}' -f $secs, $sr })
+                Advice = 'plays as a sampler voice, pitch-shifted per note; keep notes sparse and within about an octave of the root'
+            }
+        }
+    }
+    if ($Inst._file) { $script:StudioInstrumentCache[$key] = $pr }
+    return $pr
+}
+
+function Get-StudioInstrumentRole($Inst) {
+    $r = [string]$Inst.role; if ($r -and $r -ne 'any') { return $r }
+    return (Get-StudioInstrumentProfile $Inst).Role
+}
+function Get-StudioInstrumentOctave($Inst) {
+    if ($null -ne $Inst.octave -and [int]$Inst.octave -gt 0) { return [int]$Inst.octave }
+    return [int](Get-StudioInstrumentProfile $Inst).Octave
+}
+
+function Format-StudioInstrumentLine($Inst) {
+    $pr = Get-StudioInstrumentProfile $Inst
+    $s = '"{0}" [{1}, best as {2}, register around octave {3}]: {4}. Writing advice: {5}.' -f $Inst.name, $Inst.kind, (Get-StudioInstrumentRole $Inst), (Get-StudioInstrumentOctave $Inst), $pr.Text, $pr.Advice
+    if ([string]$Inst.notes) { $s += " Producer's note: $($Inst.notes)" }
+    return $s
+}
+
+function Get-StudioInstrumentCatalogText([string]$Role = '', [int]$Max = 14) {
+    $all = @(Get-StudioInstruments); if (-not $all.Count) { return '' }
+    $mel = @($all | Where-Object { $r = Get-StudioInstrumentRole $_; $script:StudioRoleToMelody[$r] -eq $Role -or $r -eq $Role })
+    $rest = @($all | Where-Object { $mel -notcontains $_ })
+    $pick = @($mel) + @($rest) | Select-Object -First $Max
+    return ((@($pick) | ForEach-Object { '- ' + (Format-StudioInstrumentLine $_) }) -join "`n")
+}
+
+# When a sound-design request names a saved instrument ("like my Glass Pad but darker"), hand the model that instrument's real parameters.
+function Get-StudioInstrumentReferenceText([string]$Ask) {
+    $out = @(); $low = $Ask.ToLower()
+    foreach ($i in @(Get-StudioInstruments)) {
+        if ($out.Count -ge 2) { break }
+        if ($low.Contains(([string]$i.name).ToLower()) -and [string]$i.kind -in 'patch', 'morph') {
+            $m = ConvertTo-StudioMap (Get-StudioInstrumentPatch $i)
+            $out += ('Reference instrument "{0}" has these patch parameters: {1}' -f $i.name, ($m | ConvertTo-Json -Compress))
+        }
+    }
+    return ($out -join "`n")
+}
+
+function Get-StudioTrackSoundText($Track) {
+    if (-not $Track) { return '' }
+    $sy = [string]$Track.Synth
+    if ($sy -eq 'patch' -and $Track.Patch) { $pr = Get-StudioPatchProfile $Track.Patch; return ("custom synth patch, $($pr.Class)-like: $($pr.Text). Writing advice: $($pr.Advice).") }
+    if ($sy -eq 'sample') { return ('sampler voice, {0:0.0} s sample rooted on {1}{2}.' -f $(if ($Track.Sample) { $Track.Sample.Length / 44100.0 } else { 0 }), (ConvertTo-StudioNoteName ([int]$Track.SampleRoot)), $(if ($Track.SampleGate) { ', gated' } else { '' })) }
+    if ($script:StudioBuiltinSynthInfo.ContainsKey($sy)) { return "built-in '$sy' synth: $($script:StudioBuiltinSynthInfo[$sy])." }
+    return "SuperCollider synth '$sy'."
+}
+
+# ---- the manual the Studio agent reads: every tool, what it does and when to reach for it ---------------------------
+
+$script:StudioToolManual = @'
+AUDIO STUDIO MANUAL
+Notes: pitch is MIDI 0-127 (C4 = 60), start and length are in beats, velocity 1-127. The project has a BPM, time signature, key and scale; the piano roll can snap to the scale.
+Drum tracks use GM pitches: 36 kick, 38 snare, 39 clap, 37 rim, 42 closed hat, 46 open hat, 45 tom, 49 crash, 51 ride.
+Built-in synths per track: acid (303 bass/lead), saw, square, tri, sine, pad, fm, pluck, noise, drums; or "patch" (a fully designed synth), "sample" (sampler voice), or a SuperCollider SynthDef name.
+
+SOUND LAB (per-track sound design):
+- Synth patch: 3 oscillators (saw/square/pulse/tri/sine/noise), sub, noise, unison (1-7 voices), FM, filter (lowpass/highpass/bandpass) with envelope, amp ADSR, pitch envelope, LFO to pitch/filter/volume, wavefold, drive, bitcrush. About 40 bounded parameters.
+- Effects chain per track: stutter, filter with LFO, fold, drive, bitcrush/downsample, ring mod, chorus, delay, reverb.
+- Pitch of a sound matters: bass = low cutoff, sub, short filter envelope; pad = slow attack, long release, unison, reverb; pluck = zero sustain, short decay; lead = resonant filter, vibrato, delay.
+SPECTRAL: paint a spectrogram (time across, pitch up, brightness = loudness) and it is resynthesised additively into a sample. Shapes: sweeps, curves, harmonic stacks, blobs, noise bands. Settings snap the partials to a scale, add brightness/noise, reverse, flip. Good for evolving textures, whale-like calls, risers, vocal-ish formants, drones.
+META SYNTH: four patches on the corners of a square; a morph pad blends them. Either use the blend at one point as a normal playable patch, or render an evolving sound (tour, pingpong, circle, wander paths, optional stacked chords) to a sample track. Good for pads and textures that change over time.
+INSTRUMENT LIBRARY: any patch, morph, spectral canvas or sample can be saved as an instrument. Saved instruments carry a profile (what they sound like and how to write for them). The melody writer, track AI and agent can pick them by name and write notes that suit their attack, decay, register and polyphony.
+DRUMS AND MELODY AI: describe a beat or melody; the AI writes notes. A creative direction (genre, mood, structure, chords, sounds) guides everything. Drums can also be synthesised: each drum lane becomes its own AI-designed sampler voice (kick, snare, hats...).
+SONG: patterns (scenes) and an arrangement. Building a song from the direction assigns tracks and drum layers per section by energy and can add risers and texture layers.
+MIX AND MASTER: mix rules (sidechain, EQ, filters, width, saturation, mono bass), track volume/pan, and a mastering chain with loudness targets.
+EDIT TOOLS (they work on the selected notes or the whole track): up1 (+1 semitone), dn1, up12 (+octave), dn12, quant (snap to grid), scale (snap to key), rev (reverse), dbl (double time), half (half time), legato, stacc (staccato), velup, veldn, velrnd, accent (accent off-beats), inv (invert pitches), nudge (later), nudgeb (earlier), thin (remove some notes), octl (add octave layer), clear, hum (humanize timing and velocity), mut (mutate pitches and rhythm), chop (shuffle slices like a breakcore edit), ratch (ratchet rolls).
+GENERATORS: euc (Euclidean rhythm: hits, steps, rotate, note), walk (random-walk melody in scale), poly (7-against-4 hats).
+COMPOSER: chord progressions are written as roman numerals relative to the key (i VI III VII) or chord names (Cm Ab Bb G); "|" separates bars and two chords in a bar share it. The chord engine voices them with smooth voice-leading, writes comping (sustain, half, offbeat, pulse8, synco, stab), bass lines (root, rootfifth, driving8, octave, synco, offbeat, sub, walking, acid16) and arpeggios (up, updown, broken, trance), harmonises a melody to the chords (strong beats move to chord tones) and reads chords back out of notes. "Compose full song" turns a description into a creative direction with harmony per section, then writes melody, drums (optionally a synthesised kit), chords, bass, arps, textures and risers, designs sounds, builds one pattern per section with its own chords and energy, and mixes and masters the result.
+SONG MODELS: the app's song generator (ACE-Step sings full songs with lyrics, Stable Audio makes instrumental music) can render a reference from the direction. The studio splits the audio into stems, sums the harmonic stems (guitar, piano, other, bass) for clean chord and key detection, imports the mix and stems as sampler tracks, and rebuilds the whole song as editable parts: detected tempo, time signature, key and chords, the song structure (section markers with energy), melody, drums and bass as note tracks, and synth patches matched to each stem's timbre. The result can then be rearranged with synthesised instruments.
+ADVANCED ARRANGING: harmonic colour (7ths and 9ths, secondary dominants, passing diminished chords, tritone substitutions, borrowed minor iv, V7 turnarounds), a key change for the last chorus or drop, a rule-based motif lead and counter-melody that follow the chords, transitions (snare rolls, tom runs, kick drop-outs, pre-drop silence, risers) and parameter automation per section (low-pass and high-pass filter sweeps, breakdown filtering, volume fades). STYLE TEMPLATES set tempo, mode, progressions, groove, bass, structure, sounds and loudness for a genre; users can save their own. The PRODUCER renders the song, measures loudness per section against its planned energy, tonal balance (sub, bass, low-mid, mid, high-mid, air), stereo width and peaks, then fixes levels, EQ cuts, width and the energy curve and measures again. After composing, the whole song is written as one timeline on the piano roll (every section after the other, section markers on the ruler, automation lanes on the tracks), so every note of the arrangement can be edited. The QUALITY PASS listens to the finished song and to each sound: it finds noisy, harsh, off-pitch, slow or clipping voices and repairs them, scores melody, beats and harmony complexity from the notes (rhythm variety, pitch range, off-beat notes, ghost notes, ratchets, chord richness), compares the audio with a reference (a song-model render or typical values for the style), fixes the mix, and rebuilds the arrangement at higher complexity when it is too simple. PITCHED DRUMS are only tuned hats (MIDI 72-95) and tuned toms (60-71); perc is a shaker or tick. Rolls of tuned drums follow melodic contours in the key (arches, leaps, arpeggios, pedal notes, echoes) with changing rhythm and ratchets, and fills can be tuned tom runs or accelerating hat rolls.
+RECIPES: dreamy arpeggio = pluck/bell patch + arpeggio role + long delay and reverb; acid = resonant saw bass + squelchy filter envelope + accents + slides; IDM = broken drums with ratchets and chop/mutate, glassy FM leads, a spectral texture bed; ambient = pad or evolving morph + sparse long notes + big reverb.
+'@
+
+function Get-StudioToolManual([bool]$WithParameters = $false) {
+    $t = $script:StudioToolManual
+    if ($WithParameters) {
+        $t += "`n`nSYNTH PATCH PARAMETERS:`n" + [HbStudio.PropIO]::Describe([HbStudio.Patch])
+        $t += "`n`nEFFECT PARAMETERS:`n" + [HbStudio.PropIO]::Describe([HbStudio.Fx])
+        $t += "`n`nSPECTRAL SETTINGS:`n" + [HbStudio.PropIO]::Describe([HbStudio.SpectralSettings])
+        $t += "`n`nMETA (MORPH) SETTINGS:`n" + [HbStudio.PropIO]::Describe([HbStudio.MetaSettings])
+    }
+    return $t
+}
+
+# ---- AI sound design: turn a description plus the creative direction into real synthesis parameters ---------------------
+
+function Get-StudioDepthGuide([int]$Depth) {
+    if ($Depth -le 3) { return 'Complexity 1-3: keep it simple and clean: one or two oscillators, a basic filter and envelope, at most a little reverb.' }
+    if ($Depth -le 6) { return 'Complexity 4-6: layered: two or three oscillators with detune, unison for width, a filter with envelope, some LFO movement, and a delay and/or reverb in the effects.' }
+    return 'Complexity 7-10: rich and distinctive: layer two or three oscillators of DIFFERENT types (for example a vowel or additive body with a pluck or bell attack and a sub), unison of 3-7 voices where it fits, FM chains, sync, ring mod or wavefolding for harmonics, a resonant filter of a fitting type (lowpass24, comb, vowel, notch) with both an envelope and LFO motion, the second LFO and the mod envelope for movement (Morph, FM index, pulse width, sync), Drift and Variation for a played feel, velocity sensitivity, drive or bitcrush for grit, and a full effects chain (chorus, delay, reverb, filter LFO, ring mod or stutter if the style wants it). Also give each section of the song its own version of the sound in "development". Make it evolve and sound unlike a default preset.'
+}
+
+$script:StudioSoundKnowledge = @'
+SOUND DESIGN KNOWLEDGE. Choose the synthesis method that fits the sound family, never default to saw plus lowpass.
+METHODS: subtractive (saw/square/pulse/tri into Filter) = analog leads, basses, pads, brass. FM (FmAmount, FmRatio, FmDecay, Fm2Amount chain, FmFeedback) = electric piano, bells, tines, brass blats, metallic and growling basses; integer ratios sound harmonic, non-integer sound inharmonic, a decaying index (FmDecay 0.2-0.6) gives a bright attack that mellows. Additive (Osc additive: Harmonics, Tilt, OddEven) = organs, clarinet (OddEven 1), flutes (Tilt 2+), glassy pads, drones. Vowel (Osc vowel: Vowel, VowelEnd, Morph) = choirs, voices, talking leads; the Vowel filter (Filter vowel + FilterVowel) gives talking wah on any source. Wavetable morph (Morph moved by Lfo2Morph, LfoMorph, ModMorph) = evolving timbres. Physical models: Osc pluck (Karplus-Strong string: Ring, Damping, Strike) = guitar, harp, koto, upright bass, banjo; Osc bell (modal resonator: Inharmonic 0-1, Ring, Damping, Strike) = glass 0.7-0.8, church bell 1.0, marimba and kalimba 0.4-0.5 with short Ring and high Damping, vibraphone 0.5 with long Ring and tremolo, steel pan, gamelan. Sync (Osc sync + SyncRatio moved by ModSync or Lfo2Sync) = screaming sweeping leads. Ring mod (RingAmount between Osc1 and Osc2, Semi2 non-integer) = clangs, robots, metal percussion. Noise (white, pink, brown, blue = hiss, dust = vinyl crackle and rain, bits = digital grit) with ModNoise for breath, chiff and bow noise at the note start. Filters: lowpass, lowpass24 (steeper), highpass, bandpass, notch, comb (resonating pipe or string: set KeyTrack 1 and Cutoff 261 to tune it to the note, Resonance 0.7-0.95), vowel.
+FAMILIES AND RECIPES: nylon or steel guitar = pluck, Ring 1-2, Damping 0.3-0.6, Variation 0.5. Harp = pluck, Ring 2.5, Damping 0.2. Violin or cello ensemble = 5-7 detuned saws, lowpass 2-4 kHz with KeyTrack, Attack 0.2-0.4, delayed vibrato (LfoPitch 10-18, LfoDelay 0.4), Drift, chorus. Brass = 2-3 saws, lowpass whose FilterEnv opens over 0.05-0.15 s, VelFilter 0.6. Flute = sine plus a little tri, ModNoise 0.2-0.3 with ModDecay 0.2, delayed vibrato. Clarinet = additive OddEven 1. Organ = additive Harmonics 9, Sustain 1, LfoAmp 0.1, chorus. Choir = vowel osc, Unison 3-5, Attack 0.4-1, Lfo2Morph to move between vowels, reverb. Electric piano = sine FM ratio 1, FmDecay 0.3-0.5, VelFm 0.7. Marimba/kalimba/vibes = bell. Acid = saw, resonant lowpass 0.8+, FilterEnv 0.7, short FilterDecay. Reese = two saws detuned 15-25 cents, slow LfoFilter, Drive. Sub 808 = sine, PitchEnv 12-20, long Decay. Wobble = LfoFilter 0.8+ at 2-6 Hz, LfoShape tri or square. FM growl bass = FM with FmFeedback and Fm2Amount. Supersaw = Unison 7, UnisonSpread 30-50, highpass-free. Chiptune = pulse with PulseWidth 0.125-0.5, Bits 6-8, Filter off. PWM = pulse with LfoPwm 0.5-1. Hoover = saw unison 7, PitchEnv -7 decaying, Fold. Risers/sweeps = noise with long Attack and FilterEnv 1 and slow FilterDecay, or saw with PitchEnv -24. Impacts = sine PitchEnv 30 with brown noise, long Decay, big reverb. Textures = pink/dust noise, Lfo2Shape smooth with Lfo2Filter, Attack 2+, reverb; drones = additive Tilt 1.5 with Drift 0.8 and Lfo2Morph slow. Shimmer = bell with high Ring plus detuned sine an octave up.
+EXPRESSION AND DEVELOPMENT: make voices feel played, not static. Use Variation 0.2-0.6 on plucked, struck and arpeggiated voices (so repeated notes differ), Drift 0.2-0.6 on pads and strings, VelFilter or VelFm 0.4-0.7 on leads and keys (soft notes mellow, hard notes bright), LfoDelay so vibrato blooms on held notes, Lfo2 (rate 0.05-0.3 Hz, shape smooth or tri) for slow movement of filter, Morph, FM or pulse width, and the mod envelope (ModAttack, ModDecay with ModPitch, ModFm, ModMorph, ModSync, ModNoise) for note-start character. A great voice has three time scales: the note (envelopes), the phrase (LFO, velocity), the song (development per section).
+FIT IN THE MIX: give every voice its own register and timbre. Bass owns 40-200 Hz (sine or filtered saw, little unison), chords and pads own 200-1000 Hz with a gentle tilt, leads and hooks own 1-4 kHz and can be brighter, arps and bells sit above 2 kHz and should be short or sparse, textures sit behind with low level and noise. If one voice is already bright and busy, make the next darker or slower. Avoid using the same oscillator recipe for two voices; vary methods (for example bass subtractive, chords FM keys, pad vowel or additive, arp pluck or bell, lead sync or PWM).
+'@
+
+function Get-StudioRoleSoundHint([string]$Role) {
+    switch -Regex ($Role.ToLower()) {
+        'bass' { return 'a bass voice: strong low end (sub or low cutoff), short filter envelope, mono feel (low unison), no long reverb. Methods that work: filtered saw (reese, acid), sine sub with pitch envelope (808), FM growl with feedback, upright pluck model, wobble with LfoFilter' }
+        'pad|chord' { return 'a pad or chord voice: for pads use slow attack, long release, high sustain and slow movement; for chord instruments use keys, plucks or stabs that speak clearly. Methods that work: supersaw unison, vowel choir, additive glass with morph, FM electric piano, bell shimmer, strings ensemble, organ, detuned PWM; always add slow LFO2 or Drift movement and reverb' }
+        'arp|pluck' { return 'an arpeggio voice: instant attack, short or plucked decay, leave gaps, rhythmic delay. Methods that work: pluck string model, marimba or kalimba bell model, FM tine bell, snappy resonant lowpass pluck, chiptune pulse; use Variation so repeated notes differ' }
+        'counter' { return 'a counter-melody voice: softer and thinner than the lead so it sits behind it, gentle delayed vibrato, some reverb. Methods that work: breathy flute, clarinet (additive OddEven 1), vowel with slow morph, soft bell, thin triangle' }
+        'hook' { return 'a hook voice: memorable, bright and characterful, instant attack, medium decay. Methods that work: FM bell or brass blat, sync lead with ModSync sweep, PWM pulse, talking vowel lead, glassy bell model' }
+        'texture|atmos' { return 'an atmospheric texture: noise or detuned layers, slow filter motion, long release, lots of reverb. Methods that work: pink or dust noise with smooth LFO2 filter, additive drone with Drift, vowel formant drift, bits noise rain, bell shimmer' }
+        default { return 'a lead voice: expressive, vibrato that blooms (LfoDelay), velocity-sensitive brightness, sustain while held. Methods that work: sync sweep, PWM, FM brass, vowel talking lead, hoover, analog brass, theremin glide, supersaw' }
+    }
+}
+
+function Invoke-StudioVoiceDesign([string]$Model, [string]$Ask, [string]$Role, [string]$Brief, [int]$Depth = 6, [string]$Context = '') {
+    $pdoc = [HbStudio.PropIO]::Describe([HbStudio.Patch]); $fdoc = [HbStudio.PropIO]::Describe([HbStudio.Fx])
+    $min = 6 + 2 * $Depth
+    $sys = "You are a synthesizer sound designer and sound engineer with deep knowledge of acoustic instruments, classic synthesis and modern sound design. Design ONE complete instrument voice for the part described. Reply with ONE JSON object and nothing else (no markdown): {`"name`":`"short instrument name`",`"method`":`"the synthesis method you chose, in a few words`",`"patch`":{synth parameters},`"fx`":{effect parameters},`"development`":{`"intro`":{...},`"verse`":{...},`"build`":{...},`"drop`":{...},`"breakdown`":{...},`"outro`":{...}}}. Use only the listed parameter names with numeric values inside their ranges and enum names as strings. Set at least $min patch parameters. development is optional: for each section type give only the 2-5 NUMERIC patch parameters that should differ there (for example Cutoff, FmAmount, Morph, Unison, Drive, NoiseLevel, LfoFilter, SyncRatio, Resonance), so the sound stays recognisable but evolves through the song: restrained in the intro and verse, opening up in the build, biggest in the drop, stripped in the breakdown.`n$(Get-StudioDepthGuide $Depth)`nThis voice is for $(Get-StudioRoleSoundHint $Role).`n$script:StudioSoundKnowledge`nSynth parameters:`n$pdoc`n$script:LabPatchEx`nEffect parameters:`n$fdoc`n$script:LabFxEx"
+    $user = "Sound wanted: $Ask"
+    if ($Brief) { $user += "`nProducer creative direction (match its genre, mood and sound ideas):`n$Brief" }
+    if ($Context) { $user += "`nContext of the song so far (design this voice to complement it):`n$Context" }
+    $ref = Get-StudioInstrumentReferenceText $Ask; if ($ref) { $user += "`n$ref" }
+    $res = Invoke-StudioJsonModel $Model $sys $user 3500 ({ param($x) $o = Find-StudioJsonObject $x ''; if (-not ($o.patch -is [pscustomobject]) -and -not $o.Osc1) { throw 'The JSON needs a "patch" object.' }; $o })
+    $j = $res.Value; $patch = New-Object HbStudio.Patch
+    $pj = if ($j.patch -is [pscustomobject]) { $j.patch } else { $j }
+    $c = Set-StudioObjectFromJson $patch $pj
+    $fx = New-Object HbStudio.Fx; if ($j.fx -is [pscustomobject]) { [void](Set-StudioObjectFromJson $fx $j.fx) }
+    $nm = [string]$j.name; if (-not $nm) { $nm = $Role }
+    $dev = $null; if ($j.development -is [pscustomobject]) { $dev = $j.development }
+    return @{ Name = $nm; Patch = $patch; Fx = $fx; Count = $c; Reply = $res.Reply; Dev = $dev; Method = [string]$j.method }
+}
+
+# One drum voice (kick, snare, hat...) synthesised from scratch and rendered to a sample at the drum's own pitch.
+function Invoke-StudioDrumVoiceDesign([string]$Model, [string]$Lane, [int]$Pitch, [string]$Ask, [string]$Brief, [int]$Depth = 6) {
+    $pdoc = [HbStudio.PropIO]::Describe([HbStudio.Patch]); $fdoc = [HbStudio.PropIO]::Describe([HbStudio.Fx])
+    $sys = "You are a drum synthesis expert. Design one $Lane drum sound from scratch with a synthesizer. Reply with ONE JSON object and nothing else (no markdown): {`"seconds`":<length 0.05-3>,`"patch`":{synth parameters},`"fx`":{effect parameters}}. Use only the listed parameter names with numeric values inside their ranges and enum names as strings. Drum recipes: kick = sine with a large fast pitch envelope (PitchEnv 24-48, PitchDecay 0.03-0.08), no sustain, short decay, a little Drive; snare = tri or sine body plus NoiseLevel, bandpass or highpass filter, decay 0.1-0.3, no sustain; clap/rim = noise, bandpass, very short decay (rim adds a high pitched sine); closed hat = noise highpass at 6000+ Hz, decay 0.03-0.07; open hat = same with decay 0.2-0.5; tom = sine with a medium pitch envelope; crash/ride = noise plus inharmonic FM (FmRatio non-integer), long decay; shaker or perc = a short band-passed noise tick or shake, never a pure tonal blip, bleep or woodblock; pitched hat = a bright metallic noise hat (inharmonic square cluster or FM noise, highpassed) that stays short so it can be pitch-shifted up and down; pitched tom = a tuned tom with a pitch envelope and a short noise click. The sound is played at MIDI pitch $Pitch.`n$(Get-StudioDepthGuide $Depth) For drums, higher complexity means more layers (click, body and tail), saturation, and shaping effects, but keep it tight and punchy.`nSynth parameters:`n$pdoc`nEffect parameters:`n$fdoc`n$script:LabFxEx"
+    $user = "Drum: $Lane. Style wanted: $Ask"
+    if ($Brief) { $user += "`nProducer creative direction:`n$Brief" }
+    $res = Invoke-StudioJsonModel $Model $sys $user 3000 ({ param($x) $o = Find-StudioJsonObject $x ''; if (-not ($o.patch -is [pscustomobject]) -and -not $o.Osc1) { throw 'The JSON needs a "patch" object.' }; $o })
+    $j = $res.Value; $tmp = New-Object HbStudio.Track; $tmp.Synth = 'patch'; $tmp.Patch = New-Object HbStudio.Patch
+    $pj = if ($j.patch -is [pscustomobject]) { $j.patch } else { $j }
+    [void](Set-StudioObjectFromJson $tmp.Patch $pj)
+    if ($j.fx -is [pscustomobject]) { [void](Set-StudioObjectFromJson $tmp.Fx $j.fx) }
+    $secs = 0.6; if ($null -ne $j.seconds) { $secs = [math]::Max(0.05, [math]::Min(3, [double]$j.seconds)) }
+    $smp = [HbStudio.Dsp]::RenderSample($tmp, $Pitch, $secs, $true)
+    return @{ Sample = $smp; Patch = $tmp.Patch; Fx = $tmp.Fx; Reply = $res.Reply }
+}
+
+# Four patches for a morphing instrument, with complexity guidance.
+function Invoke-StudioMorphDesign([string]$Model, [string]$Ask, [string]$Brief, [int]$Depth = 6) {
+    $pdoc = [HbStudio.PropIO]::Describe([HbStudio.Patch])
+    $min = 4 + $Depth
+    $sys = "You are a synthesizer sound designer building a morphing instrument from 4 patches. Patch A is the start, B and C are the middle stages, D is the end. Make the four patches clearly different from each other but all related to the description. Reply with ONE JSON object and nothing else (no markdown): {`"patches`":[{A},{B},{C},{D}]}. Each patch uses only these parameter names with numeric values inside their ranges and enum names as strings; set at least $min parameters per patch. $(Get-StudioDepthGuide $Depth) Example: {`"patches`":[{`"Osc1`":`"sine`",`"Cutoff`":800,`"Attack`":0.4},{`"Osc1`":`"saw`",`"Cutoff`":3000,`"Drive`":0.5},{`"Osc1`":`"square`",`"Detune2`":9},{`"Osc1`":`"noise`",`"Resonance`":0.8}]}`n$script:StudioSoundKnowledge`n$pdoc"
+    $user = "Morph wanted: $Ask"; if ($Brief) { $user += "`nProducer creative direction:`n$Brief" }
+    $res = Invoke-StudioJsonModel $Model $sys $user 4500 ({ param($x) $o = Find-StudioJsonObject $x ''; $a = @($o.patches); if ($a.Count -lt 2) { throw 'The JSON must have a "patches" array of 4 patch objects.' }; $o })
+    $arr = @($res.Value.patches); $out = New-Object 'HbStudio.Patch[]' 4
+    for ($i = 0; $i -lt 4; $i++) {
+        $np = New-Object HbStudio.Patch; $src = $arr[[math]::Min($i, $arr.Count - 1)]
+        if ($src -is [pscustomobject]) { [void](Set-StudioObjectFromJson $np $src) }
+        $out[$i] = $np
+    }
+    return @{ Slots = $out; Reply = $res.Reply }
+}
+
+# ---------------------------------------------------------------------------------------------------------------
+# Music theory and composition engine: chords, voice-leading, comping, bass lines, arpeggios, progressions per section,
+# melody-to-chord adaptation, and a full arranger that turns a harmony plan into patterns and a song.
+# ---------------------------------------------------------------------------------------------------------------
+
+$script:StudioPcNames = @('C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B')
+$script:StudioMajorSteps = @(0, 2, 4, 5, 7, 9, 11)
+$script:StudioChordTypes = @{
+    'maj' = @(0, 4, 7); 'm' = @(0, 3, 7); 'dim' = @(0, 3, 6); 'aug' = @(0, 4, 8); 'sus2' = @(0, 2, 7); 'sus4' = @(0, 5, 7); '5' = @(0, 7)
+    '6' = @(0, 4, 7, 9); 'm6' = @(0, 3, 7, 9); '7' = @(0, 4, 7, 10); 'maj7' = @(0, 4, 7, 11); 'm7' = @(0, 3, 7, 10); 'mmaj7' = @(0, 3, 7, 11)
+    'dim7' = @(0, 3, 6, 9); 'm7b5' = @(0, 3, 6, 10); '7sus4' = @(0, 5, 7, 10); 'add9' = @(0, 4, 7, 14); 'madd9' = @(0, 3, 7, 14)
+    '9' = @(0, 4, 7, 10, 14); 'maj9' = @(0, 4, 7, 11, 14); 'm9' = @(0, 3, 7, 10, 14); '7b9' = @(0, 4, 7, 10, 13); '7#9' = @(0, 4, 7, 10, 15)
+    '11' = @(0, 4, 7, 10, 14, 17); 'm11' = @(0, 3, 7, 10, 14, 17); '13' = @(0, 4, 7, 10, 14, 21)
+}
+
+$script:StudioMusicKnowledge = @'
+MUSIC KNOWLEDGE
+HARMONY: chords are stacked thirds on scale degrees. Minor keys: i, iv, v (or V for a pull to the tonic), bIII, bVI, bVII. Major keys: I, ii, iii, IV, V, vi. Tonic = home, subdominant (IV, ii, iv) = departure, dominant (V, vii) = tension that wants to resolve. Strong loops: i-bVI-bIII-bVII, i-iv-bVII-bIII, I-V-vi-IV, vi-IV-I-V. Use a different progression for the chorus than the verse (lift to the bVI or IV, or move the root); breakdowns hold one or two chords; bridges borrow chords (iv in major, bII, bVI) for contrast; end phrases on the dominant to lead back to the tonic. Add 7ths and 9ths for jazz, IDM and ambient colour, plain triads or power chords for hard dance music, suspended chords for floating tension.
+VOICE-LEADING: keep the common tones and move other voices by step; keep chords in one register (C3-C5); the bass plays the chord root, the chords never double the bass an octave below.
+RHYTHM: the kick anchors the bar, the bass locks with the kick, chords play off-beats or sustain, hats give the pulse, snare on 2 and 4 (or beat 3 in half-time), ghost notes and ratchets add life, a fill marks the end of a phrase. Energy rises by adding layers: pad, then bass and drums, then arp and lead, then octave doubling and risers.
+SECTIONS: intro (sparse, 8 bars), verse (groove, melody sparse), build or pre-chorus (rising energy, snare roll, riser), chorus or drop (full arrangement, biggest hook), breakdown (drums out, pads and melody), bridge (new harmony), outro (strip down). 8-bar phrases, changes every 4 or 8 bars.
+SOUND DESIGN: bass = sine or saw with low cutoff and a short filter envelope, mono; pad = detuned saws, slow attack, long release, chorus and reverb; pluck = zero sustain, short decay; lead = resonant filter, vibrato, delay; FM gives bells and metal; noise with a filter gives risers and hats. Each sound should own a frequency band: sub 30-80 Hz (bass and kick), body 100-300 Hz, mids 300-2k (chords, melody), presence 2-6k, air 8k+ (hats, shimmer).
+MIXING: gain-stage so no track clips (peaks around -6 dB before the master); high-pass everything except kick and bass (120-200 Hz); keep bass mono below 120 Hz; sidechain bass and pads to the kick (depth 0.5-0.7, release 150-200 ms) for pump and clarity; cut mud near 250-400 Hz, tame harshness near 3k; pan chords and arps slightly, keep kick, bass and lead centred; widen pads; use delay and reverb as sends, shorter and drier on the low end; reduce the competing element rather than boosting everything.
+MASTERING: target loudness by destination: streaming -14 LUFS, club -9 LUFS, loud IDM -10 LUFS, dynamic -18 LUFS; true peak below -1 dB; gentle bus compression (glue, 2:1, 1-2 dB), a little EQ tilt, soft saturation, a limiter at the end; check the loudest section (the drop) rather than the intro; never make it louder at the cost of the kick punch.
+'@
+
+function Get-StudioMusicKnowledge { return $script:StudioMusicKnowledge }
+
+function ConvertTo-StudioPc([string]$Name) {
+    $m = [regex]::Match($Name.Trim(), '^([A-Ga-g])([#b]?)')
+    if (-not $m.Success) { return -1 }
+    $base = @{ C = 0; D = 2; E = 4; F = 5; G = 7; A = 9; B = 11 }[$m.Groups[1].Value.ToUpper()]
+    $acc = if ($m.Groups[2].Value -eq '#') { 1 } elseif ($m.Groups[2].Value -eq 'b') { -1 } else { 0 }
+    return ((($base + $acc) % 12) + 12) % 12
+}
+
+function ConvertTo-StudioChordQuality([string]$Q) {
+    $s = $Q.Trim().Replace([string][char]0xB0, 'dim').Replace([string][char]0xF8, 'm7b5').Replace('(', '').Replace(')', '')
+    $s = [regex]::Replace($s, '^M(?=\d|$)', 'maj'); $s = $s.ToLower()
+    $s = [regex]::Replace($s, '^(major|ma)(?=\d)', 'maj'); $s = [regex]::Replace($s, '^major$', 'maj')
+    $s = [regex]::Replace($s, '^(minor|min|mi|-)', 'm'); $s = [regex]::Replace($s, '^dom', '')
+    $s = [regex]::Replace($s, '^o(?=7|$)', 'dim'); $s = [regex]::Replace($s, '^hdim', 'm7b5')
+    $s = [regex]::Replace($s, '^\+', 'aug'); $s = [regex]::Replace($s, '^sus$', 'sus4'); $s = [regex]::Replace($s, '^7sus$', '7sus4')
+    $s = [regex]::Replace($s, '^add2', 'add9'); $s = [regex]::Replace($s, '^m7b5', 'm7b5')
+    if (-not $s) { return 'maj' }
+    while ($s.Length -gt 0 -and -not $script:StudioChordTypes.ContainsKey($s)) { $s = $s.Substring(0, $s.Length - 1) }
+    if (-not $s) { return 'maj' }
+    return $s
+}
+
+$script:StudioFlats = $false
+$script:StudioFlatNames = @('C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B')
+function Set-StudioNaming([int]$KeyPc, [string]$Scale) {
+    $minor = ((@([HbStudio.Scales]::Get($Scale)) + @(0, 0, 0))[2] -eq 3)
+    $script:StudioFlats = if ($minor) { $KeyPc -in 0, 2, 3, 5, 7, 10 } else { $KeyPc -in 1, 3, 5, 6, 8, 10 }
+}
+function New-StudioChordObject([int]$Root, [string]$Quality, [int]$Bass = -1) {
+    if ($Bass -lt 0) { $Bass = $Root }
+    $pn = if ($script:StudioFlats) { $script:StudioFlatNames } else { $script:StudioPcNames }
+    $suffix = if ($Quality -eq 'maj') { '' } else { $Quality }
+    $name = $pn[$Root] + $suffix + $(if ($Bass -ne $Root) { '/' + $pn[$Bass] } else { '' })
+    return @{ Name = $name; Root = $Root; Quality = $Quality; Intervals = @($script:StudioChordTypes[$Quality]); Bass = $Bass }
+}
+
+function ConvertFrom-StudioChordName([string]$Name) {
+    $t = $Name.Trim(); if (-not $t) { return $null }
+    $m = [regex]::Match($t, '^([A-Ga-g])([#b]?)([^/]*)(?:/([A-Ga-g][#b]?))?$')
+    if (-not $m.Success) { return $null }
+    $root = ConvertTo-StudioPc ($m.Groups[1].Value + $m.Groups[2].Value)
+    $bass = if ($m.Groups[4].Success -and $m.Groups[4].Value) { ConvertTo-StudioPc $m.Groups[4].Value } else { $root }
+    return (New-StudioChordObject $root (ConvertTo-StudioChordQuality $m.Groups[3].Value) $bass)
+}
+
+# Roman numerals relative to the key: upper case = major, lower case = minor, with 7, maj7, 9, sus4, dim, aug, half-dim suffixes.
+# In minor and modal scales a numeral without an accidental is the scale's own degree (VI = Ab in C minor); b/# are relative to the major scale.
+function ConvertFrom-StudioRoman([string]$Tok, [int]$KeyPc, [string]$Scale) {
+    $Tok = $Tok.Replace([string][char]0xB0, 'o')
+    $m = [regex]::Match($Tok.Trim(), '^([b#]?)(VII|VI|IV|V|III|II|I|vii|vi|iv|v|iii|ii|i)([^A-Za-z0-9]|dim|aug|o|\+)?(.*)$')
+    if (-not $m.Success) { return $null }
+    $acc = $m.Groups[1].Value; $num = $m.Groups[2].Value; $mid = $m.Groups[3].Value; $ext = $m.Groups[4].Value
+    $deg = @{ 'i' = 0; 'ii' = 1; 'iii' = 2; 'iv' = 3; 'v' = 4; 'vi' = 5; 'vii' = 6 }[$num.ToLower()]
+    $upper = ($num -ceq $num.ToUpper())
+    $steps = @([HbStudio.Scales]::Get($Scale)); $mask = [HbStudio.Scales]::Mask(0, $Scale)
+    if ($steps.Count -ne 7) { $steps = if ($steps.Count -gt 3 -and $steps[1] -eq 3) { @(0, 2, 3, 5, 7, 8, 10) } else { $script:StudioMajorSteps } }
+    $majorLike = ($steps[2] -eq 4)
+    $rootStep = $steps[$deg]
+    if ($acc) {
+        $rootStep = ((($script:StudioMajorSteps[$deg] + $(if ($acc -eq 'b') { -1 } else { 1 })) % 12) + 12) % 12
+    }
+    $root = ($KeyPc + $rootStep) % 12
+    $q = ''
+    if ($mid -eq 'o' -or $mid -eq 'dim') { $q = if ($ext -like '7*') { 'dim7' } else { 'dim' }; $ext = [regex]::Replace($ext, '^7', '') }
+    elseif ($mid -eq '+' -or $mid -eq 'aug') { $q = 'aug' }
+    elseif ($mid -eq [string][char]0xF8 -or $ext -like 'o*') { $q = 'm7b5'; $ext = '' }
+    else {
+        if ($mid) { $ext = $mid + $ext }
+        $base = if ($upper) { 'maj' } else { 'm' }
+        $e = $ext.Trim()
+        if ($e -match '^(maj|M|Maj)7') { $q = if ($upper) { 'maj7' } else { 'mmaj7' }; $e = '' }
+        elseif ($e -match '^7sus') { $q = '7sus4'; $e = '' }
+        elseif ($e -match '^sus2') { $q = 'sus2'; $e = '' }
+        elseif ($e -match '^sus') { $q = 'sus4'; $e = '' }
+        elseif ($e -match '^(7|9|11|13)') { $n = $Matches[1]; $q = if ($upper) { $n } else { 'm' + $n }; $e = '' }
+        elseif ($e -match '^6') { $q = if ($upper) { '6' } else { 'm6' }; $e = '' }
+        elseif ($e -match '^add9') { $q = if ($upper) { 'add9' } else { 'madd9' }; $e = '' }
+        elseif ($e -match '^5$') { $q = '5'; $e = '' }
+        else { $q = $base }
+    }
+    if (-not $q) { $q = if ($upper) { 'maj' } else { 'm' } }
+    if (-not $script:StudioChordTypes.ContainsKey($q)) { $q = ConvertTo-StudioChordQuality $q }
+    return (New-StudioChordObject $root $q)
+}
+
+function ConvertFrom-StudioChordSymbol([string]$Tok, [int]$KeyPc, [string]$Scale) {
+    $t = $Tok.Trim(); if (-not $t) { return $null }
+    Set-StudioNaming $KeyPc $Scale
+    if ($t -cmatch '^[b#]?(VII|VI|IV|V|III|II|I|vii|vi|iv|v|iii|ii|i)([^A-Za-z]|dim|aug|o|\+|$|\d|sus|add|maj)') { $r = ConvertFrom-StudioRoman $t $KeyPc $Scale; if ($r) { return $r } }
+    return (ConvertFrom-StudioChordName $t)
+}
+
+# A progression as text ("Cm | Ab | Bb | G", "i VI III VII", "Am F C G", "Dm7 G7 | Cmaj7 %") or an array of symbols, as a list of bars; every bar has one or more chords.
+function ConvertFrom-StudioProgression($Text, [int]$KeyPc, [string]$Scale) {
+    $str = if ($Text -is [array]) { (@($Text | ForEach-Object { [string]$_ }) -join ' | ') } else { [string]$Text }
+    $barTexts = if ($str.Contains('|')) { @($str -split '\|') } else { @($str -split '[\s,;]+') }
+    $out = New-Object Collections.Generic.List[object]; $last = $null
+    foreach ($bt in $barTexts) {
+        $chords = New-Object Collections.Generic.List[object]
+        foreach ($tok in @($bt -split '[\s,;]+' | Where-Object { $_ })) {
+            if ($tok -eq '%') { if ($last) { $chords.Add($last) }; continue }
+            $c = ConvertFrom-StudioChordSymbol $tok $KeyPc $Scale
+            if ($c) { $chords.Add($c); $last = $c }
+        }
+        if ($chords.Count) { $out.Add(@{ Chords = $chords.ToArray() }) }
+    }
+    return $out.ToArray()
+}
+
+function Get-StudioProgressionText($Bars) {
+    return ((@($Bars) | ForEach-Object { (@($_.Chords) | ForEach-Object { $_.Name }) -join ' ' }) -join ' | ')
+}
+
+function Get-StudioSectionType([string]$Name) {
+    $n = $Name.ToLower()
+    if ($n -match 'intro') { return 'intro' }
+    if ($n -match 'pre|build|rise|rebuild') { return 'build' }
+    if ($n -match 'drop|climax|peak') { return 'drop' }
+    if ($n -match 'chorus|hook|refrain') { return 'chorus' }
+    if ($n -match 'break|down|strip') { return 'breakdown' }
+    if ($n -match 'bridge|middle|interlude') { return 'bridge' }
+    if ($n -match 'outro|end|coda') { return 'outro' }
+    return 'verse'
+}
+
+$script:StudioProgressionLibrary = @{
+    minor = @{
+        verse = @('i VI III VII', 'i iv VII III', 'i VII VI VII', 'i III VII VI', 'i iv i V'); chorus = @('VI VII i i', 'VI VII III i', 'iv VI i V', 'i VI iv VII')
+        bridge = @('iv v VI VII', 'VI iv VII V', 'III VII iv i'); breakdown = @('i i VI VI', 'i VII VI VII', 'VI VI VII VII'); intro = @('i i VII VII', 'i VI i VI'); outro = @('i VII VI i', 'i i iv i')
+    }
+    major = @{
+        verse = @('I V vi IV', 'I vi IV V', 'I iii IV V', 'vi IV I V'); chorus = @('IV V I vi', 'I IV vi V', 'vi IV I V', 'I V IV V')
+        bridge = @('vi V IV V', 'ii V I vi', 'IV V iii vi'); breakdown = @('I I vi vi', 'vi vi IV IV'); intro = @('I I IV IV', 'I V I V'); outro = @('IV V I I', 'I IV I I')
+    }
+    dorian = @{ verse = @('i IV i IV', 'i ii III IV', 'i VII IV i'); chorus = @('IV VII i i', 'i IV VII IV') }
+    phrygian = @{ verse = @('i bII i bII', 'i bII bVII i', 'i bII bIII bII'); chorus = @('bVI bII i i', 'i bII bVII bVI') }
+    mixolydian = @{ verse = @('I bVII IV I', 'I v bVII IV', 'I IV bVII IV'); chorus = @('IV bVII I I', 'bVII IV I I') }
+    lydian = @{ verse = @('I II I II', 'I II vii I', 'I vii II I'); chorus = @('II I vii I', 'I II IV I') }
+}
+
+function Get-StudioScaleFamily([string]$Scale) {
+    $s = $Scale.ToLower()
+    if ($s -in 'dorian', 'phrygian', 'mixolydian', 'lydian') { return $s }
+    if ($s -eq 'major' -or $s -eq 'pentatonic major') { return 'major' }
+    return 'minor'
+}
+
+function Get-StudioDefaultProgression([string]$Type, [string]$Scale, $Rnd) {
+    $fam = Get-StudioScaleFamily $Scale; $lib = $script:StudioProgressionLibrary[$fam]
+    $key = switch ($Type) { 'build' { 'verse' } 'drop' { 'chorus' } default { $Type } }
+    if (-not $lib.ContainsKey($key)) { $key = if ($Type -in 'drop', 'chorus') { 'chorus' } else { 'verse' } }
+    $opts = @($lib[$key]); if ($Type -eq 'build' -and $opts.Count -gt 1) { $opts = @($opts[1..($opts.Count - 1)]) }
+    return [string]$opts[$Rnd.Next(0, $opts.Count)]
+}
+
+# A harmony plan: for every section of the structure, one chord per loop bar. Chords the AI wrote are used when they parse;
+# otherwise a progression from the library fits the key and mode. The same section type always gets the same progression.
+function New-StudioHarmonyPlan($Structure, $Harmony, [int]$KeyPc, [string]$Scale, [int]$LoopBars, [int]$Seed, $Opts = @{}) {
+    $rnd = New-Object Random $Seed; $byType = @{}; $sections = @(); $colA = @{}; $colB = @{}
+    $color = if ($Opts.Color) { [double]$Opts.Color } else { 0 }; $modShift = if ($Opts.Modulate) { [int]$Opts.Modulate } else { 0 }
+    $structArr = @($Structure); $modIdx = -1
+    if ($modShift) { for ($i = 0; $i -lt $structArr.Count; $i++) { if ((Get-StudioSectionType ([string]$structArr[$i].section)) -in 'drop', 'chorus') { $modIdx = $i } } }
+    $si = 0
+    $alias = @{ build = @('build', 'pre'); drop = @('drop', 'chorus'); chorus = @('chorus', 'drop'); breakdown = @('breakdown'); bridge = @('bridge'); intro = @('intro'); outro = @('outro'); verse = @('verse') }
+    foreach ($sec in @($Structure)) {
+        $type = Get-StudioSectionType ([string]$sec.section)
+        if (-not $byType.ContainsKey($type)) {
+            $bars = @()
+            if ($Harmony -and $Harmony.progressions) {
+                foreach ($k in $alias[$type]) { if ($Harmony.progressions.$k) { $bars = @(ConvertFrom-StudioProgression $Harmony.progressions.$k $KeyPc $Scale); if ($bars.Count) { break } } }
+            }
+            if (-not $bars.Count -and $type -in 'verse' -and $Harmony -and $Harmony.chords) { $bars = @(ConvertFrom-StudioProgression $Harmony.chords $KeyPc $Scale) }
+            if (-not $bars.Count) { $bars = @(ConvertFrom-StudioProgression (Get-StudioDefaultProgression $type $Scale $rnd) $KeyPc $Scale) }
+            $fit = @(); for ($b = 0; $b -lt $LoopBars; $b++) { $fit += , $bars[$b % $bars.Count] }
+            $byType[$type] = $fit
+        }
+        $en = 5; if ($null -ne $sec.energy) { $en = [int][math]::Max(1, [math]::Min(10, [double]$sec.energy)) }
+        $nb = 8; if ($null -ne $sec.bars) { $nb = [int][math]::Max(1, [double]$sec.bars) }
+        if (-not $colA.ContainsKey($type)) {
+            if ($color -gt 0) { $colA[$type] = @(Add-StudioHarmonicColor $byType[$type] ($color * 0.6) $KeyPc $Scale ($Seed + 5) $false); $colB[$type] = @(Add-StudioHarmonicColor $byType[$type] $color $KeyPc $Scale ($Seed + 9) $true) }
+            else { $colA[$type] = @($byType[$type]); $colB[$type] = @($byType[$type]) }
+        }
+        $ba = $colA[$type]; $bbars = $colB[$type]; $shift = 0
+        if ($si -eq $modIdx) { $shift = $modShift; $ba = @(Move-StudioBars $ba $shift $KeyPc $Scale); $bbars = @(Move-StudioBars $bbars $shift $KeyPc $Scale) }
+        $sections += @{ Name = [string]$sec.section; Type = $type; Energy = $en; Length = $nb; Bars = $ba; BarsB = $bbars; Shift = $shift }
+        $si++
+    }
+    $g = $Harmony
+    return @{
+        KeyPc = $KeyPc; Scale = $Scale; LoopBars = $LoopBars; Sections = $sections
+        Voicing = $(if ($g.voicing) { [string]$g.voicing } else { 'open' }); Comp = $(if ($g.comping) { [string]$g.comping } else { 'auto' })
+        Bass = $(if ($g.bass) { [string]$g.bass } else { 'auto' }); Arp = $(if ($g.arp) { [string]$g.arp } else { 'auto' })
+        DrumFeel = $(if ($g.drums) { [string]$g.drums } else { 'break' })
+    }
+}
+
+# ---- voicing: the best inversion inside a register, moving as little as possible from the previous chord --------------
+
+function Get-StudioChordVoicing($Chord, [int]$Lo, [int]$Hi, $Prev, [string]$Style = 'close') {
+    $iv = @($Chord.Intervals); $pcs = @($iv | ForEach-Object { ($Chord.Root + $_) % 12 })
+    $n = $pcs.Count
+    if ($Style -eq 'power') { $pcs = @($pcs[0], $pcs[[math]::Min(2, $n - 1)]); $n = 2 }
+    elseif ($Style -eq 'shell' -and $n -ge 4) { $pcs = @($pcs[0], $pcs[1], $pcs[3]); $n = 3 }
+    $best = $null; $bestScore = 1e9
+    for ($inv = 0; $inv -lt $n; $inv++) {
+        $order = @(); for ($i = 0; $i -lt $n; $i++) { $order += $pcs[($inv + $i) % $n] }
+        $p = $Lo + ((($order[0] - $Lo) % 12) + 12) % 12; $stack = @($p)
+        for ($i = 1; $i -lt $n; $i++) { $d = ((($order[$i] - $p) % 12) + 12) % 12; if ($d -eq 0) { $d = 12 }; $p += $d; $stack += $p }
+        if ($Style -eq 'open' -and $n -ge 3) { $stack[$n - 2] -= 12; $stack = @($stack | Sort-Object) }
+        if ($Style -eq 'power') { $stack = @($stack) + @($stack[0] + 12) }
+        foreach ($shift in -24, -12, 0, 12, 24) {
+            $v = @($stack | ForEach-Object { $_ + $shift }); $mn = $v[0]; $mx = $v[$v.Count - 1]
+            if ($mn -lt $Lo - 12 -or $mx -gt $Hi + 2) { continue }
+            if ($mn -lt $Lo) { $pen = 6 } else { $pen = 0 }
+            if ($Prev -and @($Prev).Count) {
+                $pv = @($Prev); $mv = 0; $cnt = [math]::Min($pv.Count, $v.Count)
+                for ($k = 0; $k -lt $cnt; $k++) { $mv += [math]::Abs($v[$k] - $pv[$k]) }
+                $sc = $mv + 3 * [math]::Abs($pv.Count - $v.Count) + $pen
+            } else { $sc = [math]::Abs((($mn + $mx) / 2.0) - (($Lo + $Hi) / 2.0)) + $pen }
+            if ($sc -lt $bestScore) { $bestScore = $sc; $best = $v }
+        }
+    }
+    if (-not $best) { $best = @($pcs | ForEach-Object { $Lo + ((($_ - $Lo) % 12) + 12) % 12 }) }
+    if ($Style -eq 'spread') { $best = @($best[0] - 12) + @($best) }
+    return @($best | ForEach-Object { [math]::Max(0, [math]::Min(127, [int]$_)) })
+}
+
+# ---- rhythm patterns: x hit, X accent, o ghost, - holds the previous hit, . rest (16 characters per bar) ---------------------
+
+$script:StudioCompPatterns = @{
+    sustain = 'X---------------'; half = 'X-------x-------'; pulse8 = 'x-x-x-x-x-x-x-x-'; offbeat = '..x-..x-..x-..x-'
+    synco = 'x--x--x---x-x---'; stab = 'x-....x---x-....'; whole2 = 'X-------X-------'
+}
+$script:StudioBassPatterns = @{
+    root = 'r---r---r---r---'; sub = 'R---------------'; driving8 = 'r-r-r-r-r-r-r-r-'; octave = 'r-8-r-8-r-8-r-8-'; offbeat = '..r-..r-..r-..r-'
+    synco = 'r--r--r---8-r-5-'; rootfifth = 'r---r---5---r-5-'; walking = 'r---3---5---a---'; acid16 = 'r-r-8-r-r-5-r-8a'; pump = 'r.r.r.r.r.r.r.r.'
+}
+
+function Get-StudioPatternHits([string]$Pat, [string]$Chars) {
+    $hits = New-Object Collections.Generic.List[object]; $n = $Pat.Length
+    for ($i = 0; $i -lt $n; $i++) {
+        $c = [string]$Pat[$i]; if ($Chars.IndexOf($c, [StringComparison]::Ordinal) -lt 0) { continue }
+        $len = 1; $j = $i + 1; while ($j -lt $n -and $Pat[$j] -eq '-') { $len++; $j++ }
+        $hits.Add(@{ Pos = $i / [double]$n; Len = $len / [double]$n; Ch = $c })
+    }
+    return $hits.ToArray()
+}
+
+# Which chord sounds at a position (in beats from the start of the loop) given the bars of a plan.
+function Get-StudioChordAt($Bars, [double]$Beat, [double]$BarBeats) {
+    $b = [int][math]::Floor($Beat / $BarBeats) % @($Bars).Count; $chords = @(@($Bars)[$b].Chords)
+    $slot = [int][math]::Floor((($Beat % $BarBeats) / $BarBeats) * $chords.Count); if ($slot -ge $chords.Count) { $slot = $chords.Count - 1 }
+    return $chords[$slot]
+}
+
+function New-StudioChordNotes($Bars, [double]$BarBeats, [string]$Comp, [string]$Voicing, [int]$Lo, [int]$Hi, [int]$Seed) {
+    $rnd = New-Object Random $Seed; $pat = $script:StudioCompPatterns[$Comp]; if (-not $pat) { $pat = $script:StudioCompPatterns['sustain'] }
+    $hits = @(Get-StudioPatternHits $pat 'xXo'); $out = New-Object Collections.Generic.List[object]; $prev = $null; $b = 0
+    foreach ($bar in @($Bars)) {
+        $barStart = $b * $BarBeats; $voicings = @()
+        foreach ($c in @($bar.Chords)) { $v = Get-StudioChordVoicing $c $Lo $Hi $prev $Voicing; $voicings += , $v; $prev = $v }
+        foreach ($h in $hits) {
+            $beat = $barStart + $h.Pos * $BarBeats
+            $slot = [int][math]::Floor($h.Pos * $voicings.Count); if ($slot -ge $voicings.Count) { $slot = $voicings.Count - 1 }
+            $len = [math]::Max(0.1, $h.Len * $BarBeats * 0.96); $vel = if ($h.Ch -ceq 'X') { 96 } elseif ($h.Ch -ceq 'o') { 62 } else { 82 }
+            foreach ($p in $voicings[$slot]) { $out.Add((New-Object HbStudio.Note ([int]$p), $beat, $len, ([int][math]::Max(1, [math]::Min(127, $vel + $rnd.Next(-5, 6)))))) }
+        }
+        $b++
+    }
+    return , $out
+}
+
+function New-StudioBassNotes($Bars, [double]$BarBeats, [string]$Style, [int]$LoMidi, $Mask, [int]$Seed) {
+    $rnd = New-Object Random $Seed; $pat = $script:StudioBassPatterns[$Style]; if (-not $pat) { $pat = $script:StudioBassPatterns['rootfifth'] }
+    $hits = @(Get-StudioPatternHits $pat 'rR3a58'); $out = New-Object Collections.Generic.List[object]; $barArr = @($Bars); $b = 0
+    foreach ($bar in $barArr) {
+        $barStart = $b * $BarBeats; $nextBar = $barArr[($b + 1) % $barArr.Count]
+        foreach ($h in $hits) {
+            $beat = $barStart + $h.Pos * $BarBeats; $c = Get-StudioChordAt $barArr $beat $BarBeats
+            $root = $LoMidi + ((($c.Bass - $LoMidi) % 12) + 12) % 12
+            $p = switch -CaseSensitive ($h.Ch) {
+                'R' { $root - 12 }
+                '8' { $root + 12 }
+                '5' { $root + 7 }
+                '3' { $root + $(if (@($c.Intervals) -contains 3) { 3 } else { 4 }) }
+                'a' { $nr = Get-StudioChordAt $nextBar 0 $BarBeats; $r2 = $LoMidi + ((($nr.Root - $LoMidi) % 12) + 12) % 12; if ($r2 -ge $root) { $r2 - 1 } else { $r2 + 1 } }
+                default { $root }
+            }
+            if ($p -lt 24) { $p += 12 }
+            $vel = if ($h.Pos * 4 -eq [math]::Floor($h.Pos * 4)) { 104 } else { 88 }
+            $len = [math]::Max(0.1, $h.Len * $BarBeats * $(if ($h.Ch -eq 'R') { 0.98 } else { 0.9 }))
+            $out.Add((New-Object HbStudio.Note ([int]$p), $beat, $len, ([int]($vel + $rnd.Next(-4, 5)))))
+        }
+        $b++
+    }
+    return , $out
+}
+
+function New-StudioArpNotes($Bars, [double]$BarBeats, [string]$Style, [int]$Rate, [int]$Lo, [int]$Hi, [int]$Seed) {
+    $rnd = New-Object Random $Seed; $out = New-Object Collections.Generic.List[object]; $barArr = @($Bars)
+    $stepBeats = 0.25 * [math]::Max(1, $Rate); $total = $barArr.Count * $BarBeats; $i = 0; $beat = 0.0
+    $seqs = @{ up = @(0, 1, 2, 3); down = @(3, 2, 1, 0); updown = @(0, 1, 2, 3, 2, 1); broken = @(0, 2, 1, 3, 2, 1); trance = @(0, 2, 3, 2, 0, 2, 3, 4) }
+    $seq = @($seqs[$Style]); if (-not $seq.Count -or $null -eq $seq[0]) { $seq = $seqs['updown'] }
+    while ($beat -lt $total - 1e-6) {
+        $c = Get-StudioChordAt $barArr $beat $BarBeats
+        $pcs = @(@($c.Intervals) | ForEach-Object { ($c.Root + $_) % 12 } | Select-Object -Unique)
+        $tones = @(); $base = $Lo + ((($c.Root - $Lo) % 12) + 12) % 12
+        for ($o = 0; $o -lt 3; $o++) { foreach ($pc in $pcs) { $p = $base + $o * 12 + ((($pc - $c.Root) % 12) + 12) % 12; if ($p -le $Hi) { $tones += $p } } }
+        $tones = @($tones | Sort-Object -Unique)
+        if ($tones.Count) {
+            $idx = [int]$seq[$i % $seq.Count]; $p = $tones[$idx % $tones.Count]
+            $out.Add((New-Object HbStudio.Note ([int]$p), $beat, ($stepBeats * 0.85), ([int]([math]::Min(120, 78 + $rnd.Next(0, 20) + $(if ($i % 4 -eq 0) { 12 } else { 0 }))))))
+        }
+        $i++; $beat += $stepBeats
+    }
+    return , $out
+}
+
+# Keeps the character of a melody but makes it fit the chords: notes on strong beats (on the beat or held long) move to the nearest
+# chord tone, the rest stay in the scale.
+function Convert-StudioMelodyToChords($Notes, $Bars, [double]$BarBeats, $Mask) {
+    $out = New-Object Collections.Generic.List[object]; $barArr = @($Bars)
+    foreach ($n in $Notes) {
+        $c = Get-StudioChordAt $barArr $n.Start $BarBeats; $pcs = @(@($c.Intervals) | ForEach-Object { ($c.Root + $_) % 12 })
+        $p = $n.Pitch; $strong = ((($n.Start % 1.0) -lt 0.06) -or $n.Len -ge 1.0)
+        if ($strong) { for ($d = 0; $d -le 6; $d++) { if ($pcs -contains ((($p - $d) % 12 + 12) % 12)) { $p -= $d; break }; if ($pcs -contains ((($p + $d) % 12 + 12) % 12)) { $p += $d; break } } }
+        elseif ($Mask) { $p = [HbStudio.Scales]::Snap([int]$p, $Mask) }
+        $nn = $n.Clone(); $nn.Pitch = [math]::Max(0, [math]::Min(127, [int]$p)); $out.Add($nn)
+    }
+    return , $out
+}
+
+# Reads the chords out of notes (one chord name per bar), so existing parts can be harmonised or reharmonised.
+function Get-StudioChordsFromNotes($Notes, [double]$BarBeats, [int]$BarCount) {
+    $names = @(); $prev = ''
+    $tpl = @(@('', 'maj'), @('m', 'm'), @('7', '7'), @('maj7', 'maj7'), @('m7', 'm7'), @('dim', 'dim'), @('sus4', 'sus4'))
+    $pen = @{ '' = 0; 'm' = 0; '7' = 0.05; 'maj7' = 0.06; 'm7' = 0.04; 'dim' = 0.08; 'sus4' = 0.08 }
+    for ($b = 0; $b -lt $BarCount; $b++) {
+        $w = New-Object 'double[]' 12; $low = $null; $lowP = 999
+        foreach ($n in $Notes) {
+            $s = $n.Start; $e = $n.Start + $n.Len; $lo = $b * $BarBeats; $hi = $lo + $BarBeats
+            $ov = [math]::Min($e, $hi) - [math]::Max($s, $lo); if ($ov -le 0) { continue }
+            $w[$n.Pitch % 12] += $ov * ($n.Vel / 100.0); if ($n.Pitch -lt $lowP) { $lowP = $n.Pitch; $low = $n.Pitch % 12 }
+        }
+        $tot = ($w | Measure-Object -Sum).Sum
+        if ($tot -le 0) { $names += $prev; continue }
+        $bestS = -99; $bestN = $prev
+        for ($r = 0; $r -lt 12; $r++) {
+            foreach ($t in $tpl) {
+                $iv = $script:StudioChordTypes[$t[1]]; $in = 0.0; $set = @{}
+                foreach ($x in $iv) { $set[($r + $x) % 12] = 1; $in += $w[($r + $x) % 12] }
+                $outW = $tot - $in; $s = ($in - 0.7 * $outW) / $tot - $pen[$t[0]] + $(if ($low -eq $r) { 0.15 } else { 0 })
+                if ($s -gt $bestS) { $bestS = $s; $bestN = $(if ($script:StudioFlats) { $script:StudioFlatNames[$r] } else { $script:StudioPcNames[$r] }) + $t[0] }
+            }
+        }
+        $names += $bestN; $prev = $bestN
+    }
+    return $names
+}
+
+# ---- the arranger: harmony plan + options -> tracks, one pattern per section, and a song --------------------------------------
+
+# ---- advanced composition: harmonic colour, key changes, motifs, counter-melodies, fills and automation -------------------------
+
+function New-StudioChordLike($Chord, [string]$Quality) { return (New-StudioChordObject $Chord.Root $Quality $Chord.Bass) }
+
+# Adds harmonic interest to a progression: richer qualities, secondary dominants into the next chord, passing diminished chords,
+# tritone substitutions, borrowed minor iv in major keys, and a V7 (or bII7-V7) turnaround on the last bar.
+function Add-StudioHarmonicColor($Bars, [double]$Amount, [int]$KeyPc, [string]$Scale, [int]$Seed, [bool]$Turnaround) {
+    Set-StudioNaming $KeyPc $Scale
+    $rnd = New-Object Random $Seed; $arr = @($Bars); $n = $arr.Count; $p = [math]::Max(0.0, [math]::Min(1.0, $Amount / 10.0)); $out = @()
+    $fam = Get-StudioScaleFamily $Scale
+    for ($b = 0; $b -lt $n; $b++) {
+        $chords = @($arr[$b].Chords); $c0 = $chords[0]; $next = @($arr[($b + 1) % $n].Chords)[0]; $new = @($chords)
+        if ($chords.Count -eq 1) {
+            $q = $c0.Quality
+            if ($q -eq 'maj' -and $rnd.NextDouble() -lt $p * 0.7) { $c0 = New-StudioChordLike $c0 (@('maj7', 'add9', '6', 'maj9')[$rnd.Next(0, 4)]) }
+            elseif ($q -eq 'm' -and $rnd.NextDouble() -lt $p * 0.7) { $c0 = New-StudioChordLike $c0 (@('m7', 'm9', 'madd9', 'm6', 'm11')[$rnd.Next(0, 5)]) }
+            elseif ($q -eq '7' -and $rnd.NextDouble() -lt $p * 0.6) { $c0 = New-StudioChordLike $c0 '9' }
+            $new = @($c0)
+            $r = $rnd.NextDouble(); $moves = (($next.Root - $c0.Root + 12) % 12) -ne 0
+            if ($moves -and $r -lt $p * 0.5 -and $next.Quality -notin 'dim', 'dim7', 'm7b5', 'aug') { $new = @($c0, (New-StudioChordObject (($next.Root + 7) % 12) '7')) }
+            elseif ($moves -and $r -lt $p * 0.65 -and $next.Quality -notin 'dim', 'dim7') { $new = @($c0, (New-StudioChordObject (($next.Root + 11) % 12) 'dim7')) }
+            elseif ($c0.Quality -in '7', '9' -and $rnd.NextDouble() -lt $p * 0.4) { $new = @((New-StudioChordObject (($c0.Root + 6) % 12) '7')) }
+        }
+        if ($fam -eq 'major' -and $new.Count -eq 1 -and $new[0].Root -eq (($KeyPc + 5) % 12) -and $new[0].Quality -in 'maj', 'maj7', 'add9' -and $rnd.NextDouble() -lt $p * 0.35) { $new = @(New-StudioChordObject $new[0].Root 'm') }
+        $out += @{ Chords = $new }
+    }
+    if ($Turnaround -and $n -ge 2 -and $p -gt 0) {
+        $tonic = @($arr[0].Chords)[0]; $v7 = New-StudioChordObject (($tonic.Root + 7) % 12) '7'
+        $out[$n - 1] = @{ Chords = $(if ($rnd.NextDouble() -lt 0.35 * $p) { @((New-StudioChordObject (($tonic.Root + 1) % 12) '7'), $v7) } else { @($v7) }) }
+    }
+    return $out
+}
+
+function Move-StudioBars($Bars, [int]$Shift, [int]$KeyPc, [string]$Scale) {
+    if (-not $Shift) { return @($Bars) }
+    Set-StudioNaming ((($KeyPc + $Shift) % 12 + 12) % 12) $Scale
+    $out = @()
+    foreach ($b in @($Bars)) {
+        $cs = @(); foreach ($c in @($b.Chords)) { $cs += (New-StudioChordObject ((($c.Root + $Shift) % 12 + 12) % 12) $c.Quality ((($c.Bass + $Shift) % 12 + 12) % 12)) }
+        $out += @{ Chords = $cs }
+    }
+    return $out
+}
+
+# ---- motif melody: a rhythm cell and contour developed over four-bar phrases (statement, sequence, contrast, resolution) ------
+
+function Get-StudioScalePitches($Mask, [int]$Lo, [int]$Hi) { $o = @(); for ($p = $Lo; $p -le $Hi; $p++) { if ($Mask[$p % 12]) { $o += $p } }; return $o }
+
+function Get-StudioNearestChordTone($Chord, [int]$Pitch) {
+    $pcs = @(@($Chord.Intervals) | ForEach-Object { ($Chord.Root + $_) % 12 }); $best = $Pitch; $bd = 99
+    for ($d = 0; $d -le 6; $d++) { foreach ($s in 1, -1) { $q = $Pitch + $s * $d; if ($pcs -contains ((($q % 12) + 12) % 12)) { if ($d -lt $bd) { $bd = $d; $best = $q } } } }
+    return $best
+}
+
+function New-StudioMotifMelodyBasic($Bars, [double]$BarBeats, $Mask, [int]$Seed, [string]$Style, [int]$Center, [int]$Variation) {
+    $rnd = New-Object Random $Seed
+    $rh = switch ($Style) {
+        'sparse' { @('x-------x-------', 'x---------x-----', 'x-----------x---') }
+        'riff' { @('x-xx-x-xx-x-x-x-', 'x-x-xx--x-x-xx--', 'xx-x-x-xx-x-x-xx') }
+        default { @('x-----x---x-----', 'x---x---x-----x-', 'x-----x-x---x---', 'x-------x-----x-') }
+    }
+    $contours = @(@(0, 1, 2, 1, 0, -1), @(0, 2, 1, 0, -2, 0), @(0, 0, 1, 0, 2, 1), @(2, 1, 0, -1, 0, 1), @(0, 1, 0, 2, 1, 3))
+    $rhythm = $rh[$rnd.Next(0, $rh.Count)]; $contour = $contours[$rnd.Next(0, $contours.Count)]
+    $hits = @(Get-StudioPatternHits $rhythm 'xX'); $scale = @(Get-StudioScalePitches $Mask 36 100)
+    $out = New-Object Collections.Generic.List[object]; $barArr = @($Bars); $nb = $barArr.Count
+    for ($b = 0; $b -lt $nb; $b++) {
+        $barStart = $b * $BarBeats; $ph = $b % 4; $c = Get-StudioChordAt $barArr $barStart $BarBeats
+        $anchor = Get-StudioNearestChordTone $c ($Center + @(0, 1, -1, 0)[$ph]); $ai = 0; for ($i = 0; $i -lt $scale.Count; $i++) { if ($scale[$i] -ge $anchor) { $ai = $i; break } }
+        $seq = switch ($ph) { 0 { 0 } 1 { 1 } 2 { -2 } default { 0 } }; $dir = if ($ph -eq 2) { -1 } else { 1 }
+        $last = ($ph -eq 3) -or ($b -eq $nb - 1); $k = 0
+        foreach ($h in $hits) {
+            $beat = $barStart + $h.Pos * $BarBeats; if ($Variation -ge 1 -and $b % 2 -eq 1) { $beat += 0.25 }
+            if ($beat -ge $barStart + $BarBeats - 0.05) { $k++; continue }
+            $deg = $contour[$k % $contour.Count] * $dir + $seq; $idx = [math]::Max(0, [math]::Min($scale.Count - 1, $ai + $deg)); $p = $scale[$idx]
+            $chordHere = Get-StudioChordAt $barArr $beat $BarBeats
+            if (($beat % 1.0) -lt 0.06 -or $h.Len * $BarBeats -ge 1.0) { $p = Get-StudioNearestChordTone $chordHere $p }
+            $len = [math]::Max(0.2, $h.Len * $BarBeats * 0.92); $out.Add((New-Object HbStudio.Note ([int]$p), $beat, $len, ([int](88 + $rnd.Next(-6, 9) + $(if (($beat % 1.0) -lt 0.06) { 8 } else { 0 })))))
+            $k++
+        }
+        if ($last -and $out.Count) {
+            $tail = $out[$out.Count - 1]; $res = Get-StudioNearestChordTone $c $tail.Pitch; $tail.Pitch = $res; $tail.Len = [math]::Max($tail.Len, $barStart + $BarBeats - $tail.Start - 0.1)
+        }
+    }
+    return , $out
+}
+
+# A sparse counter-line: long chord tones (thirds and sevenths first) moving by the smallest step, under the lead.
+function New-StudioCounterMelody($Bars, [double]$BarBeats, [int]$Seed, [int]$Center) {
+    $rnd = New-Object Random $Seed; $out = New-Object Collections.Generic.List[object]; $barArr = @($Bars); $prev = $Center; $b = 0
+    foreach ($bar in $barArr) {
+        $slots = if ($rnd.NextDouble() -lt 0.5) { @(0.0, 0.5) } else { @(0.0, 0.625) }
+        foreach ($s in $slots) {
+            $beat = $b * $BarBeats + $s * $BarBeats; $c = Get-StudioChordAt $barArr $beat $BarBeats
+            $cands = @(); foreach ($iv in @($c.Intervals)) { for ($o = 48; $o -le 78; $o++) { if ((($o - $c.Root) % 12 + 12) % 12 -eq ($iv % 12)) { $cands += @{ P = $o; Third = (($iv % 12) -in 3, 4, 10, 11) } } } }
+            $best = $null; $bs = 1e9; foreach ($cd in $cands) { $d = [math]::Abs($cd.P - $prev); if ($d -eq 0) { $d += 3 }; if ($cd.Third) { $d -= 1 }; if ($d -lt $bs) { $bs = $d; $best = $cd.P } }
+            if ($null -eq $best) { continue }
+            $out.Add((New-Object HbStudio.Note ([int]$best), $beat, ($BarBeats * 0.48), 72)); $prev = $best
+        }
+        $b++
+    }
+    return , $out
+}
+
+# Drum fills for the end of a section. snareroll: accelerating snares; tomrun: descending toms; kickdrop: kicks out and a snare pickup.
+function New-StudioDrumFill([string]$Kind, [double]$LoopBeats, [int]$Seed, $Mask = $null) {
+    $rnd = New-Object Random $Seed; $out = New-Object Collections.Generic.List[object]
+    switch ($Kind) {
+        'tomrun' {
+            $t0 = $LoopBeats - 2; $style = $rnd.Next(0, 3)
+            if ($style -eq 0) { $toms = @(50, 48, 47, 45, 43, 41, 45, 41); for ($i = 0; $i -lt 8; $i++) { $out.Add((New-Object HbStudio.Note $toms[$i], ($t0 + $i * 0.25), 0.2, ([int](92 + $i * 3)))) } }
+            else {
+                # tuned toms in the key, played as a run with a changing rhythm
+                $rhy = if ($style -eq 1) { @(0, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75) } else { @(0, 0.5, 0.75, 1.0, 1.25, 1.5, 1.625, 1.75, 1.875) }
+                $rp = Get-StudioRollPitches $rhy.Count 'tom' $Mask $Seed
+                for ($i = 0; $i -lt $rhy.Count; $i++) { $out.Add((New-Object HbStudio.Note $rp.Pitches[$i], ($t0 + $rhy[$i]), 0.2, $rp.Vels[$i])) }
+            }
+        }
+        'hatroll' {
+            # an accelerating tuned hat roll that spills over the last two beats
+            $t0 = $LoopBeats - 2; $pos = @(0, 0.5, 1.0, 1.25, 1.5, 1.625, 1.75, 1.875); $rp = Get-StudioRollPitches $pos.Count 'hat' $Mask $Seed
+            for ($i = 0; $i -lt $pos.Count; $i++) { $out.Add((New-Object HbStudio.Note $rp.Pitches[$i], ($t0 + $pos[$i]), 0.1, $rp.Vels[$i])) }
+            $out.Add((New-Object HbStudio.Note 38, ($LoopBeats - 0.5), 0.12, 112)); $out.Add((New-Object HbStudio.Note 39, ($LoopBeats - 0.25), 0.1, 120))
+        }
+        'kickdrop' { $t0 = $LoopBeats - 1; $out.Add((New-Object HbStudio.Note 38, ($t0 + 0.5), 0.12, 110)); $out.Add((New-Object HbStudio.Note 38, ($t0 + 0.75), 0.12, 118)); $out.Add((New-Object HbStudio.Note 39, ($t0 + 0.875), 0.1, 120)) }
+        default {
+            $t0 = $LoopBeats - 2; for ($i = 0; $i -lt 8; $i++) { $out.Add((New-Object HbStudio.Note 38, ($t0 + $i * 0.25), 0.12, ([int](60 + $i * 7)))) }
+            for ($i = 0; $i -lt 8; $i++) { $out.Add((New-Object HbStudio.Note 38, ($LoopBeats - 1 + $i * 0.125), 0.08, ([int](100 + $i * 3)))) }
+        }
+    }
+    return , $out
+}
+
+function Add-StudioAutoLane($Pat, [int]$TrackIndex, [string]$Param, [double[]]$Flat) {
+    $lane = New-Object HbStudio.AutoLane $TrackIndex, $Param
+    for ($i = 0; $i + 1 -lt $Flat.Count; $i += 2) { $lane.Points.Add([double[]]@($Flat[$i], $Flat[$i + 1])) }
+    $Pat.Auto.Add($lane)
+}
+
+# Section-aware automation: filter builds into bigger sections, filter closes after drops, mellow breakdowns, intro openings and outro fades.
+function Add-StudioPatternAuto($Pat, $Tracks, $Roles, [string]$Type, [int]$E, [int]$PrevE, [int]$NextE, [bool]$FirstVar, [bool]$LastVar, [bool]$LastSection, [int]$Loop, [double]$BB, [int]$Amount) {
+    if ($Amount -le 0) { return }
+    $k = [math]::Min(1.0, $Amount / 10.0); $len = $Loop * $BB; $bright = @('chords', 'pad', 'arp', 'motif', 'counter', 'texture', 'riff')
+    for ($i = 0; $i -lt $Tracks.Count; $i++) {
+        if ($i -ge $Pat.Notes.Count -or $Pat.Mutes[$i]) { continue }
+        $r = [string]$Roles[$Tracks[$i]]
+        if ($NextE - $E -ge 2 -and $LastVar -and $Loop -ge 2 -and $r -in $bright) { Add-StudioAutoLane $Pat $i 'lp' @(($len - 2 * $BB), 500, $len, (6000 + 10000 * $k)) }
+        if ($NextE - $E -ge 3 -and $LastVar -and $r -in 'chords', 'pad') { Add-StudioAutoLane $Pat $i 'hp' @(($len - $BB), 40, $len, (250 + 700 * $k)) }
+        if ($PrevE - $E -ge 3 -and $FirstVar -and $r -in 'bass', 'chords', 'arp', 'motif') { Add-StudioAutoLane $Pat $i 'lp' @(0, 16000, $BB, (900 + 2500 * (1 - $k)), $len, (900 + 2500 * (1 - $k))) }
+        if ($Type -eq 'breakdown' -and $r -in 'chords', 'pad', 'motif', 'counter') {
+            if ($LastVar -and $Loop -ge 2) { Add-StudioAutoLane $Pat $i 'lp' @(0, 1800, ($len - 2 * $BB), 1800, $len, 15000) } else { Add-StudioAutoLane $Pat $i 'lp' @(0, 1800, $len, 2600) }
+        }
+        if ($Type -eq 'intro' -and $r -in 'chords', 'pad', 'texture') { Add-StudioAutoLane $Pat $i 'lp' @(0, 400, $len, (5000 + 5000 * $k)) }
+        if ($Type -eq 'outro' -and $LastVar -and $LastSection) { Add-StudioAutoLane $Pat $i 'vol' @(0, 1.0, $len, 0.05) }
+    }
+}
+
+function Remove-StudioNotesFrom($List, [double]$FromBeat) {
+    for ($i = $List.Count - 1; $i -ge 0; $i--) { if ($List[$i].Start -ge $FromBeat) { $List.RemoveAt($i) } }
+}
+
+function Get-StudioTrackByName($Proj, [string]$Name) { return ($Proj.Tracks | Where-Object { $_.Name -eq $Name } | Select-Object -First 1) }
+
+# The pitches a synthesised kit voice answers to: the pitched-hat and pitched-tom voices cover a whole range, every other voice one note.
+function Get-StudioKitRange($Track) {
+    $n = [string]$Track.Name
+    if ($n -match '^Pitched Hat') { return @{ Lo = 72; Hi = 127 } }
+    if ($n -match '^Pitched Tom') { return @{ Lo = 60; Hi = 71 } }
+    return @{ Lo = [int]$Track.SampleRoot; Hi = [int]$Track.SampleRoot }
+}
+
+function Add-StudioMixRules($Proj) {
+    $names = @($Proj.Tracks | ForEach-Object { $_.Name }); $added = @()
+    $kick = $Proj.Tracks | Where-Object { $_.Name -match 'kick' } | Select-Object -First 1
+    if (-not $kick) { $kick = $Proj.Tracks | Where-Object { $_.Synth -eq 'drums' } | Select-Object -First 1 }
+    $targets = @('Chords', 'Pad', 'Bass', 'Arp', 'Texture') | Where-Object { $names -contains $_ }
+    $mk = { param($json) $r = New-Object HbStudio.MixRule; [void](Set-StudioObjectFromJson $r ($json | ConvertFrom-Json)); $Proj.Mix.Add($r); $r }
+    if ($kick -and $targets.Count) { [void](& $mk ('{"Kind":"sidechain","Source":"' + $(if ($kick.Name -match 'kick') { 'kick' } else { $kick.Name }) + '","Target":"' + ($targets -join ',') + '","Depth":0.6,"AttackMs":3,"ReleaseMs":170}')); $added += 'sidechain' }
+    $hp = @('Chords', 'Pad', 'Arp', 'Texture') | Where-Object { $names -contains $_ }
+    if ($hp.Count) { [void](& $mk ('{"Kind":"highpass","Target":"' + ($hp -join ',') + '","FreqHz":160,"Q":0.7}')); $added += 'highpass' }
+    if ($names -contains 'Bass') { [void](& $mk '{"Kind":"monobass","Target":"Bass","FreqHz":120}'); $added += 'monobass' }
+    $wd = @('Pad', 'Texture') | Where-Object { $names -contains $_ }
+    if ($wd.Count) { [void](& $mk ('{"Kind":"width","Target":"' + ($wd -join ',') + '","Width":1.4}')); $added += 'width' }
+    return $added
+}
+
+function Set-StudioTrackBalance($Proj) {
+    $vol = @{ Chords = 0.55; Pad = 0.45; Bass = 0.85; Arp = 0.5; Texture = 0.4; Risers = 0.5 }; $pan = @{ Chords = 0.15; Arp = -0.25; Pad = 0 }
+    foreach ($t in $Proj.Tracks) {
+        if ($vol.ContainsKey($t.Name)) { $t.Vol = $vol[$t.Name] }; if ($pan.ContainsKey($t.Name)) { $t.Pan = $pan[$t.Name] }
+        if ($t.Name -match '\(kit\)$') { $t.Vol = 0.85 }
+    }
+}
+
+function Build-StudioArrangement($Proj, $Plan, $Opts) {
+    # On a rebuild the project already holds the finished timeline; go back to the loop length and base notes it started from.
+    $isRebuild = ($Opts.Source -is [hashtable]) -and $Opts.Source.ContainsKey('__bars')
+    if ($isRebuild) { $Proj.Bars = [int]$Opts.Source['__bars'] } elseif ($Opts.Source -is [hashtable]) { $Opts.Source['__bars'] = [int]$Proj.Bars }
+    $loop = [int]$Proj.Bars; $bb = [double]$Proj.BarBeats; $spb = [int][math]::Round($bb * 4); $seed = [int]$Opts.Seed
+    $mask = [HbStudio.Scales]::Mask([int]$Plan.KeyPc, [string]$Plan.Scale)
+    $roles = @{}; $origNotes = @{}
+    foreach ($t in @($Proj.Tracks)) {
+        $n = $t.Name
+        $r = if ($n -eq 'Risers') { 'risers' } elseif ($n -like 'Texture*') { 'texture' } elseif ($t.Synth -eq 'drums') { 'drums' } elseif ($n -match '\(kit\)$') { 'kit' } elseif ($n -in 'Chords', 'Pad', 'Bass', 'Arp', 'Motif', 'Counter') { $n.ToLower() } elseif ($Opts.Extras -and $Opts.Extras.ContainsKey($n)) { 'riff' } elseif ($t.Notes.Count -gt 0) { 'melody' } else { 'other' }
+        $roles[$t] = $r
+        if ($r -in 'melody', 'drums', 'kit', 'texture', 'other') {
+            if ($Opts.Source -and $Opts.Source.ContainsKey($t.Name)) { $origNotes[$t] = @($Opts.Source[$t.Name] | ForEach-Object { $_.Clone() }) }
+            else { $captured = @($t.Notes | ForEach-Object { $_.Clone() }); if ($isRebuild) { $captured = @() }; $origNotes[$t] = $captured; if ($Opts.Source -is [hashtable]) { $Opts.Source[$t.Name] = $captured } }
+        }
+    }
+    $want = @($Opts.Tracks); if (-not $want.Count) { $want = @('Chords', 'Pad', 'Bass', 'Arp') }
+    $mk = {
+        param([string]$Name, [string]$Preset, [string]$Synth)
+        $ex = Get-StudioTrackByName $Proj $Name; if ($ex) { return $ex }
+        if ($Preset -and $script:StudioPresets.Contains($Preset)) { $t = Add-StudioPresetTrack $Proj $Preset } else { $t = New-StudioTrack $Name $Synth; $Proj.Tracks.Add($t) }
+        $t.Name = $Name; $roles[$t] = $Name.ToLower(); return $t
+    }
+    $created = @()
+    $compRhythmic = ($Plan.Comp -in 'pulse8', 'offbeat', 'synco', 'stab')
+    if ($want -contains 'Chords') { $created += (& $mk 'Chords' $(if ($compRhythmic) { 'Lead - hollow pulse' } else { 'Pad - supersaw drift' }) 'pad').Name }
+    if ($want -contains 'Pad') { $created += (& $mk 'Pad' 'Pad - dark noise air' 'pad').Name }
+    if ($want -contains 'Bass') { $created += (& $mk 'Bass' $(if ($Plan.Bass -eq 'sub') { 'Bass - sub 808' } elseif ($Plan.Bass -in 'synco', 'acid16') { 'Bass - acid 303' } else { 'Bass - reese' }) 'acid').Name }
+    if ($want -contains 'Arp') { $created += (& $mk 'Arp' 'Lead - FM glass bell' 'pluck').Name }
+    if ($Opts.Motif) { $created += (& $mk 'Motif' 'Lead - hollow pulse' 'pluck').Name }
+    if ($Opts.Counter) { $created += (& $mk 'Counter' 'Pluck - squelchy' 'pluck').Name }
+    if ($Opts.Extras) { foreach ($xn in @($Opts.Extras.Keys)) { $xt = & $mk $xn '' 'pluck'; $roles[$xt] = 'riff'; if ($created -notcontains $xn) { $xt.Vol = 0.5; $created += $xn } } }
+    $haveDrums = [bool]@($Proj.Tracks | Where-Object { $roles[$_] -in 'drums', 'kit' -and $_.Notes.Count -gt 0 }).Count
+    $regen = [bool]$Opts.RegenDrums -or -not $haveDrums
+    $drumTrack = $Proj.Tracks | Where-Object { $_.Synth -eq 'drums' } | Select-Object -First 1
+    $hasKit = [bool]@($Proj.Tracks | Where-Object { $roles[$_] -eq 'kit' }).Count
+    if ($regen -and -not $drumTrack -and -not $hasKit -and $Opts.Drums -ne $false) { $drumTrack = & $mk 'Drums' '' 'drums'; $roles[$drumTrack] = 'drums'; $created += 'Drums' }
+    Set-StudioTrackBalance $Proj
+    $tracks = @($Proj.Tracks)
+    $energies = @($Plan.Sections | ForEach-Object { $_.Energy })
+    $Proj.Patterns.Clear(); $Proj.Song.Clear(); $patIndex = 0; $si = 0; $patSection = New-Object 'Collections.Generic.List[int]'; $Plan['PatSec'] = $patSection
+    foreach ($sec in $Plan.Sections) {
+        $e = [int]$sec.Energy; $ty = [string]$sec.Type; $reps = [int][math]::Max(1, [math]::Round($sec.Length / [double]$loop))
+        $nVar = [math]::Min(16, $reps); $eSec = $e
+        $firstIdx = $patIndex
+        for ($v = 0; $v -lt $nVar; $v++) {
+            # every phrase of a section is its own pattern, and the energy rises through the section (quieter start, fuller middle)
+            $e = $eSec; if ($nVar -ge 3) { if ($v -eq 0) { $e = $eSec - 1 } elseif ($v -ge [math]::Floor($nVar / 2) -and $v -lt $nVar - 1) { $e = $eSec + 1 } }
+            $e = [int][math]::Max($(if ($eSec -ge 2) { 2 } else { 1 }), [math]::Min(10, $e))
+            $pat = New-Object HbStudio.Pattern; $pat.Name = $(if ($nVar -gt 1) { "$($sec.Name) #$($v + 1)" } else { [string]$sec.Name }); $pat.Bars = $loop
+            $patSection.Add($si)
+            $sd = $seed + $si * 31 + $v * 7
+            $comp = if ($Plan.Comp -ne 'auto') { $Plan.Comp } elseif ($ty -eq 'breakdown' -or $e -le 3) { 'sustain' } elseif ($e -le 5) { 'half' } elseif ($e -le 7) { 'offbeat' } else { 'synco' }
+            $bassStyle = if ($Plan.Bass -ne 'auto') { $Plan.Bass } elseif ($ty -eq 'breakdown') { 'sub' } elseif ($e -le 5) { 'rootfifth' } elseif ($e -le 7) { 'driving8' } else { 'synco' }
+            $arpStyle = if ($Plan.Arp -ne 'auto') { $Plan.Arp } elseif ($e -ge 8) { 'trance' } elseif ($e -ge 6) { 'updown' } else { 'up' }
+            $bars = if (($v % 2) -eq 1 -and $sec.BarsB) { $sec.BarsB } else { $sec.Bars }
+            $shift = [int]$sec.Shift; $secMask = if ($shift) { [HbStudio.Scales]::Mask((([int]$Plan.KeyPc + $shift) % 12 + 12) % 12, [string]$Plan.Scale) } else { $mask }
+            $prevE = if ($si -gt 0) { $energies[$si - 1] } else { $e }; $nextE = if ($si + 1 -lt $energies.Count) { $energies[$si + 1] } else { $e }
+            $dn = $null; $kitRanges = @($tracks | Where-Object { $roles[$_] -eq 'kit' } | ForEach-Object { Get-StudioKitRange $_ })
+            if ($regen -and $e -ge 2 -and $Opts.Drums -ne $false) {
+                $dens = [math]::Max(2, [math]::Min(10, $e)); $weird = [int][math]::Max(1, [math]::Min(10, $(if ($Opts.Weird) { $Opts.Weird } else { 4 }) + $v))
+                $feel = if ($ty -eq 'breakdown') { 'half' } else { [string]$Plan.DrumFeel }
+                $lanes = $null; if ($Opts.Complexity) { $lanes = New-StudioDrumLanes $feel $e ([int]$Opts.Complexity) $spb $loop ($seed + $si * 31) $v }
+                if (-not $lanes) { $lanes = New-StudioGroove "$feel $($Opts.DrumStyle)" '' $dens $weird $spb $loop $null }
+                $keepLanes = @($lanes | Where-Object { $nm = [string]$_[0]; if ($e -le 2) { $nm -in 'hat', 'perc', 'rim' } elseif ($ty -eq 'breakdown') { $nm -notin 'kick' } else { $true } })
+                $dn = New-Object Collections.Generic.List[object]
+                if ($keepLanes.Count) { foreach ($n in (ConvertFrom-StudioDrumLanes $keepLanes $spb ($loop * $bb) 1 $secMask ($seed + $si * 31 + $v * 11))) { $dn.Add($n) } }
+                if ($e -ge 7 -and $v -eq 0) { $dn.Add((New-Object HbStudio.Note 49, 0.0, 0.5, 105)) }
+                if ($Opts.Trans -and $v -eq ($nVar - 1) -and ($nextE - $e -ge 2 -or $nextE -gt $e -and $e -ge 5)) {
+                    $fk = @('snareroll', 'tomrun', 'kickdrop', 'hatroll')[($sd % 4)]; $fl = $loop * $bb; $from = if ($fk -eq 'kickdrop') { $fl - 1 } else { $fl - 2 }
+                    Remove-StudioNotesFrom $dn $from; foreach ($n in (New-StudioDrumFill $fk $fl $sd $secMask)) { $dn.Add($n) }
+                } elseif ($Opts.Trans -and ($v % 2) -eq 1 -and $v -lt ($nVar - 1) -and $e -ge 4) {
+                    $fk = @('kickdrop', 'tomrun', 'hatroll')[([math]::Floor($v / 2) % 3)]; $fl = $loop * $bb; $from = if ($fk -eq 'kickdrop') { $fl - 1 } else { $fl - 2 }
+                    Remove-StudioNotesFrom $dn $from; foreach ($n in (New-StudioDrumFill $fk $fl $sd $secMask)) { $dn.Add($n) }
+                }
+            }
+            foreach ($tr in $tracks) {
+                $role = $roles[$tr]; $keep = New-Object 'Collections.Generic.List[HbStudio.Note]'
+                switch ($role) {
+                    'chords' { if ($e -ge 2) { foreach ($n in (New-StudioChordNotes $bars $bb $comp $Plan.Voicing 52 76 $sd)) { $keep.Add($n) } } }
+                    'pad' { if ($e -ge 2 -and ($e -le 6 -or $ty -in 'breakdown', 'bridge', 'intro', 'outro')) { foreach ($n in (New-StudioChordNotes $bars $bb 'sustain' 'open' 60 84 $sd)) { $keep.Add($n) } } }
+                    'bass' { if (($e -ge 4 -and $ty -ne 'intro') -or ($ty -eq 'breakdown' -and $e -ge 3)) { foreach ($n in (New-StudioBassNotes $bars $bb $bassStyle 36 $mask $sd)) { $keep.Add($n) } } }
+                    'arp' { if ($e -ge 6 -or ($ty -in 'build', 'bridge' -and $e -ge 4)) { foreach ($n in (New-StudioArpNotes $bars $bb $arpStyle $(if ($e -ge 7) { 1 } else { 2 }) 60 88 $sd)) { $keep.Add($n) } } }
+                    { $_ -in 'drums', 'kit' } {
+                        if ($regen) {
+                            foreach ($n in $dn) {
+                                if ($role -eq 'kit') { $kr = Get-StudioKitRange $tr; if ([int]$n.Pitch -ge $kr.Lo -and [int]$n.Pitch -le $kr.Hi) { $keep.Add($n.Clone()) } }
+                                else { $covered = $false; foreach ($kr in $kitRanges) { if ([int]$n.Pitch -ge $kr.Lo -and [int]$n.Pitch -le $kr.Hi) { $covered = $true; break } }; if (-not $covered) { $keep.Add($n.Clone()) } }
+                            }
+                        } elseif ($origNotes.ContainsKey($tr) -and $e -ge 3) {
+                            foreach ($n in $origNotes[$tr]) { $ok = $true; if ($e -le 4 -and $n.Pitch -in 35, 36, 37, 38, 39, 40) { $ok = $false } elseif ($e -le 5 -and $n.Vel -lt 60) { $ok = $false }; if ($ok) { $keep.Add($n.Clone()) } }
+                        }
+                    }
+                    'melody' {
+                        if ($e -ge 4 -or $ty -in 'breakdown', 'bridge') {
+                            $src = if ($shift) { @($origNotes[$tr] | ForEach-Object { $c2 = $_.Clone(); $c2.Pitch = [math]::Min(127, $c2.Pitch + $shift); $c2 }) } else { $origNotes[$tr] }
+                            $adapted = if ($Opts.Adapt -eq $false) { $src } else { Convert-StudioMelodyToChords $src $bars $bb $secMask }
+                            $lift = ($ty -in 'chorus', 'drop' -and ($v % 2) -eq 1 -and (($adapted | Measure-Object Pitch -Maximum).Maximum -le 79))
+                            $endBeat = $bb * $loop
+                            foreach ($n in $adapted) {
+                                $c = $n.Clone(); if ($lift) { $c.Pitch += 12 }
+                                if ($nVar -ge 2 -and $loop -ge 4) {
+                                    # call and response: some phrases breathe in the last bar, others answer an octave higher
+                                    if (($v % 4) -eq 1 -and $c.Start -ge $endBeat - $bb) { continue }
+                                    if (($v % 4) -eq 3 -and $c.Start -ge $endBeat / 2 -and $c.Pitch -le 79) { $c.Pitch += 12 }
+                                }
+                                $keep.Add($c)
+                            }
+                        }
+                    }
+                    'motif' {
+                        if ($e -ge 4) {
+                            $mst = if ($Opts.MotifStyle) { [string]$Opts.MotifStyle } elseif ($e -ge 8) { 'riff' } elseif ($e -ge 6) { 'lyrical' } else { 'sparse' }
+                            $ctr = if ($ty -in 'chorus', 'drop') { 74 } else { 68 }
+                            foreach ($n in (New-StudioMotifMelody $bars $bb $secMask ($seed + $si * 17) $mst $ctr $v $(if ($Opts.Complexity) { [int]$Opts.Complexity } else { 5 }))) { $keep.Add($n) }
+                        }
+                    }
+                    'counter' { if (($e -ge 5 -and $e -le 8) -or ($ty -in 'breakdown', 'bridge' -and $e -ge 3)) { foreach ($n in (New-StudioCounterMelody $bars $bb ($seed + $si * 13 + $v * 3) 62)) { $keep.Add($n) } } }
+                    'riff' {
+                        $cfg = $Opts.Extras[$tr.Name]
+                        if ($cfg -and $e -ge [int]$cfg.Min -and $e -le [int]$cfg.Max) { foreach ($n in (New-StudioMotifMelody $bars $bb $secMask ($seed + 101 + $si * 19 + $v * 5) ([string]$cfg.Style) ([int]$cfg.Center) ($v + 1) $(if ($Opts.Complexity) { [int]$Opts.Complexity } else { 5 }))) { $keep.Add($n) } }
+                    }
+                    'texture' { $srcT = if ($origNotes.ContainsKey($tr)) { $origNotes[$tr] } else { $tr.Notes }; foreach ($n in $srcT) { $keep.Add($n.Clone()) } }
+                    'risers' {
+                        $nextE = if ($si + 1 -lt $energies.Count) { $energies[$si + 1] } else { 0 }
+                        if ($nextE - $e -ge 3 -and $loop -ge 2 -and $v -eq ($nVar - 1)) { $keep.Add((New-Object HbStudio.Note 48, (($loop - 2) * $bb), (2 * $bb), 110)) }
+                    }
+                    default { if ($e -ge 4) { $srcD = if ($origNotes.ContainsKey($tr)) { $origNotes[$tr] } else { $tr.Notes }; foreach ($n in $srcD) { $keep.Add($n.Clone()) } } }
+                }
+                $pat.Notes.Add($keep); $pat.Mutes.Add($keep.Count -eq 0)
+            }
+            if ($Opts.Trans -and $v -eq ($nVar - 1) -and ($nextE - $e -ge 3) -and $nextE -ge 7) {
+                $gapFrom = $loop * $bb - 1.0
+                for ($ti = 0; $ti -lt $tracks.Count; $ti++) { if ([string]$roles[$tracks[$ti]] -in 'chords', 'pad', 'arp', 'motif', 'counter', 'melody', 'bass', 'riff') { Remove-StudioNotesFrom $pat.Notes[$ti] $gapFrom; $pat.Mutes[$ti] = ($pat.Notes[$ti].Count -eq 0) } }
+            }
+            Add-StudioPatternAuto $pat $tracks $roles $ty $e $prevE $nextE ($v -eq 0) ($v -eq ($nVar - 1)) ($si -eq $Plan.Sections.Count - 1) $loop $bb ([int]$Opts.Auto)
+            $Proj.Patterns.Add($pat); $patIndex++
+        }
+        for ($k = 0; $k -lt $reps; $k++) { $Proj.Song.Add((New-Object HbStudio.SongItem ($firstIdx + ($k % $nVar)), 1)) }
+        $si++
+    }
+    # the editor shows the first full section
+    $show = $Proj.Patterns | Where-Object { @($_.Mutes | Where-Object { -not $_ }).Count -ge 3 } | Select-Object -First 1; if (-not $show -and $Proj.Patterns.Count) { $show = $Proj.Patterns[0] }
+    if ($show) { for ($k = 0; $k -lt $tracks.Count; $k++) { $tracks[$k].Notes.Clear(); foreach ($n in $show.Notes[$k]) { $tracks[$k].Notes.Add($n.Clone()) } } }
+    return ("{0} sections, {1} patterns, {2} bars of song; tracks: {3}." -f $Plan.Sections.Count, $Proj.Patterns.Count, ((@($Proj.Song | ForEach-Object { 1 }).Count) * $loop), (($tracks | ForEach-Object { $_.Name }) -join ', '))
+}
+
+# AI chord progression for a described mood, validated by the parser so only real chords come back.
+function Invoke-StudioProgressionDesign([string]$Model, [string]$Ask, [int]$KeyPc, [string]$Scale, [int]$Bars, [string]$Brief) {
+    $keyName = $script:StudioPcNames[$KeyPc]
+    $sys = "You are a composer and arranger with deep music theory knowledge. Write a chord progression of exactly $Bars chords (one per bar) in $keyName $Scale for the described music. Reply with ONE JSON object and nothing else (no markdown): {`"progression`":[`"i`",`"VI`",`"III`",`"VII`"],`"voicing`":`"open`",`"comping`":`"sustain`",`"bass`":`"rootfifth`",`"arp`":`"updown`",`"why`":`"one sentence on the harmonic idea`"}. Chords are roman numerals relative to the key (uppercase major, lowercase minor, bVI, V7, i7, IVmaj7, iv9...) or chord names (Cm7, Ab, Bb/D). voicing is one of close, open, spread, power, shell; comping one of sustain, half, offbeat, pulse8, synco, stab; bass one of root, rootfifth, driving8, octave, synco, offbeat, sub, walking, acid16; arp one of up, updown, broken, trance. Use tension and resolution deliberately (for example a dominant before the tonic, a borrowed chord for colour) and keep a clear bass line.`n$(Get-StudioMusicKnowledge)"
+    $user = "Music wanted: $Ask"; if ($Brief) { $user += "`nProducer creative direction:`n$Brief" }
+    $res = Invoke-StudioJsonModel $Model $sys $user 1500 ({ param($x) $o = Find-StudioJsonObject $x ''; if (-not $o.progression) { throw 'The JSON needs a "progression" array.' }; $o })
+    $o = $res.Value; $parsed = @(ConvertFrom-StudioProgression $o.progression $KeyPc $Scale)
+    if (-not $parsed.Count) { throw 'None of the chords in the reply could be read.' }
+    return @{ Bars = $parsed; Text = (Get-StudioProgressionText $parsed); Voicing = [string]$o.voicing; Comp = [string]$o.comping; Bass = [string]$o.bass; Arp = [string]$o.arp; Why = [string]$o.why }
+}
+
+# ---------------------------------------------------------------------------------------------------------------
+# Style templates (tempo, mode, progressions, groove, bass, structure, sounds, loudness) and the producer critic
+# ---------------------------------------------------------------------------------------------------------------
+
+$script:StudioStyles = [ordered]@{
+    'Techno (peak time)' = @{ Bpm = 132; Scale = 'minor'; Feel = 'dance'; Dens = 7; Weird = 3; Comp = 'stab'; Bass = 'offbeat'; Arp = 'trance'; Voicing = 'power'; Motif = 'riff'; Color = 2; Auto = 8; Master = 2
+        Structure = @(@('Intro', 16, 2), @('Groove', 16, 5), @('Build', 8, 7), @('Peak', 16, 9), @('Breakdown', 8, 3), @('Build', 8, 7), @('Peak', 16, 10), @('Outro', 16, 2))
+        Progs = @{ verse = 'i i VII VI'; chorus = 'i VI VII VII'; breakdown = 'i i i i' }
+        Sounds = @{ lead = 'hypnotic detuned saw stab with resonant filter movement'; bass = 'short rumbling sub with distortion'; pad = 'dark filtered pad'; drums = 'punchy 909-style kick, tight hats, claps'; texture = 'industrial noise bed' }
+        Desc = 'driving four-on-the-floor techno with hypnotic minimal chords, rolling off-beat bass, long filter builds and a breakdown' }
+    'House (deep)' = @{ Bpm = 123; Scale = 'minor'; Feel = 'dance'; Dens = 6; Weird = 2; Comp = 'offbeat'; Bass = 'offbeat'; Arp = 'updown'; Voicing = 'open'; Motif = 'lyrical'; Color = 6; Auto = 7; Master = 2
+        Structure = @(@('Intro', 16, 2), @('Verse', 16, 5), @('Build', 8, 7), @('Chorus', 16, 8), @('Breakdown', 8, 3), @('Chorus', 16, 9), @('Outro', 16, 2))
+        Progs = @{ verse = 'i7 iv7 bVII7 bIIImaj7'; chorus = 'bVImaj7 bVII7 i7 i7'; breakdown = 'i7 i7 bVImaj7 bVImaj7' }
+        Sounds = @{ lead = 'warm electric-piano-like FM chord stabs'; bass = 'round filtered saw bass with a short envelope'; pad = 'lush detuned pad with chorus'; drums = 'soft swung kick, shuffled hats, claps'; texture = 'vinyl-like noise' }
+        Desc = 'soulful deep house with jazzy seventh chords, a bouncing bass and swung hats' }
+    'Trance (uplifting)' = @{ Bpm = 138; Scale = 'minor'; Feel = 'dance'; Dens = 7; Weird = 2; Comp = 'pulse8'; Bass = 'offbeat'; Arp = 'trance'; Voicing = 'close'; Motif = 'lyrical'; Color = 3; Auto = 10; Master = 2
+        Structure = @(@('Intro', 16, 2), @('Verse', 16, 4), @('Build', 16, 7), @('Drop', 16, 9), @('Breakdown', 16, 3), @('Build', 8, 8), @('Drop', 16, 10), @('Outro', 16, 2))
+        Progs = @{ verse = 'i VI III VII'; chorus = 'VI VII i i'; breakdown = 'VI VII i i'; build = 'iv VI VII V' }
+        Sounds = @{ lead = 'bright supersaw lead with long reverb tail'; bass = 'rolling offbeat saw bass'; pad = 'huge detuned supersaw pad'; drums = 'driving kick, open off-beat hats, snare rolls'; texture = 'white noise sweeps' }
+        Desc = 'uplifting trance with soaring supersaw melodies, long builds and an emotional breakdown' }
+    'Drum and bass' = @{ Bpm = 174; Scale = 'minor'; Feel = 'break'; Dens = 8; Weird = 5; Comp = 'stab'; Bass = 'synco'; Arp = 'broken'; Voicing = 'close'; Motif = 'riff'; Color = 3; Auto = 8; Master = 2
+        Structure = @(@('Intro', 16, 3), @('Build', 8, 6), @('Drop', 32, 9), @('Breakdown', 16, 3), @('Build', 8, 7), @('Drop', 32, 10), @('Outro', 16, 2))
+        Progs = @{ verse = 'i i VI VII'; chorus = 'i VI VII i'; breakdown = 'VI VI VII VII' }
+        Sounds = @{ lead = 'sharp FM stab with fast decay'; bass = 'growling reese bass with filter movement'; pad = 'airy dark pad'; drums = 'snappy amen-style breaks, deep sub kick'; texture = 'foggy atmosphere' }
+        Desc = 'fast drum and bass with rolling breaks, a heavy reese bass and a half-time breakdown' }
+    'IDM (Aphex-style)' = @{ Bpm = 140; Scale = 'dorian'; Feel = 'break'; Dens = 7; Weird = 9; Comp = 'sustain'; Bass = 'sub'; Arp = 'broken'; Voicing = 'open'; Motif = 'lyrical'; Color = 8; Auto = 8; Master = 1
+        Structure = @(@('Intro', 8, 2), @('Verse', 16, 5), @('Build', 8, 7), @('Chorus', 16, 8), @('Breakdown', 8, 3), @('Chorus', 16, 9), @('Outro', 8, 2))
+        Progs = @{ verse = 'i7 bVImaj7 bIIImaj7 bVII7'; chorus = 'iv9 bVII7 i7 i7'; breakdown = 'i7 i7 iv7 iv7' }
+        Sounds = @{ lead = 'glassy FM bell with detuned layers'; bass = 'warm sub with a fast filter envelope'; pad = 'evolving detuned pad with slow modulation'; drums = 'chopped broken breakbeat with ghost snares and ratchets'; texture = 'granular spectral drift' }
+        Desc = 'intricate IDM with broken beats, odd phrasing, jazzy altered chords and delicate glassy melodies' }
+    'Ambient / drone' = @{ Bpm = 78; Scale = 'dorian'; Feel = 'half'; Dens = 2; Weird = 3; Comp = 'sustain'; Bass = 'sub'; Arp = 'up'; Voicing = 'open'; Motif = 'sparse'; Color = 7; Auto = 9; Master = 3
+        Structure = @(@('Intro', 16, 1), @('Verse', 16, 3), @('Build', 8, 4), @('Chorus', 16, 5), @('Breakdown', 8, 2), @('Outro', 16, 1))
+        Progs = @{ verse = 'i7 IV7 i7 IV7'; chorus = 'IV7 i7 IV7 bVII' }
+        Sounds = @{ lead = 'slow soft bell tones'; bass = 'deep pure sine drone'; pad = 'enormous slowly evolving pad with huge reverb'; drums = 'barely-there soft pulses'; texture = 'shimmering spectral wash' }
+        Desc = 'slow ambient soundscape: long evolving pads, sparse bell melodies and no hard rhythm' }
+    'Synthwave' = @{ Bpm = 105; Scale = 'minor'; Feel = 'dance'; Dens = 5; Weird = 2; Comp = 'pulse8'; Bass = 'driving8'; Arp = 'updown'; Voicing = 'close'; Motif = 'lyrical'; Color = 2; Auto = 6; Master = 0
+        Structure = @(@('Intro', 8, 3), @('Verse', 16, 5), @('Chorus', 16, 8), @('Verse', 16, 5), @('Chorus', 16, 9), @('Breakdown', 8, 3), @('Chorus', 16, 10), @('Outro', 8, 2))
+        Progs = @{ verse = 'i VI III VII'; chorus = 'VI VII i i' }
+        Sounds = @{ lead = 'analog-style saw lead with vibrato and delay'; bass = 'pulsing 8th-note saw bass'; pad = 'warm 80s polysynth pad'; drums = 'gated-reverb snare, punchy electronic kick'; texture = 'neon tape hiss' }
+        Desc = 'retro 80s synthwave with pulsing bass, bright arpeggios and a big gated snare' }
+    'Lo-fi hip hop' = @{ Bpm = 82; Scale = 'major'; Feel = 'half'; Dens = 4; Weird = 3; Comp = 'half'; Bass = 'root'; Arp = 'broken'; Voicing = 'open'; Motif = 'sparse'; Color = 8; Auto = 4; Master = 0
+        Structure = @(@('Intro', 8, 2), @('Verse', 16, 4), @('Chorus', 16, 5), @('Verse', 16, 4), @('Chorus', 16, 6), @('Outro', 8, 2))
+        Progs = @{ verse = 'ii7 V7 Imaj7 vi7'; chorus = 'IVmaj7 iii7 vi7 V7' }
+        Sounds = @{ lead = 'mellow detuned electric piano'; bass = 'soft round sine bass'; pad = 'dusty warm pad'; drums = 'lazy swung boom-bap kick and snare with soft hats'; texture = 'vinyl crackle and tape wobble' }
+        Desc = 'relaxed lo-fi hip hop with jazzy extended chords, a dusty swung beat and tape warmth' }
+    'Dubstep / bass music' = @{ Bpm = 140; Scale = 'minor'; Feel = 'half'; Dens = 5; Weird = 4; Comp = 'stab'; Bass = 'acid16'; Arp = 'broken'; Voicing = 'power'; Motif = 'riff'; Color = 1; Auto = 9; Master = 2
+        Structure = @(@('Intro', 16, 2), @('Verse', 16, 4), @('Build', 8, 8), @('Drop', 16, 10), @('Breakdown', 8, 3), @('Build', 8, 8), @('Drop', 16, 10), @('Outro', 8, 2))
+        Progs = @{ verse = 'i i VI VII'; chorus = 'i i i VII' }
+        Sounds = @{ lead = 'screeching FM and saw lead'; bass = 'wobbling heavy bass with LFO filter and distortion'; pad = 'dark brooding pad'; drums = 'huge half-time snare, deep sub kick'; texture = 'riser noise' }
+        Desc = 'heavy half-time bass music with wobbling bass, huge snare and dramatic builds and drops' }
+    'Electro (Drexciya)' = @{ Bpm = 128; Scale = 'minor'; Feel = 'dance'; Dens = 6; Weird = 5; Comp = 'synco'; Bass = 'synco'; Arp = 'updown'; Voicing = 'close'; Motif = 'riff'; Color = 3; Auto = 6; Master = 1
+        Structure = @(@('Intro', 16, 3), @('Verse', 16, 5), @('Chorus', 16, 8), @('Breakdown', 8, 3), @('Chorus', 16, 9), @('Outro', 8, 2))
+        Progs = @{ verse = 'i VII i VII'; chorus = 'i III VII VI' }
+        Sounds = @{ lead = 'robotic square lead with portamento feel'; bass = 'syncopated analog bass'; pad = 'cold eerie pad'; drums = 'syncopated electro kick, snappy snare, claps'; texture = 'underwater sonar pings' }
+        Desc = 'syncopated electro with robotic synth lines, deep bass and eerie pads' }
+    'Boards of Canada nostalgia' = @{ Bpm = 90; Scale = 'major'; Feel = 'half'; Dens = 3; Weird = 4; Comp = 'half'; Bass = 'root'; Arp = 'up'; Voicing = 'open'; Motif = 'lyrical'; Color = 5; Auto = 7; Master = 3
+        Structure = @(@('Intro', 16, 2), @('Verse', 16, 4), @('Chorus', 16, 5), @('Breakdown', 8, 2), @('Chorus', 16, 6), @('Outro', 16, 1))
+        Progs = @{ verse = 'Imaj7 iii7 IVmaj7 V'; chorus = 'IVmaj7 V Imaj7 vi7' }
+        Sounds = @{ lead = 'wobbly warm detuned analog lead'; bass = 'soft round bass'; pad = 'faded detuned pad with tape flutter'; drums = 'dusty soft boom-bap beat'; texture = 'degraded tape hiss' }
+        Desc = 'warm nostalgic downtempo with detuned analog synths, faded tape textures and a soft dusty beat' }
+    'Cinematic / epic' = @{ Bpm = 100; Scale = 'minor'; Feel = 'half'; Dens = 4; Weird = 2; Comp = 'sustain'; Bass = 'sub'; Arp = 'trance'; Voicing = 'spread'; Motif = 'lyrical'; Color = 4; Auto = 10; Master = 3
+        Structure = @(@('Intro', 16, 2), @('Verse', 16, 4), @('Build', 16, 7), @('Chorus', 16, 9), @('Breakdown', 8, 3), @('Build', 8, 8), @('Chorus', 16, 10), @('Outro', 16, 2))
+        Progs = @{ verse = 'i VI III VII'; chorus = 'VI VII i i'; breakdown = 'i i VI VI' }
+        Sounds = @{ lead = 'soaring string-like synth lead'; bass = 'deep cinematic sub boom'; pad = 'wide orchestral-style pad'; drums = 'huge cinematic hits and rolling toms'; texture = 'evolving tense drone' }
+        Desc = 'epic cinematic electronic piece with a slow emotional build, huge hits and a soaring theme' }
+}
+
+function ConvertTo-StudioHash($o) {
+    if ($o -is [pscustomobject]) { $h = @{}; foreach ($p in $o.PSObject.Properties) { $h[$p.Name] = ConvertTo-StudioHash $p.Value }; return $h }
+    if ($o -is [array]) { $a = @(); foreach ($x in $o) { $a += , (ConvertTo-StudioHash $x) }; return , $a }
+    return $o
+}
+function Get-StudioStylesDir { $d = Join-Path (Get-StudioDir) 'styles'; New-Item -ItemType Directory -Force -Path $d | Out-Null; return $d }
+function Get-StudioStyles {
+    $all = [ordered]@{}; foreach ($k in $script:StudioStyles.Keys) { $all[$k] = $script:StudioStyles[$k] }
+    foreach ($fi in @(Get-ChildItem -LiteralPath (Get-StudioStylesDir) -Filter '*.json' -ErrorAction SilentlyContinue)) {
+        try { $j = [IO.File]::ReadAllText($fi.FullName, [Text.Encoding]::UTF8) | ConvertFrom-Json; $h = ConvertTo-StudioHash $j.style; $h.UserFile = $fi.FullName; $all['* ' + [string]$j.name] = $h } catch { }
+    }
+    return $all
+}
+function Save-StudioStyle([string]$Name, $Style) {
+    $path = Join-Path (Get-StudioStylesDir) ((ConvertTo-StudioSlug $Name) + '.json')
+    [IO.File]::WriteAllText($path, ([ordered]@{ name = $Name; style = $Style } | ConvertTo-Json -Depth 8), (New-Object Text.UTF8Encoding($true)))
+    return $path
+}
+function Get-StudioStyleText($St) {
+    $sec = (@($St.Structure) | ForEach-Object { '{0} {1} bars (energy {2})' -f $_[0], $_[1], $_[2] }) -join ', '
+    $pg = (@($St.Progs.Keys | Sort-Object) | ForEach-Object { $_ + ': ' + $St.Progs[$_] }) -join '; '
+    return ("Style template (follow it unless the user's words say otherwise): {0}. Tempo about {1} BPM, {2} mode. Structure: {3}. Progressions: {4}. Groove {5}, drum density {6} and weirdness {7}; comping {8}, bass {9}, arp {10}, voicing {11}." -f $St.Desc, $St.Bpm, $St.Scale, $sec, $pg, $St.Feel, $St.Dens, $St.Weird, $St.Comp, $St.Bass, $St.Arp, $St.Voicing)
+}
+# Fills in whatever the AI's direction left out (or wrote as a placeholder) from the chosen style.
+function Merge-StudioStyleIntoBrief($J, $St) {
+    if (-not $J.harmony) { Add-Member -InputObject $J -NotePropertyName harmony -NotePropertyValue ([pscustomobject]@{}) -Force }
+    $h = $J.harmony
+    foreach ($pair in @(@('voicing', 'Voicing'), @('comping', 'Comp'), @('bass', 'Bass'), @('arp', 'Arp'), @('drums', 'Feel'))) {
+        $cur = [string]$h.($pair[0]); if (-not $cur -or $cur -match '\|' -or $cur -eq 'auto') { Add-Member -InputObject $h -NotePropertyName $pair[0] -NotePropertyValue ([string]$St[$pair[1]]) -Force }
+    }
+    if (-not $h.progressions) { Add-Member -InputObject $h -NotePropertyName progressions -NotePropertyValue ([pscustomobject]@{}) -Force }
+    foreach ($k in $St.Progs.Keys) { if (-not $h.progressions.$k) { Add-Member -InputObject $h.progressions -NotePropertyName $k -NotePropertyValue ([string]$St.Progs[$k]) -Force } }
+    if (-not $J.structure) { Add-Member -InputObject $J -NotePropertyName structure -NotePropertyValue @(@($St.Structure) | ForEach-Object { [pscustomobject]@{ section = [string]$_[0]; bars = [int]$_[1]; energy = [int]$_[2] } }) -Force }
+}
+
+# ---- producer critic: render the song, measure it per section, find problems, fix them, measure again ------------------------
+
+function Get-StudioMixReport($Proj, $Plan) {
+    $L = $null; $R = $null; $sr = 44100; $song = ($Proj.Song.Count -gt 0)
+    [HbStudio.Dsp]::Mix($Proj, $song, $false, [ref]$L, [ref]$R)
+    $secs = @(); $bpm = [double]$Proj.Bpm
+    $slice = {
+        param($t, $dur, $name, $key, $energy)
+        $s0 = [int]($t * $sr); $n = [int][math]::Min($L.Length - $s0, [int]($dur * $sr))
+        if ($n -lt $sr) { return $null }
+        $la = New-Object 'single[]' $n; $ra = New-Object 'single[]' $n; [Array]::Copy($L, $s0, $la, 0, $n); [Array]::Copy($R, $s0, $ra, 0, $n)
+        $a = [HbStudio.Mastering]::Analyze($la, $ra)
+        return @{ Pattern = $key; Name = $name; Start = $t; Len = $dur; Lufs = [double]$a.Lufs; Peak = [double]$a.PeakDb; Energy = $energy; Corr = [double]$a.Correlation }
+    }
+    if ($song) {
+        $t = 0.0
+        foreach ($it in $Proj.Song) {
+            if ($it.Pattern -lt 0 -or $it.Pattern -ge $Proj.Patterns.Count) { continue }
+            $pat = $Proj.Patterns[$it.Pattern]; $dur = $pat.Bars * $Proj.BarBeats * 60.0 / $bpm * [math]::Max(1, $it.Repeats)
+            $en = $null; if ($Plan) { $m = $Plan.Sections | Where-Object { $pat.Name -like ($_.Name + '*') } | Select-Object -First 1; if ($m) { $en = [int]$m.Energy } }
+            $sl = & $slice $t $dur $pat.Name $it.Pattern $en; if ($sl) { $secs += $sl }; $t += $dur
+        }
+    } elseif ($Proj.Markers.Count -gt 0) {
+        $total = $Proj.LoopBeats; $mk = @($Proj.Markers | Sort-Object Beat)
+        for ($i = 0; $i -lt $mk.Count; $i++) {
+            $b0 = $mk[$i].Beat; $b1 = if ($i + 1 -lt $mk.Count) { $mk[$i + 1].Beat } else { $total }
+            $sl = & $slice ($b0 * 60.0 / $bpm) (($b1 - $b0) * 60.0 / $bpm) ([string]$mk[$i].Name) $i $(if ($mk[$i].Energy -gt 0) { [int]$mk[$i].Energy } else { $null }); if ($sl) { $secs += $sl }
+        }
+    }
+    return @{ Overall = [HbStudio.Mastering]::Analyze($L, $R); Sections = $secs; Features = [HbStudio.Critic]::Features($L, $R) }
+}
+
+# Per-pattern loudness change (dB) that would make the sections follow their planned energy.
+function Get-StudioSectionDeltas($Rep) {
+    $valid = @($Rep.Sections | Where-Object { $null -ne $_.Energy -and $_.Lufs -gt -60 }); $acc = @{}
+    if ($valid.Count -lt 3) { return $acc }
+    $wsum = ($valid | ForEach-Object { $_.Len } | Measure-Object -Sum).Sum
+    $meanE = ($valid | ForEach-Object { $_.Energy * $_.Len } | Measure-Object -Sum).Sum / $wsum; $meanL = ($valid | ForEach-Object { $_.Lufs * $_.Len } | Measure-Object -Sum).Sum / $wsum
+    foreach ($s in $valid) {
+        $d = [math]::Max(-4.0, [math]::Min(4.0, ($meanL + ($s.Energy - $meanE) * 0.9) - $s.Lufs))
+        if (-not $acc.ContainsKey($s.Pattern)) { $acc[$s.Pattern] = @() }; $acc[$s.Pattern] += $d
+    }
+    $res = @{}; foreach ($k in $acc.Keys) { $res[$k] = ($acc[$k] | Measure-Object -Average).Average }
+    return $res
+}
+
+function Get-StudioMixIssues($Rep) {
+    $ov = $Rep.Overall; $b = $ov.Bands; $out = @()
+    $low = 10 * [math]::Log10([math]::Pow(10, $b[0] / 10) + [math]::Pow(10, $b[1] / 10))
+    if ($ov.PeakDb -gt -1.0) { $out += @{ Id = 'hot'; Text = ('peaks reach {0:0.0} dBFS before mastering' -f $ov.PeakDb) } }
+    if ($low - $b[3] -gt 9) { $out += @{ Id = 'boomy'; Text = ('the low end is {0:0.0} dB above the mids (boomy)' -f ($low - $b[3])) } }
+    elseif ($low - $b[3] -lt -6) { $out += @{ Id = 'thin'; Text = ('the low end is {0:0.0} dB below the mids (thin)' -f ($b[3] - $low)) } }
+    if ($b[2] - $b[3] -gt 2.5) { $out += @{ Id = 'mud'; Text = 'too much energy at 250-500 Hz (muddy)' } }
+    if ($b[4] - $b[3] -gt 1.5) { $out += @{ Id = 'harsh'; Text = 'the 2-6 kHz band is strong (harsh)' } }
+    if ($b[5] - $b[3] -lt -30) { $out += @{ Id = 'dull'; Text = 'very little energy above 6 kHz (dull)' } }
+    if ($ov.Correlation -gt 0.96) { $out += @{ Id = 'narrow'; Text = ('the stereo image is narrow (correlation {0:0.00})' -f $ov.Correlation) } }
+    elseif ($ov.Correlation -lt 0.2) { $out += @{ Id = 'phasey'; Text = ('the stereo image is phasey (correlation {0:0.00})' -f $ov.Correlation) } }
+    $dl = Get-StudioSectionDeltas $Rep; $bad = @($dl.Keys | Where-Object { [math]::Abs($dl[$_]) -ge 1.5 })
+    if ($bad.Count) { $out += @{ Id = 'energy'; Text = ('{0} section(s) are not as loud as their energy says' -f $bad.Count) } }
+    return $out
+}
+
+function Format-StudioMixReport($Rep) {
+    $sb = New-Object Text.StringBuilder
+    [void]$sb.AppendLine('WHOLE SONG (before mastering): ' + $Rep.Overall.Report())
+    if ($Rep.Sections.Count) {
+        [void]$sb.AppendLine(''); [void]$sb.AppendLine('SECTIONS (loudness vs planned energy):')
+        foreach ($s in $Rep.Sections) { [void]$sb.AppendLine(('  {0,-14} {1,6:0.0} LUFS  peak {2,5:0.0} dB  energy {3}' -f $s.Name, $s.Lufs, $s.Peak, $(if ($null -ne $s.Energy) { $s.Energy } else { '?' }))) }
+    }
+    $iss = @(Get-StudioMixIssues $Rep); [void]$sb.AppendLine('')
+    if ($iss.Count) { [void]$sb.AppendLine('PROBLEMS FOUND:'); foreach ($i in $iss) { [void]$sb.AppendLine('  - ' + $i.Text) } } else { [void]$sb.AppendLine('No problems found: the balance, stereo image and section dynamics look good.') }
+    return $sb.ToString()
+}
+
+function Add-StudioPeakRule($Proj, [string]$Targets, [double]$Hz, [double]$Db) {
+    $names = @($Proj.Tracks | ForEach-Object { $_.Name }); $t = @($Targets -split ',' | Where-Object { $names -contains $_ }); if (-not $t.Count) { return $false }
+    foreach ($r in $Proj.Mix) { if ([string]$r.Kind -eq 'peak' -and [math]::Abs($r.FreqHz - $Hz) -lt 1 -and [math]::Abs($r.Db - $Db) -lt 0.1) { return $false } }
+    $r = New-Object HbStudio.MixRule; [void](Set-StudioObjectFromJson $r ([pscustomobject]@{ Kind = 'peak'; Target = ($t -join ','); FreqHz = $Hz; Db = $Db; Q = 1.0 })); $Proj.Mix.Add($r); return $true
+}
+
+function Invoke-StudioMixFixes($Proj, $Plan, $Rep) {
+    $msg = @(); foreach ($iss in @(Get-StudioMixIssues $Rep)) {
+        switch ($iss.Id) {
+            'hot' { $g = 0.8 / [math]::Pow(10, $Rep.Overall.PeakDb / 20); foreach ($t in $Proj.Tracks) { $t.Vol = [math]::Max(0.05, $t.Vol * $g) }; $msg += ('lowered every track by {0:0.0} dB to stop the peaks' -f (-20 * [math]::Log10($g))) }
+            'boomy' { $b = Get-StudioTrackByName $Proj 'Bass'; if ($b -and $b.Vol -gt 0.3) { $b.Vol *= 0.82; $msg += 'turned the bass down 1.7 dB' } }
+            'thin' { $b = Get-StudioTrackByName $Proj 'Bass'; if ($b -and $b.Vol -lt 1.2) { $b.Vol = [math]::Min(1.2, $b.Vol * 1.18); $msg += 'turned the bass up 1.5 dB' } }
+            'mud' { if (Add-StudioPeakRule $Proj 'Chords,Pad,Motif,Counter' 300 -3) { $msg += 'cut 3 dB at 300 Hz on the chords and pads' } }
+            'harsh' { if (Add-StudioPeakRule $Proj 'Arp,Motif,Chords,Counter' 3500 -2.5) { $msg += 'cut 2.5 dB at 3.5 kHz on the leads' } }
+            'dull' { if (Add-StudioPeakRule $Proj 'Arp,Pad,Texture' 9000 2) { $msg += 'lifted 2 dB at 9 kHz for air' } }
+            'narrow' {
+                $names = @($Proj.Tracks | ForEach-Object { $_.Name }); $w = @('Pad', 'Texture', 'Arp') | Where-Object { $names -contains $_ }
+                if ($w.Count) { $r = New-Object HbStudio.MixRule; [void](Set-StudioObjectFromJson $r ([pscustomobject]@{ Kind = 'width'; Target = ($w -join ','); Width = 1.7 })); $Proj.Mix.Add($r) }
+                $c = Get-StudioTrackByName $Proj 'Chords'; if ($c) { $c.Pan = 0.3 }; $m = Get-StudioTrackByName $Proj 'Motif'; if ($m) { $m.Pan = -0.25 }; $msg += 'widened the pads and spread the chords and lead'
+            }
+            'phasey' { $names = @($Proj.Tracks | ForEach-Object { $_.Name }); $w = @('Pad', 'Texture', 'Arp') | Where-Object { $names -contains $_ }; if ($w.Count) { $r = New-Object HbStudio.MixRule; [void](Set-StudioObjectFromJson $r ([pscustomobject]@{ Kind = 'width'; Target = ($w -join ','); Width = 0.7 })); $Proj.Mix.Add($r); $msg += 'narrowed the stereo width' } }
+            'energy' {
+                if ($Proj.Song.Count -eq 0 -and $Proj.Markers.Count -gt 0) { $m2 = Invoke-StudioTimelineEnergy $Proj $Rep; if ($m2) { $msg += $m2 }; break }
+                $dl = Get-StudioSectionDeltas $Rep; $n = 0
+                foreach ($pi in $dl.Keys) {
+                    $d = $dl[$pi]; if ([math]::Abs($d) -lt 0.8) { continue }
+                    $pat = $Proj.Patterns[$pi]; $g = [math]::Pow(10, $d / 20); $len = $pat.Bars * $Proj.BarBeats
+                    for ($ti = 0; $ti -lt $pat.Notes.Count; $ti++) {
+                        if ($pat.Mutes[$ti]) { continue }
+                        $lane = $pat.Auto | Where-Object { $_.Track -eq $ti -and $_.Param -eq 'vol' } | Select-Object -First 1
+                        if ($lane) { foreach ($pt in $lane.Points) { $pt[1] = [math]::Max(0.0, [math]::Min(2.0, $pt[1] * $g)) } }
+                        else { $gv = [math]::Max(0.1, [math]::Min(2.0, $g)); Add-StudioAutoLane $pat $ti 'vol' @(0, $gv, $len, $gv) }
+                    }
+                    $n++
+                }
+                if ($n) { $msg += "re-leveled $n pattern(s) so the sections follow the energy curve" }
+            }
+        }
+    }
+    return $msg
+}
+
+function Invoke-StudioProducerPass($Proj, $Plan, [int]$Passes = 3, [scriptblock]$Progress = $null) {
+    $log = @(); $first = $null
+    for ($i = 1; $i -le $Passes; $i++) {
+        if ($Progress) { & $Progress "Producer pass $i of ${Passes}: rendering and measuring..." }
+        $rep = Get-StudioMixReport $Proj $Plan; if ($i -eq 1) { $first = $rep }
+        $fx = @(Invoke-StudioMixFixes $Proj $Plan $rep)
+        if (-not $fx.Count) { $log += "pass ${i}: nothing left to fix"; break }
+        $log += ("pass ${i}: " + ($fx -join '; '))
+    }
+    return @{ Log = $log; Before = $first; After = (Get-StudioMixReport $Proj $Plan) }
+}
+
+function Get-StudioScSnippet([string]$Reply) {
+    $m = [regex]::Match($Reply, '(?s)```(?:supercollider|sc|scd|js|javascript|text)?\s*\r?\n(.*?)```')
+    if ($m.Success) { return $m.Groups[1].Value.Trim() }
+    $i = $Reply.IndexOf('SynthDef'); if ($i -ge 0) { return $Reply.Substring($i).Trim() }
+    return $Reply.Trim()
+}
+
+# ---------------------------------------------------------------------------------------------------------------
+# The whole arrangement as one timeline on the piano roll
+# ---------------------------------------------------------------------------------------------------------------
+
+# Multiplies a track's automation lane by Gain between two beats (with short ramps at the edges).
+function Scale-StudioAutoRange($Track, [string]$Param, [double]$From, [double]$To, [double]$Gain) {
+    $lane = $Track.Auto | Where-Object { $_.Param -eq $Param } | Select-Object -First 1
+    if (-not $lane) { $lane = New-Object HbStudio.AutoLane 0, $Param; $Track.Auto.Add($lane) }
+    $before = $lane.At($From - 0.002); $after = $lane.At($To); $vFrom = $lane.At($From) * $Gain; $vTo = $lane.At($To - 0.002) * $Gain
+    $pts = New-Object Collections.Generic.List[object]
+    foreach ($p in $lane.Points) {
+        if ($p[0] -lt $From - 0.002) { $pts.Add(@($p[0], $p[1])) }
+        elseif ($p[0] -lt $From) { }
+        elseif ($p[0] -lt $To - 0.002) { $pts.Add(@($p[0], [math]::Max(0.0, [math]::Min(2.0, $p[1] * $Gain)))) }
+        elseif ($p[0] -lt $To) { }
+        else { $pts.Add(@($p[0], $p[1])) }
+    }
+    $pts.Add(@(($From - 0.002), $before)); $pts.Add(@($From, [math]::Max(0.0, [math]::Min(2.0, $vFrom)))); $pts.Add(@(($To - 0.002), [math]::Max(0.0, [math]::Min(2.0, $vTo)))); $pts.Add(@($To, $after))
+    $sorted = @($pts | Sort-Object { $_[0] }); $lane.Points.Clear()
+    foreach ($p in $sorted) { $lane.Points.Add([double[]]@([double]$p[0], [double]$p[1])) }
+}
+
+function Invoke-StudioTimelineEnergy($Proj, $Rep) {
+    $dl = Get-StudioSectionDeltas $Rep; $mk = @($Proj.Markers | Sort-Object Beat); $n = 0; $total = $Proj.LoopBeats
+    foreach ($i in @($dl.Keys)) {
+        $d = $dl[$i]; if ([math]::Abs($d) -lt 0.8 -or $i -ge $mk.Count) { continue }
+        $b0 = [double]$mk[$i].Beat; $b1 = if ($i + 1 -lt $mk.Count) { [double]$mk[$i + 1].Beat } else { [double]$total }; $g = [math]::Pow(10, $d / 20)
+        foreach ($t in $Proj.Tracks) { if ($t.Notes | Where-Object { $_.Start -ge $b0 -and $_.Start -lt $b1 } | Select-Object -First 1) { Scale-StudioAutoRange $t 'vol' $b0 $b1 $g } }
+        $n++
+    }
+    if ($n) { return "re-leveled $n section(s) so the song follows its energy curve" }
+    return ''
+}
+
+# ---- context and development of sounds -----------------------------------------------------------------------------------
+
+# Describes the song and the voices already in it, so a new voice can be designed to complement them (register, timbre, synthesis method).
+function Get-StudioVoiceContextText($Proj, $Plan, [string]$ForTrack, $Methods = @()) {
+    $lines = @(); $occ = @{ bass = $false; low = $false; mid = $false; high = $false }
+    $lines += ('Song: {0} {1}, {2:0} BPM.' -f $script:StudioPcNames[[int]$Proj.Key], $Proj.Scale, $Proj.Bpm)
+    foreach ($t in $Proj.Tracks) {
+        if ($t.Name -eq $ForTrack -or $t.Notes.Count -eq 0 -or $t.Synth -eq 'drums' -or $t.Name -match '\(kit\)$') { continue }
+        $avg = ($t.Notes | Measure-Object Pitch -Average).Average
+        $reg = if ($avg -lt 48) { 'bass' } elseif ($avg -lt 60) { 'low' } elseif ($avg -lt 72) { 'mid' } else { 'high' }; $occ[$reg] = $true
+        $txt = ''
+        if ($t.Synth -eq 'patch' -and $t.Patch) { try { $txt = (Get-StudioPatchProfile $t.Patch).Text } catch { } } elseif ($t.Synth -eq 'sample') { $txt = 'sampler voice' }
+        if ($txt.Length -gt 150) { $txt = $txt.Substring(0, 150) }
+        $lines += ('{0}: plays around {1} ({2} register, {3} notes); {4}' -f $t.Name, (ConvertTo-StudioNoteName ([int][math]::Round($avg))), $reg, $t.Notes.Count, $txt)
+    }
+    $free = @(@('bass', 'below C3'), @('low', 'C3 to B3'), @('mid', 'C4 to B4'), @('high', 'above C5') | Where-Object { -not $occ[$_[0]] } | ForEach-Object { $_[1] })
+    if ($free.Count) { $lines += ('No voice yet plays ' + ($free -join ', ') + '.') }
+    if (@($Methods).Count) { $lines += ('Synthesis methods already used: ' + (@($Methods) -join '; ') + '. Choose a different method unless the role demands the same.') }
+    $lines += 'Drums are present; leave room for the kick and snare.'
+    return ($lines -join "`n")
+}
+
+# Writes patch-parameter automation lanes on the timeline so each synth develops with the song: restrained intros and verses, a filter or FM build,
+# the fullest sound in drops and choruses, a stripped breakdown. $DevMap holds the AI's per-section parameter sets for a track (optional);
+# without it the movement follows the sound's own character and each section's energy.
+function Add-StudioVoiceDevelopment($Proj, $Plan, $DevMap = @{}, [double]$Amount = 1.0) {
+    $mk = @($Proj.Markers | Sort-Object Beat); $log = @()
+    if ($mk.Count -lt 2) { return $log }
+    $ps = @(); if ($Plan) { $ps = @($Plan.Sections) }
+    $total = [double]$Proj.LoopBeats
+    $sections = @()
+    for ($i = 0; $i -lt $mk.Count; $i++) {
+        $b1 = if ($i + 1 -lt $mk.Count) { [double]$mk[$i + 1].Beat } else { $total }
+        $ty = if ($ps.Count -eq $mk.Count) { [string]$ps[$i].Type } else { Get-StudioSectionType ([string]$mk[$i].Name) }
+        $en = if ([int]$mk[$i].Energy -gt 0) { [double]$mk[$i].Energy } elseif ($ps.Count -eq $mk.Count) { [double]$ps[$i].Energy } else { 5.0 }
+        $sections += @{ B0 = [double]$mk[$i].Beat; B1 = $b1; Type = $ty; E = $en }
+    }
+    $ramp = @{ build = @(-1.5, 1.5); intro = @(-0.6, 0.4); drop = @(0.0, 0.6); chorus = @(0.0, 0.6); breakdown = @(0.0, 0.0); outro = @(0.3, -1.5); bridge = @(-0.4, 0.4); verse = @(-0.4, 0.4) }
+    for ($ti = 0; $ti -lt $Proj.Tracks.Count; $ti++) {
+        $t = $Proj.Tracks[$ti]
+        if ($t.Synth -ne 'patch' -or -not $t.Patch -or $t.Notes.Count -eq 0 -or $t.Name -in 'Risers') { continue }
+        $b = $t.Patch; $oscs = @([string]$b.Osc1, [string]$b.Osc2, [string]$b.Osc3)
+        $rules = [ordered]@{}
+        if ([string]$b.Filter -ne 'off' -and [string]$b.Filter -ne 'comb') { $rules['Cutoff'] = { param($e) $b.Cutoff * [math]::Pow(2, ($e - 5) * 0.2 * $Amount) } }
+        if ($b.FmAmount -gt 0.3) { $rules['FmAmount'] = { param($e) $b.FmAmount * (0.55 + 0.09 * $e) } }
+        $tabled = (($b.Level1 -gt 0.1 -and [string]$b.Osc1 -in 'additive', 'vowel') -or ($b.Level2 -gt 0.1 -and [string]$b.Osc2 -in 'additive', 'vowel') -or ($b.Level3 -gt 0.1 -and [string]$b.Osc3 -in 'additive', 'vowel'))
+        if ($tabled) { $rules['Morph'] = { param($e) $b.Morph + ($e - 5) * 0.07 * $Amount } }
+        if (($b.Level1 -gt 0.1 -and [string]$b.Osc1 -eq 'sync') -or ($b.Level2 -gt 0.1 -and [string]$b.Osc2 -eq 'sync')) { $rules['SyncRatio'] = { param($e) $b.SyncRatio * (0.8 + 0.05 * $e) } }
+        if (($b.Level1 -gt 0.1 -and [string]$b.Osc1 -in 'pluck', 'bell') -or ($b.Level2 -gt 0.1 -and [string]$b.Osc2 -in 'pluck', 'bell')) { $rules['Damping'] = { param($e) $b.Damping - ($e - 5) * 0.04 * $Amount } }
+        if ($b.LfoFilter -gt 0.1) { $rules['LfoFilter'] = { param($e) $b.LfoFilter * (0.6 + 0.08 * $e) } }
+        if ($b.Drive -gt 0.05 -or $t.Name -match 'Bass|Motif|Arp|Lead|Stab|Hook|Acid') { $rules['Drive'] = { param($e) $b.Drive + [math]::Max(0.0, $e - 6) * 0.04 * $Amount } }
+        if ($b.Unison -ge 2) { $rules['Unison'] = { param($e) [math]::Round($b.Unison + ($e - 5) / 2.5 * $Amount) } }
+        $dev = $DevMap[$t.Name]
+        $aiNames = @(); if ($dev) { foreach ($sty in 'intro', 'verse', 'build', 'drop', 'chorus', 'breakdown', 'bridge', 'outro') { $sec = $dev.$sty; if ($sec -is [pscustomobject]) { foreach ($pr in $sec.PSObject.Properties) { if ($aiNames -notcontains $pr.Name) { $aiNames += $pr.Name } } } } }
+        $names = @($rules.Keys) + @($aiNames | Where-Object { -not $rules.Contains($_) })
+        $t.Auto.RemoveAll([Predicate[HbStudio.AutoLane]] { param($l) $l.Param.StartsWith('p:') }) | Out-Null
+        $made = @()
+        foreach ($nm in $names) {
+            $pi = [HbStudio.PropIO]::Find($b, $nm); if (-not $pi -or $pi.PropertyType -ne [double]) { continue }
+            $rg = [HbStudio.PropIO]::RangeOf($pi); if (-not $rg) { continue }
+            $bv = [double]$pi.GetValue($b, $null); $pts = New-Object Collections.Generic.List[double[]]; $lo = $bv; $hi = $bv; $prevEnd = $bv
+            foreach ($s in $sections) {
+                $ty = $s.Type; $v0 = $null; $v1 = $null
+                $aiv = $null; if ($dev -and $dev.$ty -is [pscustomobject] -and $null -ne $dev.$ty.$nm) { try { $aiv = [double]$dev.$ty.$nm } catch { } }
+                if ($null -ne $aiv) { $v1 = $aiv; $v0 = if ($ty -eq 'build') { $prevEnd } else { $aiv } }
+                elseif ($rules.Contains($nm)) { $rr = $ramp[$ty]; if (-not $rr) { $rr = @(-0.3, 0.3) }; $v0 = & $rules[$nm] ($s.E + $rr[0]); $v1 = & $rules[$nm] ($s.E + $rr[1]) }
+                else { $v0 = $bv; $v1 = $bv }
+                $v0 = [math]::Max($rg.Min, [math]::Min($rg.Max, [double]$v0)); $v1 = [math]::Max($rg.Min, [math]::Min($rg.Max, [double]$v1))
+                $pts.Add([double[]]@($s.B0, $v0)); $pts.Add([double[]]@([math]::Max($s.B0 + 0.01, $s.B1 - 0.02), $v1)); $prevEnd = $v1
+                $lo = [math]::Min($lo, [math]::Min($v0, $v1)); $hi = [math]::Max($hi, [math]::Max($v0, $v1))
+            }
+            if (($hi - $lo) -lt ($rg.Max - $rg.Min) * 0.03) { continue }
+            $lane = New-Object HbStudio.AutoLane $ti, "p:$nm"; foreach ($pt in $pts) { $lane.Points.Add($pt) }; $t.Auto.Add($lane); $made += $nm
+            if ($made.Count -ge 6) { break }
+        }
+        if ($made.Count) { $log += ("'{0}' develops through the song: {1}" -f $t.Name, ($made -join ', ')) }
+    }
+    return $log
+}
+
+# A readable sheet of the finished song: key, tempo, every section with its chords and energy, and every track with its sound and note count.
+function Get-StudioSongSheet($Proj, $Plan) {
+    $bb = [double]$Proj.BarBeats; $sb = New-Object Text.StringBuilder; $secs = [double]$Proj.LoopBeats * 60.0 / [double]$Proj.Bpm
+    [void]$sb.AppendLine(('SONG: {0} {1}, {2:0} BPM, {3} bars ({4}:{5:00})' -f $script:StudioPcNames[[int]$Proj.Key], $Proj.Scale, $Proj.Bpm, $Proj.Bars, [int][math]::Floor($secs / 60), [int]($secs % 60)))
+    $mk = @($Proj.Markers | Sort-Object Beat); $ps = @(); if ($Plan) { $ps = @($Plan.Sections) }
+    if ($mk.Count) {
+        [void]$sb.AppendLine(''); [void]$sb.AppendLine('SECTIONS')
+        for ($i = 0; $i -lt $mk.Count; $i++) {
+            $b1 = if ($i + 1 -lt $mk.Count) { [double]$mk[$i + 1].Beat } else { [double]$Proj.LoopBeats }
+            $ch = ''; if ($ps.Count -eq $mk.Count) { try { $ch = Get-StudioProgressionText $ps[$i].Bars } catch { } }
+            [void]$sb.AppendLine(('  bar {0,3}: {1,-12} {2,3} bars, energy {3,2}  {4}' -f ([int][math]::Floor($mk[$i].Beat / $bb) + 1), $mk[$i].Name, [int](($b1 - $mk[$i].Beat) / $bb), $mk[$i].Energy, $ch))
+        }
+    }
+    [void]$sb.AppendLine(''); [void]$sb.AppendLine('TRACKS AND SOUNDS')
+    foreach ($t in $Proj.Tracks) {
+        $snd = switch ([string]$t.Synth) {
+            'patch' { try { (Get-StudioPatchProfile $t.Patch).Text } catch { 'synth patch' } }
+            'sample' { if ($t.Name -match '\(kit\)$') { 'synthesised drum voice' } else { 'sampler voice' } }
+            'drums' { 'built-in drum synth (kick, snare, hats, tuned hats and toms)' }
+            default { [string]$t.Synth }
+        }
+        if ($snd.Length -gt 110) { $snd = $snd.Substring(0, 110) + '...' }
+        [void]$sb.AppendLine(('  {0,-18} {1,5} notes  {2}' -f $t.Name, $t.Notes.Count, $snd))
+    }
+    $mx = $Proj.Mix.Count; [void]$sb.AppendLine(''); [void]$sb.AppendLine(('MIX: {0} mix rule(s), master chain {1}' -f $mx, $(if ($Proj.Master -and $Proj.Master.Enabled) { 'on' } else { 'off' })))
+    return $sb.ToString()
+}
+
+# Writes every section of the arrangement onto the tracks, one after another, so the piano roll shows (and edits) the entire song.
+# Automation lanes move onto the tracks and the sections become markers on the ruler. Returns the number of bars.
+function Convert-StudioArrangementToTimeline($Proj, $Plan) {
+    $bb = [double]$Proj.BarBeats
+    foreach ($t in $Proj.Tracks) { $t.Notes.Clear(); $t.Auto.Clear() }
+    $Proj.Markers.Clear(); $offset = 0.0; $lastSec = -2; $lastBase = ''
+    foreach ($it in $Proj.Song) {
+        if ($it.Pattern -lt 0 -or $it.Pattern -ge $Proj.Patterns.Count) { continue }
+        $pat = $Proj.Patterns[$it.Pattern]; $reps = [math]::Max(1, [int]$it.Repeats)
+        $base = ($pat.Name -replace ' #\d+$', '')
+        $secIdx = if ($Plan -and $Plan.PatSec -and $it.Pattern -lt $Plan.PatSec.Count) { [int]$Plan.PatSec[$it.Pattern] } else { -1 }
+        if (($secIdx -ge 0 -and $secIdx -ne $lastSec) -or ($secIdx -lt 0 -and $base -ne $lastBase)) {
+            $en = 0
+            if ($Plan -and $secIdx -ge 0 -and $secIdx -lt @($Plan.Sections).Count) { $en = [int]@($Plan.Sections)[$secIdx].Energy }
+            elseif ($Plan) { $m = $Plan.Sections | Where-Object { $_.Name -eq $base } | Select-Object -First 1; if ($m) { $en = [int]$m.Energy } }
+            $Proj.Markers.Add((New-Object HbStudio.Marker $offset, $base, $en)); $lastSec = $secIdx; $lastBase = $base
+        }
+        for ($r = 0; $r -lt $reps; $r++) {
+            for ($ti = 0; $ti -lt $Proj.Tracks.Count -and $ti -lt $pat.Notes.Count; $ti++) {
+                if ($pat.Mutes[$ti]) { continue }
+                foreach ($n in $pat.Notes[$ti]) { $Proj.Tracks[$ti].Notes.Add((New-Object HbStudio.Note $n.Pitch, ($n.Start + $offset), $n.Len, $n.Vel)) }
+            }
+            $end = $offset + $pat.Bars * $bb
+            foreach ($al in $pat.Auto) {
+                if ($al.Track -lt 0 -or $al.Track -ge $Proj.Tracks.Count -or $al.Points.Count -eq 0 -or $al.Track -ge $pat.Mutes.Count -or $pat.Mutes[$al.Track]) { continue }
+                $tr = $Proj.Tracks[$al.Track]; $dst = $tr.Auto | Where-Object { $_.Param -eq $al.Param } | Select-Object -First 1
+                if (-not $dst) { $dst = New-Object HbStudio.AutoLane $al.Track, $al.Param; $tr.Auto.Add($dst) }
+                foreach ($pt in $al.Points) { $dst.Points.Add([double[]]@(($offset + $pt[0]), $pt[1])) }
+                $dst.Points.Add([double[]]@(($end - 0.002), $al.Points[$al.Points.Count - 1][1])); $dst.Points.Add([double[]]@($end, [HbStudio.AutoLane]::Neutral($al.Param)))
+            }
+            $offset = $end
+        }
+    }
+    $Proj.Bars = [int][math]::Max(1, [math]::Ceiling($offset / $bb - 1e-9))
+    $Proj.Patterns.Clear(); $Proj.Song.Clear()
+    return $Proj.Bars
+}
+
+# ---------------------------------------------------------------------------------------------------------------
+# Listening to the sounds: render each voice, measure it, repair weird ones
+# ---------------------------------------------------------------------------------------------------------------
+
+function Get-StudioVoiceRole($Track) {
+    switch -Regex ([string]$Track.Name) { '^Bass' { return 'bass' } '^Pad' { return 'pad' } '^Chords' { return 'chords' } '^Arp' { return 'arp' } '^Counter' { return 'counter' } '^(Texture|Risers)' { return 'texture' } default { return 'lead' } }
+}
+
+function Test-StudioVoice($Track, [string]$Role) {
+    $pitch = if ($Track.Synth -eq 'sample') { [int]$Track.SampleRoot } elseif ($Role -eq 'bass') { 36 } else { 60 }
+    $smp = [HbStudio.Dsp]::RenderSample($Track, $pitch, 1.2, $false)
+    $f = [HbStudio.Critic]::Features($smp, $smp); $issues = @(); $m = @{}
+    $peak = 0.0; foreach ($x in $smp) { $a = [math]::Abs($x); if ($a -gt $peak) { $peak = $a } }
+    $att = 0.0; for ($i = 0; $i -lt $smp.Length; $i++) { if ([math]::Abs($smp[$i]) -ge 0.7 * $peak) { $att = $i / 44100.0; break } }
+    $melodic = $Role -in 'bass', 'lead', 'arp', 'chords', 'counter', 'pad'
+    if ($f.PeakDb -lt -40) { $issues += 'silent' }
+    if ($f.ClipFraction -gt 0.0005 -or $f.PeakDb -gt 0.0) { $issues += 'clipping' }
+    if ($Track.Synth -eq 'patch' -and $melodic) {
+        if ($f.Flatness -gt 0.2) { $issues += 'noisy' }
+        if ($f.CentroidHz -gt $(if ($Role -in 'pad', 'bass') { 3500.0 } else { 5200.0 })) { $issues += 'harsh' }
+        if ($Role -in 'lead', 'arp' -and $f.CentroidHz -gt 0 -and $f.CentroidHz -lt 250) { $issues += 'dull' }
+        if ($Role -in 'lead', 'arp', 'bass', 'counter' -and $att -gt 0.3) { $issues += 'slow' }
+        $start = [int](0.06 * 44100); $len = [math]::Min(4096, $smp.Length - $start - 1)
+        $pp = $Track.Patch; $oscUse = @(); if ($pp.Level1 -gt 0.1) { $oscUse += [string]$pp.Osc1 }; if ($pp.Level2 -gt 0.1) { $oscUse += [string]$pp.Osc2 }; if ($pp.Level3 -gt 0.1) { $oscUse += [string]$pp.Osc3 }
+        # inharmonic, bending or sub-heavy voices are meant to be that way, so only plainly tonal voices are checked for tuning
+        $skipPitch = ($oscUse -contains 'bell') -or $pp.RingAmount -gt 0.3 -or [math]::Abs($pp.PitchEnv) -ge 2.5 -or [math]::Abs($pp.ModPitch) -ge 2 -or $pp.SubLevel -gt 0.2 -or $pp.LfoPitch -gt 40 -or $pp.Lfo2Pitch -gt 40 -or $pp.Fm2Amount -gt 0.5 -or ($pp.FmAmount -gt 0.5 -and [math]::Abs($pp.FmRatio - [math]::Round($pp.FmRatio)) -gt 0.05)
+        if (-not $skipPitch -and $len -ge 2048 -and $f.Flatness -lt 0.15) {
+            $exp = 440.0 * [math]::Pow(2, ($pitch - 69) / 12.0); $det = [HbStudio.Critic]::DetectPitch($smp, $start, $len, $exp / 2.3, $exp * 2.3)
+            if ($det -gt 0) { $cents = 1200 * [math]::Log($det / $exp, 2); $err = ((($cents + 600) % 1200) + 1200) % 1200 - 600; $m.PitchErr = $err; if ([math]::Abs($err) -gt 45) { $issues += 'offpitch' } }
+        }
+    }
+    $m.PeakDb = $f.PeakDb; $m.Centroid = $f.CentroidHz; $m.Flatness = $f.Flatness; $m.Attack = $att
+    return @{ Issues = @($issues | Select-Object -Unique); Metrics = $m }
+}
+
+function Repair-StudioVoice($Track, $Issues, [string]$Role) {
+    $fix = @(); $p = $Track.Patch; if ($Track.Synth -ne 'patch' -or -not $p) { return $fix }
+    $near = { param($v, $c) $b = $c[0]; foreach ($x in $c) { if ([math]::Abs($x - $v) -lt [math]::Abs($b - $v)) { $b = $x } }; $b }
+    foreach ($id in @($Issues)) {
+        switch ($id) {
+            'silent' { $p.Level1 = 1; $p.Sustain = [math]::Max(0.3, $p.Sustain); $p.Attack = [math]::Min($p.Attack, 0.3); $p.Cutoff = [math]::Max(600.0, $p.Cutoff); $p.Gain = [math]::Max(0.7, $p.Gain); $fix += 'raised level and sustain' }
+            'clipping' { $p.Gain *= 0.6; $p.Drive *= 0.6; $fix += 'lowered gain and drive' }
+            'noisy' {
+                $p.NoiseLevel *= 0.2; $p.Bits = 16; $p.Fold *= 0.3; $p.FmAmount = [math]::Min($p.FmAmount, 1.5)
+                foreach ($pn in 'Osc1', 'Osc2', 'Osc3') { if ([string]$p.$pn -eq 'noise') { $p.$pn = 'saw' } }
+                $Track.Fx.Bits = 16; $Track.Fx.Downsample = 1; $Track.Fx.RingMix = [math]::Min($Track.Fx.RingMix, 0.1); $fix += 'removed noise and bit-crushing'
+            }
+            'offpitch' {
+                $p.FmAmount = [math]::Min($p.FmAmount, 2.0); $p.FmRatio = [math]::Max(1.0, [math]::Round($p.FmRatio)); $p.Semi2 = & $near $p.Semi2 @(0, 7, 12, -12); $p.Semi3 = & $near $p.Semi3 @(0, 7, 12, -12, 24)
+                $p.Detune2 = [math]::Max(-15.0, [math]::Min(15.0, $p.Detune2)); $p.PitchEnv = [math]::Max(-3.0, [math]::Min(3.0, $p.PitchEnv)); $p.LfoPitch = [math]::Min($p.LfoPitch, 40.0); $p.UnisonSpread = [math]::Min($p.UnisonSpread, 25.0)
+                $Track.Fx.RingMix = 0; $fix += 'put the pitch back in tune (FM ratio, detune, transpose)'
+            }
+            'harsh' { $p.Cutoff = [math]::Min($p.Cutoff, 3200.0); $p.Resonance = [math]::Min($p.Resonance, 0.55); $p.Drive *= 0.5; $p.Fold *= 0.4; $p.Bits = [math]::Max($p.Bits, 12.0); $fix += 'softened the harshness' }
+            'dull' { $p.Cutoff = [math]::Max($p.Cutoff, 1800.0); $p.FilterEnv = [math]::Max($p.FilterEnv, 0.3); $fix += 'opened the filter' }
+            'slow' { $p.Attack = [math]::Min($p.Attack, 0.04); $fix += 'shortened the attack' }
+        }
+    }
+    $Track.Fx.StutterChance = [math]::Min($Track.Fx.StutterChance, 0.2); $Track.Fx.Downsample = [math]::Min($Track.Fx.Downsample, 2.0); $Track.Fx.Bits = [math]::Max($Track.Fx.Bits, 10.0)
+    return $fix
+}
+
+# Checks every pitched voice by rendering it; weird ones are repaired, and replaced with a known-good preset if repair does not help.
+function Invoke-StudioVoiceQA($Proj, [scriptblock]$Progress = $null) {
+    $log = @(); $fixed = 0; $presetFor = @{ bass = 'Bass - reese'; pad = 'Pad - supersaw drift'; chords = 'Pad - supersaw drift'; arp = 'Lead - FM glass bell'; lead = 'Lead - hollow pulse'; counter = 'Pluck - squelchy' }
+    foreach ($t in @($Proj.Tracks)) {
+        if ($t.Synth -eq 'drums' -or $t.Name -match '\(kit\)$' -or ($t.Notes.Count -eq 0 -and $t.Synth -ne 'patch')) { continue }
+        $role = Get-StudioVoiceRole $t
+        if ($Progress) { & $Progress "Listening to '$($t.Name)'..." }
+        $res = $null
+        for ($round = 1; $round -le 3; $round++) {
+            $res = Test-StudioVoice $t $role
+            if (-not $res.Issues.Count) { break }
+            if ($round -eq 3 -and $t.Synth -eq 'patch' -and $presetFor.ContainsKey($role)) {
+                [void](Add-StudioPresetTrack $Proj $presetFor[$role] ($Proj.Tracks.IndexOf($t))); $log += "'$($t.Name)': replaced by the '$($presetFor[$role])' preset (still $($res.Issues -join ', ') after repair)"; $fixed++; $res = Test-StudioVoice $t $role; break
+            }
+            $fx = @(Repair-StudioVoice $t $res.Issues $role)
+            if (-not $fx.Count) { break }
+            $log += "'$($t.Name)' sounded $($res.Issues -join ', '): " + ($fx -join ', '); $fixed++
+        }
+    }
+    return @{ Log = $log; Fixed = $fixed }
+}
+
+# ---------------------------------------------------------------------------------------------------------------
+# More complex melodies and beats
+# ---------------------------------------------------------------------------------------------------------------
+
+# Motif melody with a family of rhythm cells arranged as a phrase (A A' B C), contour variety, rests, grace notes, neighbour tones,
+# octave accents and scale runs into the phrase end. Complexity 1-10 scales how much of that is used.
+function New-StudioMotifMelody($Bars, [double]$BarBeats, $Mask, [int]$Seed, [string]$Style, [int]$Center, [int]$Variation, [int]$Complexity = 5) {
+    if ($Complexity -le 2) { return (New-StudioMotifMelodyBasic $Bars $BarBeats $Mask $Seed $Style $Center $Variation) }
+    $rnd = New-Object Random $Seed; $cx = $Complexity / 10.0
+    $lib = switch ($Style) {
+        'sparse' { @('x-------x-------', 'x---------x-----', 'x-----x-------x-', 'x-x-----x-------', 'x------x----x---') }
+        'riff' { @('x-xx-x-xx-x-x-x-', 'x-x-xx--x-x-xx--', 'xx-x-x-xx-x-x-xx', 'x-xxx-x-x-xx-x--', 'x--xx-x-xxx-x-x-') }
+        default { @('x-----x---x-----', 'x---x---x-----x-', 'x-----x-x---x---', 'x-------x-----x-', 'x-x---x-x-x---x-', 'x---x-x---x-x---') }
+    }
+    $nCells = [int][math]::Min($lib.Count, 2 + [int]($Complexity / 3)); $order = @($lib | Sort-Object { $rnd.Next() }); $cells = @($order[0..($nCells - 1)])
+    $contours = @(@(0, 1, 2, 1, 0, -1, 0, 2), @(0, 2, 1, 0, -2, 0, 1, 3), @(0, 0, 1, 0, 2, 1, 0, -1), @(2, 1, 0, -1, 0, 1, 2, 4), @(0, 1, 0, 2, 1, 3, 2, 0), @(0, 3, 1, 2, 0, -2, 0, 1))
+    $conts = @(); for ($i = 0; $i -lt $cells.Count; $i++) { $conts += , $contours[$rnd.Next(0, $contours.Count)] }
+    $scale = @(Get-StudioScalePitches $Mask 36 100); $out = New-Object Collections.Generic.List[object]; $barArr = @($Bars); $nb = $barArr.Count
+    $phrasePlan = @(0, 0, 1, 2)
+    for ($b = 0; $b -lt $nb; $b++) {
+        $barStart = $b * $BarBeats; $ph = $b % 4; $barEnd = $barStart + $BarBeats
+        $ci = [math]::Min($cells.Count - 1, $phrasePlan[$ph]); if ($Variation -ge 1 -and $ph -eq 1) { $ci = [math]::Min($cells.Count - 1, 1) }
+        $chord = Get-StudioChordAt $barArr $barStart $BarBeats; $octShift = if ($ph -eq 0 -and $rnd.NextDouble() -lt 0.12 * $cx * 3 -and $Center + 12 -le 84) { 12 } else { 0 }
+        $anchor = Get-StudioNearestChordTone $chord ($Center + @(0, 1, -1, 0)[$ph] + $octShift); $ai = 0; for ($i = 0; $i -lt $scale.Count; $i++) { if ($scale[$i] -ge $anchor) { $ai = $i; break } }
+        $seq = switch ($ph) { 0 { 0 } 1 { 1 } 2 { -2 } default { 0 } }; $dir = if ($ph -eq 2) { -1 } else { 1 }
+        $hits = @(Get-StudioPatternHits $cells[$ci] 'xX'); $k = 0; $bn = New-Object Collections.Generic.List[object]
+        foreach ($h in $hits) {
+            $beat = $barStart + $h.Pos * $BarBeats; if ($Variation -ge 1 -and $b % 2 -eq 1 -and $cx -gt 0.5) { $beat += 0.25 }
+            if ($beat -ge $barEnd - 0.05) { $k++; continue }
+            if ($k -gt 0 -and $rnd.NextDouble() -lt [math]::Max(0.0, 0.2 - $cx * 0.15)) { $k++; continue }
+            $cont = $conts[$ci]; $deg = $cont[$k % $cont.Count] * $dir + $seq; if ($cx -gt 0.6 -and $rnd.NextDouble() -lt 0.15) { $deg += @(-1, 1)[$rnd.Next(0, 2)] }
+            $idx = [math]::Max(0, [math]::Min($scale.Count - 1, $ai + $deg)); $p = $scale[$idx]; $chordHere = Get-StudioChordAt $barArr $beat $BarBeats
+            $strong = (($beat % 1.0) -lt 0.06)
+            if ($strong -or $h.Len * $BarBeats -ge 1.0) { $p = Get-StudioNearestChordTone $chordHere $p; for ($i = 0; $i -lt $scale.Count; $i++) { if ($scale[$i] -ge $p) { $idx = $i; break } } }
+            $len = [math]::Max(0.2, $h.Len * $BarBeats * 0.92); $vel = [int](84 + $rnd.Next(-6, 9) + $(if ($strong) { 10 } else { 0 }))
+            $bn.Add((New-Object HbStudio.Note ([int]$p), $beat, $len, $vel))
+            if ($rnd.NextDouble() -lt $cx * 0.4 -and $beat - 0.25 -ge $barStart) { $gp = $scale[[math]::Max(0, [math]::Min($scale.Count - 1, $idx + @(-1, 1)[$rnd.Next(0, 2)]))]; $bn.Add((New-Object HbStudio.Note ([int]$gp), ($beat - 0.25), 0.2, ($vel - 22))) }
+            if ($len -ge 1.0 -and $rnd.NextDouble() -lt $cx * 0.55) { $nbp = $scale[[math]::Min($scale.Count - 1, $idx + 1)]; $bn.Add((New-Object HbStudio.Note ([int]$nbp), ($beat + $len * 0.7), 0.22, ($vel - 14))) }
+            $k++
+        }
+        $ended = $false
+        if (($ph -eq 3 -or $b -eq $nb - 1) -and $rnd.NextDouble() -lt 0.25 + $cx * 0.6) {
+            for ($i = $bn.Count - 1; $i -ge 0; $i--) { if ($bn[$i].Start -ge $barEnd - 1.0) { $bn.RemoveAt($i) } }
+            $tp = Get-StudioNearestChordTone $chord $Center; $ti = 0; for ($i = 0; $i -lt $scale.Count; $i++) { if ($scale[$i] -ge $tp) { $ti = $i; break } }
+            $up = ($rnd.NextDouble() -lt 0.5); for ($i = 0; $i -lt 4; $i++) { $ix = if ($up) { $ti - 3 + $i } else { $ti + 3 - $i }; $ix = [math]::Max(0, [math]::Min($scale.Count - 1, $ix)); $bn.Add((New-Object HbStudio.Note ([int]$scale[$ix]), ($barEnd - 1.0 + $i * 0.25), 0.22, ([int](80 + $i * 8)))) }
+            $ended = $true
+        }
+        if (-not $ended -and ($ph -eq 3 -or $b -eq $nb - 1) -and $bn.Count) { $tail = $bn[$bn.Count - 1]; $tail.Pitch = Get-StudioNearestChordTone $chord $tail.Pitch; $tail.Len = [math]::Max($tail.Len, $barEnd - $tail.Start - 0.1) }
+        foreach ($n in $bn) { $out.Add($n) }
+    }
+    return , $out
+}
+
+function Get-StudioEuclid([int]$K, [int]$N, [int]$Rot) { $s = ''; for ($i = 0; $i -lt $N; $i++) { $s += $(if (((($i + $Rot) * $K) % $N) -lt $K) { 'x' } else { '.' }) }; return $s }
+
+$script:StudioGrooveLib = @{
+    dance = @(
+        @{ kick = 'X...X...X...X...'; clap = '....x.......x...'; hat = 'x.x.x.x.x.x.x.x.'; openhat = '..x...x...x...x.'; perc = '.o..o..o..o..o..' }
+        @{ kick = 'X...x...x...x...'; clap = '....x.......x...'; hat = 'x.o.x.o.x.o.x.o.'; openhat = '..x...x...x...x.'; rim = '.o..o..o.o..o...' }
+        @{ kick = 'X..x..x...x..x..'; snare = '....X.......X...'; hat = 'x.x.x.x.x.x.x.x.'; perc = 'o..o..o..o..o..o' }
+        @{ kick = 'X...X...X...X...'; clap = '....x.......x...'; hat = 'xxxxxxxxxxxxxxxx'; openhat = '..x...x...x...x.' }
+    )
+    break = @(
+        @{ kick = 'X.x.......x.x...'; snare = '....X..o.o..X..o'; hat = 'x.x.x.x.x.x.x.x.'; perc = '..o...o.....o...' }
+        @{ kick = 'X.........x.....'; snare = '....X.......X...'; hat = 'x.x.x.x.x.x.x.x.'; rim = '.o.o....o..o.o..' }
+        @{ kick = 'X..x....x.x..x..'; snare = '....X..o...oX..o'; hat = 'xoxxoxoxxoxoxxox'; perc = 'o..o.o..o.o..o..' }
+        @{ kick = 'X.....x...x.....'; snare = '....X..o.o..X.o.'; hat = 'x.xxx.xxx.xxx.xx'; openhat = '.......x.......x' }
+        @{ kick = 'X..x...x..x.....'; snare = '....X.....o.X..o'; hat = 'x.x.x.x.x.x.x.x.'; clap = '................' }
+    )
+    half = @(
+        @{ kick = 'X.....x.........'; snare = '........X.......'; hat = 'x.x.x.x.x.x.x.x.'; perc = '...o.....o......' }
+        @{ kick = 'X.......x.x.....'; snare = '........X.......'; hat = 'x.o.x.o.x.o.x.o.'; rim = '.o....o...o....o' }
+        @{ kick = 'X..x....x.......'; snare = '........X..o....'; hat = 'xxx.xxx.xxx.xxx.'; openhat = '..............x.' }
+    )
+}
+
+# Builds drum lanes (name, one character per 16th step) from a groove library with bar-to-bar variation: kick mutations, ghost snares,
+# ratcheted hats, an Euclidean percussion lane that shifts every bar, and busier fourth bars. Complexity 1-10. Only for 16-step bars.
+function New-StudioDrumLanes([string]$Feel, [int]$E, [int]$Cx, [int]$Spb, [int]$Bars, [int]$Seed, [int]$V) {
+    if ($Spb -ne 16) { return $null }
+    $lib = $script:StudioGrooveLib[$Feel]; if (-not $lib) { $lib = $script:StudioGrooveLib['dance'] }
+    $g = $lib[(New-Object Random $Seed).Next(0, $lib.Count)]; $rnd = New-Object Random ($Seed + 13 * $V + 1); $cxr = $Cx / 10.0
+    $names = 'kick', 'snare', 'clap', 'hat', 'openhat', 'perc', 'rim', 'pitchhat', 'pitchtom'; $acc = @{}; foreach ($n in $names) { $acc[$n] = New-Object Text.StringBuilder }
+    for ($b = 0; $b -lt $Bars; $b++) {
+        $lane = @{}; foreach ($n in $names) { $lane[$n] = $(if ($g.ContainsKey($n)) { [char[]]$g[$n] } else { [char[]]('.' * 16) }) }
+        if ($b % 2 -eq 1 -or $V -eq 1) { if ($rnd.NextDouble() -lt 0.35 + 0.5 * $cxr) { $pos = @(3, 6, 7, 9, 11, 13, 14, 15)[$rnd.Next(0, 8)]; if ($lane.kick[$pos] -eq '.') { $lane.kick[$pos] = $(if ($rnd.NextDouble() -lt 0.5) { 'x' } else { 'o' }) } } }
+        if ($b % 4 -eq 3 -and $cxr -gt 0.4) { $lane.kick[15] = 'o'; if ($rnd.NextDouble() -lt 0.5) { $lane.kick[14] = 'x' } }
+        $ng = [int]($Cx / 3); if ($g.ContainsKey('snare') -or $Feel -eq 'break') { for ($k = 0; $k -lt $ng; $k++) { $pos = @(1, 3, 6, 7, 9, 11, 14, 15)[$rnd.Next(0, 8)]; if ($lane.kick[$pos] -eq '.' -and $lane.snare[$pos] -eq '.') { $lane.snare[$pos] = 'o' } } }
+        if ($Cx -ge 5) { for ($p = 0; $p -lt 16; $p++) { if ($lane.hat[$p] -eq 'x' -and $rnd.NextDouble() -lt ($Cx - 4) * 0.04) { $lane.hat[$p] = '2' } } }
+        if ($Cx -ge 7 -and $b % 2 -eq 1) { $lane.hat[13] = '2'; $lane.hat[14] = '3'; $lane.hat[15] = '4' }
+        if ($Cx -ge 4) { $eu = Get-StudioEuclid (2 + [int]($Cx / 3)) 16 ($b % 8); $lane.perc = [char[]]$eu }
+        if ($Cx -ge 6) { $lane.rim = [char[]](Get-StudioEuclid 3 16 $b) }
+        if ($Cx -ge 3 -and $rnd.NextDouble() -lt 0.25) { $pos = @(2, 6, 10, 14)[$rnd.Next(0, 4)]; if ($lane.hat[$pos] -ne '.') { $lane.hat[$pos] = '.'; $lane.openhat[$pos] = 'x' } }
+        # tuned hat and tom rolls (each run gets its own contour in the key when the lanes are turned into notes)
+        $put = { param($nm, [int]$from, [string]$pat) for ($q = 0; $q -lt $pat.Length; $q++) { $lane[$nm][$from + $q] = $pat[$q]; if ($nm -eq 'pitchhat') { $lane.hat[$from + $q] = '.'; $lane.openhat[$from + $q] = '.' } } }
+        if ($Cx -ge 5 -and ($b % 2 -eq 1 -or $V -eq 1)) { & $put 'pitchhat' 12 (@('x234', 'xx24', '2x34', 'x2x4', '3x3x', 'xxxx', 'x.x4', '23x4')[$rnd.Next(0, 8)]) }
+        if ($Cx -ge 7 -and $b % 4 -eq 1 -and $rnd.NextDouble() -lt 0.7) { & $put 'pitchhat' 5 (@('23', 'x2', 'xx', '3x')[$rnd.Next(0, 4)]) }
+        if ($Cx -ge 6 -and $b % 4 -eq 3) { & $put 'pitchtom' 8 (@('x.xx', 'xx2x', 'x2.x', 'xxx.', 'xxxx')[$rnd.Next(0, 5)]); foreach ($q in 8..11) { $lane.perc[$q] = '.' } }
+        foreach ($n in $names) { [void]$acc[$n].Append((-join $lane[$n])) }
+    }
+    $res = New-Object Collections.Generic.List[object]
+    foreach ($n in $names) { $s = $acc[$n].ToString(); if ($s.Trim('.').Length) { $res.Add(@($n, $s)) } }
+    return , $res
+}
+
+# ---------------------------------------------------------------------------------------------------------------
+# How complex is the music? (read from the notes on the timeline)
+# ---------------------------------------------------------------------------------------------------------------
+
+function Get-StudioBarSignatures($Notes, [double]$BarBeats, [int]$Bars, [bool]$Relative) {
+    $sigs = @()
+    for ($b = 0; $b -lt $Bars; $b++) {
+        $lo = $b * $BarBeats; $hi = $lo + $BarBeats; $inBar = @($Notes | Where-Object { $_.Start -ge $lo -and $_.Start -lt $hi } | Sort-Object Start, Pitch)
+        if (-not $inBar.Count) { $sigs += ''; continue }
+        $p0 = $inBar[0].Pitch; $sigs += (($inBar | ForEach-Object { '{0:0.00}:{1}' -f ([math]::Round(($_.Start - $lo) * 4) / 4), $(if ($Relative) { $_.Pitch - $p0 } else { $_.Pitch }) }) -join ';')
+    }
+    return $sigs
+}
+
+function Measure-StudioMelody($Notes, [double]$BarBeats, [int]$Bars) {
+    $n = @($Notes | Sort-Object Start); if ($n.Count -lt 4) { return @{ Score = 0.0; Text = 'almost no notes' } }
+    $sigs = @(Get-StudioBarSignatures $n $BarBeats $Bars $true); $active = @($sigs | Where-Object { $_ }); $nAct = [math]::Max(1, $active.Count)
+    $npb = $n.Count / [double]$nAct; $pcs = @($n | ForEach-Object { $_.Pitch % 12 } | Select-Object -Unique).Count
+    $mn = ($n | Measure-Object Pitch -Minimum).Minimum; $mx = ($n | Measure-Object Pitch -Maximum).Maximum
+    $iois = @(); $ints = @(); for ($i = 1; $i -lt $n.Count; $i++) { $iois += [math]::Round(($n[$i].Start - $n[$i - 1].Start) * 8) / 8; $d = [math]::Abs($n[$i].Pitch - $n[$i - 1].Pitch); if ($d -le 12) { $ints += $d } }
+    $ioiVar = @($iois | Where-Object { $_ -gt 0 } | Select-Object -Unique).Count; $intVar = @($ints | Select-Object -Unique).Count
+    $sync = @($n | Where-Object { ($_.Start % 1.0) -gt 0.01 }).Count / [double]$n.Count; $rep = 1.0 - (@($active | Select-Object -Unique).Count / [double]$nAct)
+    $parts = @([math]::Min(1.0, $npb / 6.0), [math]::Min(1.0, $ioiVar / 5.0), [math]::Min(1.0, $intVar / 6.0), [math]::Min(1.0, ($mx - $mn) / 14.0), [math]::Min(1.0, $sync / 0.3), (1.0 - [math]::Abs($rep - 0.5) / 0.5))
+    $score = 10.0 * (($parts | Measure-Object -Sum).Sum / $parts.Count)
+    return @{ Score = $score; Text = ('{0:0.0} notes per active bar, {1} pitch classes, range {2} semitones, {3} rhythm values, {4} interval sizes, {5:0}% off-beat, {6:0}% repeated bars' -f $npb, $pcs, ($mx - $mn), $ioiVar, $intVar, ($sync * 100), ($rep * 100)) }
+}
+
+function Measure-StudioDrums($Notes, [double]$BarBeats, [int]$Bars) {
+    $n = @($Notes | Sort-Object Start); if ($n.Count -lt 8) { return @{ Score = 0.0; Text = 'almost no drum hits' } }
+    $sigs = @(Get-StudioBarSignatures $n $BarBeats $Bars $false); $active = @($sigs | Where-Object { $_ }); $nAct = [math]::Max(1, $active.Count)
+    $hpb = $n.Count / [double]$nAct; $lanes = @($n | ForEach-Object { $_.Pitch } | Select-Object -Unique).Count; $uniq = @($active | Select-Object -Unique).Count
+    $ghost = @($n | Where-Object { $_.Vel -lt 60 }).Count / [double]$n.Count; $ratch = 0
+    $byP = $n | Group-Object Pitch; foreach ($gp in $byP) { $s = @($gp.Group | Sort-Object Start); for ($i = 1; $i -lt $s.Count; $i++) { if ($s[$i].Start - $s[$i - 1].Start -lt 0.2) { $ratch++ } } }
+    $vm = ($n | Measure-Object Vel -Average).Average; $vs = [math]::Sqrt([math]::Max(0.0, (($n | ForEach-Object { ($_.Vel - $vm) * ($_.Vel - $vm) } | Measure-Object -Sum).Sum / $n.Count)))
+    $parts = @([math]::Min(1.0, $hpb / 28.0), [math]::Min(1.0, $lanes / 6.0), [math]::Min(1.0, $uniq / [math]::Max(2.0, $nAct * 0.25)), [math]::Min(1.0, $ghost / 0.1), [math]::Min(1.0, $ratch / [math]::Max(1.0, $nAct * 0.4)), [math]::Min(1.0, $vs / 18.0))
+    return @{ Score = (10.0 * (($parts | Measure-Object -Sum).Sum / $parts.Count)); Text = ('{0:0} hits per bar, {1} drums, {2} different bars of {3}, {4:0}% ghost notes, {5} ratchets' -f $hpb, $lanes, $uniq, $nAct, ($ghost * 100), $ratch) }
+}
+
+function Measure-StudioHarmony($Notes, [double]$BarBeats, [int]$Bars) {
+    $n = @($Notes); if ($n.Count -lt 3) { return @{ Score = 0.0; Text = 'no chords' } }
+    $sets = @(); for ($b = 0; $b -lt $Bars; $b++) { $lo = $b * $BarBeats; $hi = $lo + $BarBeats; $pc = @($n | Where-Object { $_.Start -ge $lo -and $_.Start -lt $hi } | ForEach-Object { $_.Pitch % 12 } | Sort-Object -Unique); $sets += ($pc -join ',') }
+    $act = @($sets | Where-Object { $_ }); $distinct = @($act | Select-Object -Unique).Count; $changes = 0; for ($i = 1; $i -lt $sets.Count; $i++) { if ($sets[$i] -ne $sets[$i - 1] -and $sets[$i]) { $changes++ } }
+    $ext = @($act | Where-Object { ($_ -split ',').Count -ge 4 }).Count; $nb = [math]::Max(1, $act.Count)
+    $parts = @([math]::Min(1.0, $distinct / 6.0), [math]::Min(1.0, $changes / ($nb * 0.6)), [math]::Min(1.0, $ext / ($nb * 0.4)))
+    return @{ Score = (10.0 * (($parts | Measure-Object -Sum).Sum / $parts.Count)); Text = ('{0} different chords, {1} chord changes in {2} bars, {3} bars with 7ths or richer' -f $distinct, $changes, $nb, $ext) }
+}
+
+function Get-StudioSymbolicMetrics($Proj) {
+    $bb = [double]$Proj.BarBeats; $bars = [int]$Proj.Bars
+    $gen = 'Chords', 'Pad', 'Bass', 'Arp', 'Counter', 'Risers'
+    $mel = @(); $dr = @(); $ch = @()
+    foreach ($t in $Proj.Tracks) {
+        if ($t.Synth -eq 'drums' -or $t.Name -match '\(kit\)$') { $dr += @($t.Notes) }
+        elseif ($t.Name -eq 'Chords') { $ch += @($t.Notes) }
+        elseif ($t.Name -eq 'Motif' -or ($gen -notcontains $t.Name -and $t.Name -notlike 'Texture*' -and $t.Synth -ne 'sample' -and $t.Notes.Count -gt 3)) { $mel += @($t.Notes) }
+    }
+    return @{ Melody = (Measure-StudioMelody $mel $bb $bars); Drums = (Measure-StudioDrums $dr $bb $bars); Harmony = (Measure-StudioHarmony $ch $bb $bars) }
+}
+
+# ---------------------------------------------------------------------------------------------------------------
+# Comparing with a reference (a song-model render, or typical values for the style) and the quality pass
+# ---------------------------------------------------------------------------------------------------------------
+
+function Get-StudioReferenceFromAudio([float[]]$Smp, [string]$Source) {
+    $f = [HbStudio.Critic]::Features($Smp, $Smp); $a = [HbStudio.Mastering]::Analyze($Smp, $Smp)
+    return @{ Onsets = $f.OnsetsPerSec; Centroid = $f.CentroidHz; Bands = @($a.Bands | ForEach-Object { $_ - $a.Bands[3] }); Source = $Source }
+}
+
+function Get-StudioStyleReference($Style, [double]$Bpm, [int]$Dens) {
+    $feel = if ($Style) { [string]$Style.Feel } else { 'dance' }; $name = if ($Style) { [string]$Style.Desc } else { '' }
+    $cen = switch ($feel) { 'break' { 3000.0 } 'half' { 2000.0 } default { 2600.0 } }; if ($name -match 'ambient|drone|soundscape') { $cen = 1300.0 }
+    return @{ Onsets = ($Bpm / 60.0) * (1.5 + $Dens * 0.6); Centroid = $cen; Bands = @(4.0, 2.0, -2.0, 0.0, -6.0, -13.0); Source = 'typical values for the style' }
+}
+
+function Compare-StudioFeatures($Rep, $Ref) {
+    $out = @(); $f = $Rep.Features; $b = $Rep.Overall.Bands
+    if ($Ref.Onsets -gt 0 -and $f.OnsetsPerSec -lt 0.75 * $Ref.Onsets) { $out += @{ Id = 'sparse'; Text = ('fewer note onsets than the reference ({0:0.0} per second against {1:0.0})' -f $f.OnsetsPerSec, $Ref.Onsets) } }
+    elseif ($Ref.Onsets -gt 0 -and $f.OnsetsPerSec -gt 1.6 * $Ref.Onsets) { $out += @{ Id = 'busy'; Text = ('more note onsets than the reference ({0:0.0} per second against {1:0.0})' -f $f.OnsetsPerSec, $Ref.Onsets) } }
+    if ($Ref.Centroid -gt 0 -and $f.CentroidHz -lt 0.65 * $Ref.Centroid) { $out += @{ Id = 'dull_ref'; Text = ('darker than the reference (brightness {0:0} Hz against {1:0} Hz)' -f $f.CentroidHz, $Ref.Centroid) } }
+    elseif ($Ref.Centroid -gt 0 -and $f.CentroidHz -gt 1.5 * $Ref.Centroid) { $out += @{ Id = 'bright_ref'; Text = ('brighter than the reference (brightness {0:0} Hz against {1:0} Hz)' -f $f.CentroidHz, $Ref.Centroid) } }
+    $names = 'sub', 'bass', 'low-mid', 'mid', 'high-mid', 'air'
+    foreach ($i in 0, 1, 2, 4, 5) { $d = ($b[$i] - $b[3]) - $Ref.Bands[$i]; if ($d -gt 6) { $out += @{ Id = "band_hi_$i"; Text = ('{0} band is {1:0.0} dB louder than the reference' -f $names[$i], $d) } } elseif ($d -lt -7) { $out += @{ Id = "band_lo_$i"; Text = ('{0} band is {1:0.0} dB quieter than the reference' -f $names[$i], (-$d)) } }
+    }
+    return $out
+}
+
+function Invoke-StudioReferenceFixes($Proj, $Issues) {
+    $msg = @()
+    foreach ($i in $Issues) {
+        switch -Regex ($i.Id) {
+            '^dull_ref$' { if (Add-StudioPeakRule $Proj 'Arp,Motif,Counter,Chords' 6000 2) { $msg += 'brightened the leads (+2 dB at 6 kHz)' } }
+            '^bright_ref$' { if (Add-StudioPeakRule $Proj 'Arp,Motif,Chords,Counter' 3500 -2.5) { $msg += 'tamed the leads (-2.5 dB at 3.5 kHz)' } }
+            '^band_hi_[01]$' { $b = Get-StudioTrackByName $Proj 'Bass'; if ($b -and $b.Vol -gt 0.3) { $b.Vol *= 0.85; $msg += 'turned the bass down to match the reference' } }
+            '^band_lo_[01]$' { $b = Get-StudioTrackByName $Proj 'Bass'; if ($b -and $b.Vol -lt 1.2) { $b.Vol = [math]::Min(1.2, $b.Vol * 1.15); $msg += 'turned the bass up to match the reference' } }
+            '^band_hi_2$' { if (Add-StudioPeakRule $Proj 'Chords,Pad,Motif,Counter' 320 -3) { $msg += 'cut the low-mids (-3 dB at 320 Hz)' } }
+            '^band_hi_4$' { if (Add-StudioPeakRule $Proj 'Arp,Motif,Chords,Counter' 3800 -2.5) { $msg += 'cut the high-mids (-2.5 dB at 3.8 kHz)' } }
+            '^band_lo_5$' { if (Add-StudioPeakRule $Proj 'Arp,Pad,Texture' 9500 2.5) { $msg += 'added air (+2.5 dB at 9.5 kHz)' } }
+        }
+    }
+    return $msg
+}
+
+function Format-StudioQuality($Rep, $Sym, $Ref, $Issues, [double]$Score) {
+    $sb = New-Object Text.StringBuilder
+    [void]$sb.AppendLine(('QUALITY SCORE {0:0}/100' -f $Score)); [void]$sb.AppendLine('')
+    [void]$sb.AppendLine('WHAT IT HEARS'); [void]$sb.AppendLine('  ' + $Rep.Overall.Report())
+    [void]$sb.AppendLine(('  {0:0.0} note onsets per second, brightness {1:0} Hz, noisiness {2:0.00}, {3:0.0}% clipped samples' -f $Rep.Features.OnsetsPerSec, $Rep.Features.CentroidHz, $Rep.Features.Flatness, ($Rep.Features.ClipFraction * 100)))
+    [void]$sb.AppendLine(''); [void]$sb.AppendLine('WHAT IT READS IN THE NOTES')
+    [void]$sb.AppendLine(('  melody {0:0.0}/10: {1}' -f $Sym.Melody.Score, $Sym.Melody.Text)); [void]$sb.AppendLine(('  drums {0:0.0}/10: {1}' -f $Sym.Drums.Score, $Sym.Drums.Text)); [void]$sb.AppendLine(('  harmony {0:0.0}/10: {1}' -f $Sym.Harmony.Score, $Sym.Harmony.Text))
+    if ($Ref) { [void]$sb.AppendLine(''); [void]$sb.AppendLine(('REFERENCE ({0}): {1:0.0} onsets per second, brightness {2:0} Hz' -f $Ref.Source, $Ref.Onsets, $Ref.Centroid)) }
+    [void]$sb.AppendLine(''); if ($Issues.Count) { [void]$sb.AppendLine('STILL TO IMPROVE'); foreach ($i in $Issues) { [void]$sb.AppendLine('  - ' + $i.Text) } } else { [void]$sb.AppendLine('Nothing left to improve at this complexity level.') }
+    return $sb.ToString()
+}
+
+# Listens to the finished song (and every voice), compares it with the reference and with the complexity asked for, fixes what it can and repeats.
+# $Rebuild regenerates the arrangement (it is called after Opts.Complexity was raised).
+function Invoke-StudioQualityPass($Proj, $Plan, $Opts, $Ref, [scriptblock]$Rebuild, [scriptblock]$Progress, [int]$Iterations = 3) {
+    $log = @(); $rep = $null; $sym = $null; $issues = @(); $score = 0.0
+    for ($it = 1; $it -le $Iterations + 1; $it++) {
+        if ($Progress) { & $Progress $(if ($it -le $Iterations) { "Quality pass $it of ${Iterations}: checking every sound..." } else { 'Quality pass: final listen...' }) }
+        $qa = Invoke-StudioVoiceQA $Proj $Progress; foreach ($l in $qa.Log) { $log += "voice: $l" }
+        if ($Progress) { & $Progress "Quality pass $it of ${Iterations}: listening to the whole song..." }
+        $rep = Get-StudioMixReport $Proj $Plan; $sym = Get-StudioSymbolicMetrics $Proj
+        $want = [double]$(if ($Opts.Complexity) { $Opts.Complexity } else { 6 }); $issues = @()
+        foreach ($m in @(Get-StudioMixIssues $rep)) { $issues += $m }
+        if ($Ref) { foreach ($m in @(Compare-StudioFeatures $rep $Ref)) { $issues += $m } }
+        $short = @()
+        if ($sym.Melody.Score -lt $want - 1.5) { $issues += @{ Id = 'melody_simple'; Text = ('the melody is simpler than asked for ({0:0.0}/10): {1}' -f $sym.Melody.Score, $sym.Melody.Text) }; $short += 'melody' }
+        if ($sym.Drums.Score -lt $want - 1.5) { $issues += @{ Id = 'drums_simple'; Text = ('the beats are simpler than asked for ({0:0.0}/10): {1}' -f $sym.Drums.Score, $sym.Drums.Text) }; $short += 'drums' }
+        if ($sym.Harmony.Score -lt $want - 2.5) { $issues += @{ Id = 'harmony_simple'; Text = ('the harmony is simpler than asked for ({0:0.0}/10): {1}' -f $sym.Harmony.Score, $sym.Harmony.Text) }; $short += 'harmony' }
+        $score = 100.0 - 6.0 * @($issues | Where-Object { $_.Id -notmatch 'simple|sparse|busy' }).Count - 4.0 * @($issues | Where-Object { $_.Id -match 'sparse|busy' }).Count - 3.0 * (@($short).Count) * [math]::Max(0.0, $want - [math]::Min($sym.Melody.Score, [math]::Min($sym.Drums.Score, 10.0)))
+        $score = [math]::Max(0.0, [math]::Min(100.0, $score))
+        $log += ('listen {0}: score {1:0}, {2} issue(s)' -f $it, $score, $issues.Count)
+        if (-not $issues.Count -or $it -gt $Iterations) { break }
+        $fx = @(); $fx += @(Invoke-StudioMixFixes $Proj $Plan $rep); if ($Ref) { $fx += @(Invoke-StudioReferenceFixes $Proj $issues) }
+        $more = [bool](@($issues | Where-Object { $_.Id -match '^(melody_simple|drums_simple|harmony_simple|sparse)$' }).Count); $less = [bool](@($issues | Where-Object { $_.Id -eq 'busy' }).Count)
+        if ($more -and $Opts.Complexity -lt 10) { $Opts.Complexity = [math]::Min(10, [int]$Opts.Complexity + 2); $fx += "raised the complexity to $($Opts.Complexity) and regenerated the arrangement"; if ($Rebuild) { & $Rebuild } }
+        elseif ($less -and $Opts.Complexity -gt 4) { $Opts.Complexity = [int]$Opts.Complexity - 1; $fx += "lowered the complexity to $($Opts.Complexity) and regenerated the arrangement"; if ($Rebuild) { & $Rebuild } }
+        if ($fx.Count) { $log += ('fix ' + $it + ': ' + ($fx -join '; ')) } else { break }
+    }
+    return @{ Log = $log; Score = $score; Report = (Format-StudioQuality $rep $sym $Ref $issues $score); Rep = $rep }
+}
+
+function Read-StudioInput([string]$Prompt, [string]$Title, [string]$Default) {
+    Add-Type -AssemblyName Microsoft.VisualBasic
+    return ([Microsoft.VisualBasic.Interaction]::InputBox($Prompt, $Title, $Default)).Trim()
+}
+
+# A chord as a roman numeral relative to the key (the inverse of ConvertFrom-StudioRoman), so saved styles work in any key.
+function ConvertTo-StudioRoman($Chord, [int]$KeyPc, [string]$Scale) {
+    $names = @('I', 'bII', 'II', 'bIII', 'III', 'IV', 'bV', 'V', 'bVI', 'VI', 'bVII', 'VII'); $d = ((($Chord.Root - $KeyPc) % 12) + 12) % 12
+    $r = $names[$d]; $q = [string]$Chord.Quality
+    if ($q -in 'm', 'm6', 'm7', 'm9', 'm11', 'madd9', 'mmaj7', 'm7b5', 'dim', 'dim7') { $r = $r.ToLower() }
+    $suf = switch ($q) { 'dim' { 'o' } 'dim7' { 'o7' } 'm7b5' { 'o7' } 'aug' { '+' } '7' { '7' } 'm7' { '7' } 'maj7' { 'maj7' } 'mmaj7' { 'maj7' } 'maj9' { 'maj7' } 'sus4' { 'sus4' } 'sus2' { 'sus2' } 'add9' { 'add9' } 'madd9' { 'add9' } '9' { '9' } 'm9' { '9' } '6' { '6' } 'm6' { '6' } '5' { '5' } default { '' } }
+    return $r + $suf
+}
+
+# ---------------------------------------------------------------------------------------------------------------
+# The Studio window
+# ---------------------------------------------------------------------------------------------------------------
+
+function Show-AudioStudio {
+    Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+    if ($script:StudioForm -and -not $script:StudioForm.IsDisposed) { $script:StudioForm.Show(); $script:StudioForm.Activate(); return }
+    try { $script:StudioDrumKitCount = Initialize-StudioSampleRoots } catch { $script:StudioDrumKitCount = 0 }
+    try { $script:StudioHitImport = Import-StudioHitLibraries } catch { $script:StudioHitImport = $null }
+
+    $dk = @{
+        Bg = [Drawing.Color]::FromArgb(24, 26, 32); Panel = [Drawing.Color]::FromArgb(32, 35, 44); Field = [Drawing.Color]::FromArgb(44, 48, 60)
+        Text = [Drawing.Color]::FromArgb(224, 228, 236); Muted = [Drawing.Color]::FromArgb(150, 158, 175); Accent = [Drawing.Color]::FromArgb(40, 200, 170)
+        Hot = [Drawing.Color]::FromArgb(230, 80, 90)
+    }
+    $S = @{ Proj = (New-StudioProject); Undo = (New-Object Collections.Generic.List[object]); Loading = $false; Playing = $false; Proc = $null; Wav = $null; Player = $null; Clock = $null; Sc = (Find-StudioSuperCollider); Render = $null; Dirty = $false; File = ''; AudioRev = 0; RenderedRev = 0; AudioDirtyAt = $null; Rendering = $false; PendingWav = $null; PendingRev = 0; RenderToken = 0; LiveWavA = $null; LiveWavB = $null; LiveUseA = $false; SuspendedForEdit = $false }
+    Get-StudioDemoNotes $S.Proj
+    $script:S = $S
+
+    # Belt-and-braces for crashes that escape every other handler. If an exception on any thread fires,
+    # write the stack to the log before the process dies - or, depending on the CLR, keep trying to keep alive.
+    try {
+        [AppDomain]::CurrentDomain.add_UnhandledException({ param($snd, $ea)
+            try {
+                $ex = $ea.ExceptionObject
+                $msg = if ($ex -is [Exception]) { ($ex | Out-String) } else { [string]$ex }
+                Add-Content -LiteralPath $script:StudioCrashLog -Value ("[{0}] UNHANDLED ({1})`r`n{2}`r`n" -f (Get-Date), $ea.IsTerminating, $msg) -ErrorAction SilentlyContinue
+            } catch { }
+        }) | Out-Null
+    } catch { }
+    $f = New-Object Windows.Forms.Form
+    $f.Text = 'Audio Studio - piano roll, SuperCollider and AI'; $f.Size = New-Object Drawing.Size(1500, 1010); $f.StartPosition = 'CenterScreen'
+    $f.MinimumSize = New-Object Drawing.Size(900, 650); $f.WindowState = 'Normal'
+    $f.BackColor = $dk.Bg; $f.ForeColor = $dk.Text; $f.Font = New-Object Drawing.Font('Segoe UI', 9); $f.KeyPreview = $true
+    $script:ResizerIdle = [Drawing.Color]::FromArgb(70, 76, 94)
+    $script:ResizerHot = [Drawing.Color]::FromArgb(40, 200, 170)
+    function Make-Resizer($target, [string]$edge, [int]$minSize, [int]$maxSize) {
+        if ($target -is [Windows.Forms.TabControl]) { return $null }
+        $r = New-Object Windows.Forms.Panel
+        $r.BackColor = $script:ResizerIdle; $r.Cursor = $(if ($edge -eq 'Left' -or $edge -eq 'Right') { 'SizeWE' } else { 'SizeNS' })
+        if ($edge -eq 'Top') { $r.Height = 10; $r.Dock = 'Bottom' }
+        elseif ($edge -eq 'Bottom') { $r.Height = 10; $r.Dock = 'Top' }
+        elseif ($edge -eq 'Left') { $r.Width = 10; $r.Dock = 'Right' }
+        else { $r.Width = 10; $r.Dock = 'Left' }
+        $r.Tag = @{ Target = $target; Hor = ($edge -eq 'Left' -or $edge -eq 'Right'); Min = $minSize; Max = $maxSize; Invert = ($edge -in 'Bottom', 'Right'); On = $false; StartPos = 0; StartSize = 0 }
+        $r.Add_MouseEnter({ param($snd, $e) $snd.BackColor = $script:ResizerHot })
+        $r.Add_MouseLeave({ param($snd, $e) if (-not $snd.Tag.On) { $snd.BackColor = $script:ResizerIdle } })
+        $r.Add_MouseDown({
+            param($snd, $e)
+            if ($e.Button -ne [Windows.Forms.MouseButtons]::Left) { return }
+            $t = $snd.Tag
+            $t.On = $true
+            $t.StartPos = $(if ($t.Hor) { [System.Windows.Forms.Cursor]::Position.X } else { [System.Windows.Forms.Cursor]::Position.Y })
+            $t.StartSize = $(if ($t.Hor) { $t.Target.Width } else { $t.Target.Height })
+            # Capture the mouse: without this the drag stops as soon as the pointer leaves the 10 px strip.
+            $snd.Capture = $true; $snd.BackColor = $script:ResizerHot
+        })
+        $r.Add_MouseMove({
+            param($snd, $e)
+            $t = $snd.Tag; if (-not $t.On) { return }
+            $cur = $(if ($t.Hor) { [System.Windows.Forms.Cursor]::Position.X } else { [System.Windows.Forms.Cursor]::Position.Y })
+            $d = $cur - $t.StartPos; if ($t.Invert) { $d = -$d }
+            $sz = [math]::Max($t.Min, [math]::Min($t.Max, $t.StartSize + $d))
+            if ($t.Hor) { $t.Target.Width = $sz } else { $t.Target.Height = $sz }
+        })
+        $r.Add_MouseUp({ param($snd, $e) $snd.Tag.On = $false; $snd.Capture = $false; $snd.BackColor = $script:ResizerIdle })
+        try { $target.Controls.Add($r) } catch { }
+        return $r
+    }
+    $script:StudioForm = $f
+    # A stray exception inside a WinForms event must never take the whole app down. Log it and keep going.
+    $script:StudioCrashLog = Join-Path (Get-StudioDir) 'studio-errors.log'
+    try { New-Item -ItemType Directory -Path (Split-Path $script:StudioCrashLog) -Force -ErrorAction SilentlyContinue | Out-Null } catch { }
+    [Windows.Forms.Application]::Add_ThreadException({ param($snd, $ea)
+        try {
+            $stack = ($ea.Exception | Out-String)
+            Add-Content -LiteralPath $script:StudioCrashLog -Value ("[{0}]`r`n{1}`r`n" -f (Get-Date), $stack) -ErrorAction SilentlyContinue
+            try { [Windows.Forms.MessageBox]::Show(("Something glitched but the Studio is still running:`r`n`r`n{0}`r`n`r`nFull stack: {1}" -f $ea.Exception.Message, $script:StudioCrashLog), 'Audio Studio', 'OK', 'Warning') } catch { }
+        } catch { }
+    })
+
+    function Sty($c) { $c.BackColor = $dk.Field; $c.ForeColor = $dk.Text; return $c }
+    function Btn([string]$t, [int]$x, [int]$y, [int]$w, [int]$h = 28, $accent = $false) {
+        $b = New-Object Windows.Forms.Button; $b.Text = $t; $b.SetBounds($x, $y, $w, $h); $b.FlatStyle = 'Flat'
+        $b.FlatAppearance.BorderColor = [Drawing.Color]::FromArgb(70, 76, 94)
+        $b.BackColor = $(if ($accent) { $dk.Accent } else { $dk.Field }); $b.ForeColor = $(if ($accent) { [Drawing.Color]::Black } else { $dk.Text }); return $b
+    }
+    function Lbl([string]$t, [int]$x, [int]$y, [int]$w = 80, [int]$h = 18) { $l = New-Object Windows.Forms.Label; $l.AutoSize = $false; $l.AutoEllipsis = $true; $l.Text = $t; $l.SetBounds($x, $y, $w, $h); $l.ForeColor = $dk.Muted; return $l }
+    function Num([double]$v, [double]$min, [double]$max, [double]$inc, [int]$dec, [int]$x, [int]$y, [int]$w = 64) {
+        $n = New-Object Windows.Forms.NumericUpDown; $n.Minimum = $min; $n.Maximum = $max; $n.Increment = $inc; $n.DecimalPlaces = $dec; $n.Value = $v
+        $n.SetBounds($x, $y, $w, 24); $n.BackColor = $dk.Field; $n.ForeColor = $dk.Text; return $n
+    }
+    function Combo($items, [int]$x, [int]$y, [int]$w, [bool]$drop = $true) {
+        $c = New-Object Windows.Forms.ComboBox; $c.DropDownStyle = $(if ($drop) { 'DropDownList' } else { 'DropDown' }); [void]$c.Items.AddRange([object[]]$items)
+        $c.SetBounds($x, $y, $w, 24); $c.BackColor = $dk.Field; $c.ForeColor = $dk.Text; $c.FlatStyle = 'Flat'; return $c
+    }
+    function Log([string]$m) { try { $S.Log.AppendText(('[{0}] {1}{2}' -f (Get-Date -Format 'HH:mm:ss'), $m, "`r`n")) } catch { } }
+    function Status([string]$m) { $S.Status.Text = $m }
+
+    # ---- top toolbar ---------------------------------------------------------------------------------------
+    $top = New-Object HbStudio.GradientPanel; $top.Dock = 'Top'; $top.Height = 172; $top.AutoScroll = $true
+    $S.Play = Btn 'Play' 8 8 70 30 $true; $S.Stop = Btn 'Stop' 84 8 60 30
+    $S.Loop = New-Object Windows.Forms.CheckBox; $S.Loop.Text = 'Loop'; $S.Loop.Checked = $true; $S.Loop.SetBounds(150, 13, 56, 20)
+    $top.Controls.AddRange(@($S.Play, $S.Stop, $S.Loop))
+    $top.Controls.Add((Lbl 'BPM' 210 14 36)); $S.Bpm = Num $S.Proj.Bpm 20 400 1 1 248 10 66
+    $top.Controls.Add((Lbl 'Time sig' 322 14 52)); $S.Bpb = Num $S.Proj.BeatsPerBar 1 32 1 0 376 10 42
+    $top.Controls.Add((Lbl '/' 422 14 10)); $S.Den = Combo @('2', '4', '8', '16') 434 10 46; $S.Den.SelectedItem = '4'
+    $top.Controls.Add((Lbl 'Phrase' 572 14 42)); $S.Phrase = Num 4 1 16 1 0 616 10 42
+    $top.Controls.Add((Lbl 'Bars' 488 14 30)); $S.Bars = Num $S.Proj.Bars 1 512 1 0 520 10 46
+    $top.Controls.Add((Lbl 'Key' 766 14 30)); $S.Key = Combo @('C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B') 794 10 50
+    $top.Controls.Add((Lbl 'Scale' 850 14 36)); $S.Scale = Combo ([HbStudio.Scales]::Names) 888 10 116
+    $S.SnapScale = New-Object Windows.Forms.CheckBox; $S.SnapScale.Text = 'Snap scale'; $S.SnapScale.SetBounds(1010, 12, 90, 22)
+    $top.Controls.Add((Lbl 'Grid' 1104 14 32)); $S.Grid = Combo @('Quarter', '8th', '16th', '32nd', '64th', '8th triplet', '16th triplet', '32nd triplet') 1136 10 100
+    $S.Engine = Combo @('Built-in preview', 'SuperCollider') 1244 10 130
+    $top.Controls.AddRange(@($S.Key, $S.Scale, $S.SnapScale, $S.Grid, $S.Engine))
+    $top.Controls.AddRange(@($S.Bpm, $S.Bpb, $S.Den, $S.Phrase, $S.Bars))
+    $S.Key.SelectedIndex = 0; $S.Scale.SelectedItem = 'minor'; $S.Grid.SelectedIndex = 2; $S.Engine.SelectedIndex = 0
+
+    $S.BtnNew = Btn 'New' 8 46 56; $S.BtnOpen = Btn 'Open...' 70 46 64; $S.BtnSave = Btn 'Save...' 140 46 64
+    $S.BtnWav = Btn 'Render WAV' 214 46 100; $S.BtnMidi = Btn 'Export MIDI' 320 46 94; $S.BtnScd = Btn 'Export .scd' 420 46 90
+    $S.BtnSc = Btn 'Locate SuperCollider' 520 46 140; $S.BtnScGet = Btn 'Get SuperCollider' 666 46 124
+    $top.Controls.AddRange(@($S.BtnNew, $S.BtnOpen, $S.BtnSave, $S.BtnWav, $S.BtnMidi, $S.BtnScd, $S.BtnSc, $S.BtnScGet))
+    $S.Click = New-Object Windows.Forms.CheckBox; $S.Click.Text = 'Click (metronome)'; $S.Click.SetBounds(810, 49, 150, 22); $S.Click.ForeColor = $dk.Text; $top.Controls.Add($S.Click)
+    $S.ScLbl = New-Object Windows.Forms.Label; $S.ScLbl.SetBounds(1110, 50, 270, 18); $S.ScLbl.ForeColor = $dk.Muted
+    $top.Controls.Add($S.ScLbl)
+
+    # ---- top row 3 (green zone): selected-track knob strip + bus assignment --------------------------------
+    $sep = New-Object Windows.Forms.Panel; $sep.SetBounds(0, 76, 1400, 1); $sep.BackColor = [Drawing.Color]::FromArgb(58, 64, 82); $top.Controls.Add($sep)
+    $capTrack = Lbl 'TRACK' 8 82 44 16; $capTrack.ForeColor = $dk.Accent; $top.Controls.Add($capTrack)
+    $S.StripName = New-Object Windows.Forms.Label; $S.StripName.SetBounds(8, 100, 88, 40); $S.StripName.ForeColor = $dk.Text; $S.StripName.Font = New-Object Drawing.Font('Segoe UI', 9, [Drawing.FontStyle]::Bold); $top.Controls.Add($S.StripName)
+    function StripKnob([string]$caption, [double]$min, [double]$max, [double]$def, [int]$x, [bool]$log = $false) {
+        $k = New-Object HbStudio.Knob; $k.BackColor = $dk.Panel; $k.ForeColor = $dk.Accent; $k.Caption = $caption; $k.Min = $min; $k.Max = $max; $k.Log = $log; $k.Default = $def; $k.Size = New-Object Drawing.Size(58, 78); $k.SetBounds($x, 86, 58, 78); $k.Font = New-Object Drawing.Font('Segoe UI', 8); return $k
+    }
+    $S.TVol = StripKnob 'Volume' 0 1.5 0.8 108; $S.TPan = StripKnob 'Pan' -1 1 0 174; $S.TCut = StripKnob 'Cutoff' 60 12000 2400 240 $true
+    $S.TRes = StripKnob 'Reso' 0 0.95 0.3 306; $S.TEnv = StripKnob 'Env' 0 2 0.6 372; $S.TAtk = StripKnob 'Attack' 0.001 4 0.005 438 $true
+    $S.TRel = StripKnob 'Release' 0.005 6 0.15 504 $true; $S.TCrush = StripKnob 'Crush' 2 16 16 570
+    $top.Controls.AddRange(@($S.TVol, $S.TPan, $S.TCut, $S.TRes, $S.TEnv, $S.TAtk, $S.TRel, $S.TCrush))
+    $sep2 = New-Object Windows.Forms.Panel; $sep2.SetBounds(640, 84, 1, 78); $sep2.BackColor = [Drawing.Color]::FromArgb(58, 64, 82); $top.Controls.Add($sep2)
+    $capBus = Lbl 'BUS' 656 82 40 16; $capBus.ForeColor = $dk.Accent; $top.Controls.Add($capBus)
+    $S.StripBusName = New-Object Windows.Forms.Label; $S.StripBusName.SetBounds(656, 100, 110, 18); $S.StripBusName.ForeColor = $dk.Muted; $S.StripBusName.Text = 'Send: none'; $top.Controls.Add($S.StripBusName)
+    $S.BusBtns = @()
+    $bx = 656
+    foreach ($bname in @('A', 'B', 'C', 'D')) {
+        $b = Btn $bname $bx 124 38 30; $b.FlatAppearance.BorderColor = $dk.Accent; $b.Tag = $bname; $top.Controls.Add($b); $S.BusBtns += $b; $bx += 46
+    }
+    $S.BtnBusFx = Btn 'FX rack >' 850 124 78 30; $top.Controls.Add($S.BtnBusFx)
+    $sep3 = New-Object Windows.Forms.Panel; $sep3.SetBounds(946, 84, 1, 78); $sep3.BackColor = [Drawing.Color]::FromArgb(58, 64, 82); $top.Controls.Add($sep3)
+    $capMix = Lbl 'MIX' 962 82 40 16; $capMix.ForeColor = $dk.Accent; $top.Controls.Add($capMix)
+    function MixKnob([string]$caption, [double]$min, [double]$max, [double]$def, [int]$x) {
+        $k = New-Object HbStudio.Knob; $k.BackColor = $dk.Panel; $k.ForeColor = $dk.Hot; $k.Caption = $caption; $k.Min = $min; $k.Max = $max; $k.Default = $def; $k.Size = New-Object Drawing.Size(58, 78); $k.SetBounds($x, 86, 58, 78); $k.Font = New-Object Drawing.Font('Segoe UI', 8); return $k
+    }
+    $S.KSwing = MixKnob 'Swing' 0 100 0 962; $S.KDelay = MixKnob 'Delay mix' 0 1 0.2 1028; $S.KBeats = MixKnob 'D beats' 0.0625 8 0.75 1094; $S.KFb = MixKnob 'Feedback' 0 0.95 0.4 1160
+    $top.Controls.AddRange(@($S.KSwing, $S.KDelay, $S.KBeats, $S.KFb))
+
+    # ---- left: tracks ---------------------------------------------------------------------------------------
+    $left = New-Object HbStudio.GradientPanel; $left.Dock = 'Left'; $left.Width = 250; $left.AutoScroll = $true
+    $left.Controls.Add((Lbl 'Tracks' 8 6 80))
+    $S.TrackList = New-Object Windows.Forms.ListBox; $S.TrackList.SetBounds(8, 26, 234, 110); $S.TrackList.BackColor = $dk.Field; $S.TrackList.ForeColor = $dk.Text; $S.TrackList.BorderStyle = 'FixedSingle'
+    $S.BtnTAdd = Btn 'Add' 8 140 56 26; $S.BtnTDup = Btn 'Copy' 68 140 56 26; $S.BtnTDel = Btn 'Delete' 128 140 60 26
+    $left.Controls.AddRange(@($S.TrackList, $S.BtnTAdd, $S.BtnTDup, $S.BtnTDel))
+    # Manual graph-node creation from the track list (right-click a track, or use the button).
+    $S.BtnTAddNode = Btn 'Add to graph' 188 140 56 26
+    $left.Controls.Add($S.BtnTAddNode)
+    $S.TrackCtx = New-Object Windows.Forms.ContextMenuStrip
+    $miAddNode = New-Object Windows.Forms.ToolStripMenuItem 'Add to patch graph'
+    # ToolStripItemCollection.Add returns the new index; swallow it so a GUI (ps2exe) build never
+    # sees stray pipeline output (ps2exe turns output into a blocking message box).
+    $null = $S.TrackCtx.Items.Add($miAddNode)
+    $S.TrackList.ContextMenuStrip = $S.TrackCtx
+    $S.TName = Sty (New-Object Windows.Forms.TextBox); $S.TName.SetBounds(80, 176, 162, 24)
+    $S.TSynth = Combo $script:StudioSynths 80 204 162 $false; $S.TSynth.Visible = $false
+    $S.TMute = New-Object Windows.Forms.CheckBox; $S.TMute.Text = 'Mute'; $S.TMute.SetBounds(80, 232, 52, 20)
+    $S.TSolo = New-Object Windows.Forms.CheckBox; $S.TSolo.Text = 'Solo'; $S.TSolo.SetBounds(136, 232, 58, 20); $S.TSolo.ForeColor = $dk.Accent
+    $left.Controls.AddRange(@($S.TName, $S.TSynth, $S.TMute, $S.TSolo, (Lbl 'Name' 8 180 60)))
+    $S.TInstrument = Combo @('(none)') 80 204 162 $false; $S.TInstrument.SelectedIndex = 0
+    $left.Controls.AddRange(@((Lbl 'Instrument' 8 208 60), $S.TInstrument))
+    $S.TKit = Combo ([HbStudio.DrumKits]::Names) 80 256 162 $false; $S.TKit.SelectedIndex = 0; $S.TKit.Visible = $false
+    $S.TPreset = Combo @('(none)') 80 282 162 $false; $S.TPreset.SelectedIndex = 0
+    $S.TSample = Combo @('(none)') 80 308 162 $false; $S.TSample.SelectedIndex = 0
+    $S.TSamplerMode = Combo @('Pitch (key)', 'One-shot', 'Loop') 80 334 162 $false; $S.TSamplerMode.SelectedIndex = 0; $S.TSamplerMode.Visible = $false
+    $left.Controls.AddRange(@((Lbl 'Patch preset' 8 286 72), $S.TPreset, (Lbl 'Sample source' 8 312 72), $S.TSample))
+    $props = @()
+    $py = 330
+    # ---- red zone: bussing section (send selected track to a shared FX bus, toggle modules, faders) ----------
+    # NOTE: the left panel's usable height is only ~500 px (the bottom tab strip takes the rest), so keep this compact.
+    $capBusFx = Lbl 'BUS / FX' 8 336 234 18; $capBusFx.ForeColor = $dk.Accent; $capBusFx.Font = New-Object Drawing.Font('Segoe UI', 9, [Drawing.FontStyle]::Bold); $left.Controls.Add($capBusFx)
+    $left.Controls.Add((Lbl 'Send selected track to' 8 356 234 16))
+    $S.TBus = Combo @('Direct to master', 'Bus A', 'Bus B', 'Bus C', 'Bus D') 8 374 234
+    $left.Controls.Add($S.TBus)
+    $left.Controls.Add((Lbl 'FX modules on this track' 8 402 234 16))
+    $S.ModBtns = @()
+    $modDefs = @(@('Filter', 'Filter'), @('Drive', 'Drive'), @('Crush', 'Crush'), @('Ring', 'Ring'), @('Stutter', 'Stutter'), @('Chorus', 'Chorus'), @('Delay', 'Delay'), @('Reverb', 'Reverb'), @('Phaser', 'Phaser'), @('Flanger', 'Flanger'), @('TapeStop', 'TapeStop'), @('TapeDelay', 'TapeDelay'), @('Plate', 'Plate'), @('Vinyl', 'Vinyl'), @('Comp', 'Comp'), @('EQ', 'EQ'))
+    $mx = 8; $my = 420
+    foreach ($md in $modDefs) {
+        $b = Btn $md[0] $mx $my 54 22; $b.Tag = $md[1]; $b.Font = New-Object Drawing.Font('Segoe UI', 8); $S.ModBtns += $b; $left.Controls.Add($b)
+        $mx += 58; if ($mx -gt 200) { $mx = 8; $my += 26 }
+    }
+    $left.Controls.Add((Lbl 'Buses (shared FX + fader)' 8 472 234 16))
+    $S.BusRows = @()
+    $by = 492
+    foreach ($bname in @('A', 'B', 'C', 'D')) {
+        $ck = New-Object Windows.Forms.CheckBox; $ck.Text = $bname; $ck.Checked = $true; $ck.SetBounds(8, $by, 38, 20); $ck.ForeColor = $dk.Text; $ck.Tag = $S.BusRows.Count; $left.Controls.Add($ck)
+        $lb = New-Object Windows.Forms.Label; $lb.Text = 'FX on ' + $bname; $lb.SetBounds(46, $by + 2, 44, 16); $lb.ForeColor = $dk.Muted; $left.Controls.Add($lb)
+        $tr = New-Object Windows.Forms.TrackBar; $tr.Minimum = 0; $tr.Maximum = 200; $tr.Value = 100; $tr.TickStyle = 'None'; $tr.SetBounds(88, $by - 2, 112, 22); $tr.BackColor = $dk.Panel; $tr.Tag = $S.BusRows.Count; $left.Controls.Add($tr)
+        $S.BusRows += @{ Check = $ck; Fader = $tr; Letter = $bname }
+        $by += 24
+    }
+
+    # ---- bottom: tools / AI / SuperCollider / log ------------------------------------------------------------
+    $tabs = New-Object Windows.Forms.TabControl; $tabs.Dock = 'Bottom'; $tabs.Height = 380
+    $left.AutoScroll = $true
+    foreach ($n in @('Tools', 'AI', 'SuperCollider code', 'Log', 'Sound Lab', 'Song', 'Master', 'Spectral', 'Meta synth', 'Mix', 'Knobs', 'Drums & melody AI', 'Instruments', 'Studio agent', 'Composer', 'Producer')) { $tp = New-Object Windows.Forms.TabPage; $tp.Text = $n; $tp.BackColor = $dk.Panel; $tp.ForeColor = $dk.Text; $tp.AutoScroll = $true; $tabs.TabPages.Add($tp) }
+    $tTools = $tabs.TabPages[0]; $tAi = $tabs.TabPages[1]; $tSc = $tabs.TabPages[2]; $tLog = $tabs.TabPages[3]; $tLab = $tabs.TabPages[4]; $tSong = $tabs.TabPages[5]; $tMaster = $tabs.TabPages[6]; $tSpec = $tabs.TabPages[7]; $tMeta = $tabs.TabPages[8]; $tMix = $tabs.TabPages[9]; $tKnobs = $tabs.TabPages[10]; $tWrite = $tabs.TabPages[11]; $tInst = $tabs.TabPages[12]; $tAgent = $tabs.TabPages[13]; $tComp = $tabs.TabPages[14]; $tProd = $tabs.TabPages[15]
+
+    $toolDefs = @(
+        @('Transpose +1', 'up1'), @('Transpose -1', 'dn1'), @('+12', 'up12'), @('-12', 'dn12'), @('Quantize', 'quant'), @('Snap to scale', 'scale'),
+        @('Reverse', 'rev'), @('Double time', 'dbl'), @('Half time', 'half'), @('Select all', 'all'), @('Clear track', 'clear'), @('Undo', 'undo')
+    )
+    $x = 8; $y = 8
+    foreach ($td in $toolDefs) { $b = Btn $td[0] $x $y 104 28; $b.Tag = $td[1]; $tTools.Controls.Add($b); $S["T_$($td[1])"] = $b; $x += 110; if ($x -gt 1000) { $x = 8; $y += 34 } }
+    $S.T_zoomIn = Btn 'Roll zoom +' 240 44 100 28; $S.T_zoomOut = Btn 'Roll zoom -' 350 44 100 28
+    $tTools.Controls.AddRange(@($S.T_zoomIn, $S.T_zoomOut))
+    $tTools.Controls.Add((Lbl 'Glitch and IDM tools' 8 82 200))
+    $tTools.Controls.Add((Lbl 'Amount' 8 108 50)); $S.Amt = Num 0.06 0 2 0.01 2 62 104 60
+    $S.T_hum = Btn 'Humanize' 130 102 90; $S.T_mut = Btn 'Mutate' 226 102 80; $S.T_chop = Btn 'Break chop' 312 102 92; $S.T_ratch = Btn 'Ratchet' 410 102 80
+    $tTools.Controls.Add((Lbl 'Rolls' 500 108 32)); $S.Rolls = Num 3 2 12 1 0 534 104 48
+    $tTools.Controls.Add((Lbl 'Chance %' 590 108 56)); $S.Chance = Num 30 1 100 5 0 650 104 52
+    $tTools.Controls.AddRange(@($S.T_hum, $S.T_mut, $S.T_chop, $S.T_ratch, $S.Amt, $S.Rolls, $S.Chance))
+    $tTools.Controls.Add((Lbl 'Generators (replace the selected track)' 8 146 300))
+    $tTools.Controls.Add((Lbl 'Hits' 8 172 28)); $S.EucK = Num 5 1 64 1 0 38 168 48
+    $tTools.Controls.Add((Lbl 'of steps' 92 172 48)); $S.EucN = Num 16 2 64 1 0 142 168 48
+    $tTools.Controls.Add((Lbl 'rotate' 198 172 40)); $S.EucR = Num 0 0 63 1 0 240 168 48
+    $tTools.Controls.Add((Lbl 'note' 296 172 30)); $S.EucP = Num 36 0 127 1 0 328 168 52
+    $S.T_euc = Btn 'Euclidean rhythm' 392 166 130; $S.T_walk = Btn 'Random-walk melody' 528 166 140; $S.T_poly = Btn 'Polymeter hats' 674 166 110
+    $tTools.Controls.AddRange(@($S.T_euc, $S.T_walk, $S.T_poly, $S.EucK, $S.EucN, $S.EucR, $S.EucP))
+    $tTools.Controls.Add((Lbl 'Edit tools (act on the selection, or the whole track)' 8 206 400))
+    $edit2 = @(@('Legato', 'legato'), @('Staccato', 'stacc'), @('Velocity up', 'velup'), @('Velocity down', 'veldn'), @('Random velocity', 'velrnd'), @('Accent offbeats', 'accent'), @('Invert pitches', 'inv'), @('Nudge later', 'nudge'), @('Nudge earlier', 'nudgeb'), @('Thin out', 'thin'), @('Add octave layer', 'octl'))
+    $x = 8; foreach ($td in $edit2) { $b = Btn $td[0] $x 238 118 28; $b.Tag = $td[1]; $tTools.Controls.Add($b); $S["T_$($td[1])"] = $b; $x += 122; if ($x -gt 1260) { break } }
+    $tTools.Controls.Add((Lbl 'Tip: Euclidean 5/16, 7/16, 11/16 plus Mutate and Break chop gives that skittering Drukqs feel.' 8 204 760))
+
+    # AI tab
+    $tAi.Controls.Add((Lbl 'Model' 8 12 40)); $S.AiModel = Combo @('(auto: best general model)') 52 8 280 $true; $S.AiModel.SelectedIndex = 0
+    $S.AiRefresh = Btn 'Refresh models' 338 6 110
+    $tAi.Controls.Add((Lbl 'Describe what you want (style, mood, instrument, sound). Example: "melancholic polyrhythmic arpeggio, Aphex Twin Selected Ambient Works vibes" or "acid bass that screams and rubs against a detuned FM bell"' 8 38 900))
+    $S.AiPrompt = Sty (New-Object Windows.Forms.TextBox); $S.AiPrompt.Multiline = $true; $S.AiPrompt.SetBounds(8, 62, 640, 70); $S.AiPrompt.ScrollBars = 'Vertical'
+    $S.AiCompose = Btn 'Compose notes into track' 8 140 170 28 $true; $S.AiVary = Btn 'Vary / mutate track' 184 140 140; $S.AiSynth = Btn 'Design SynthDef' 330 140 120; $S.AiAdvice = Btn 'Producer notes' 456 140 110
+    $S.AiOut = Sty (New-Object Windows.Forms.TextBox); $S.AiOut.Multiline = $true; $S.AiOut.ReadOnly = $true; $S.AiOut.SetBounds(660, 8, 700, 200); $S.AiOut.ScrollBars = 'Vertical'
+    $S.AiStatus = Lbl '' 8 176 640
+    $tAi.Controls.AddRange(@($S.AiModel, $S.AiRefresh, $S.AiPrompt, $S.AiCompose, $S.AiVary, $S.AiSynth, $S.AiAdvice, $S.AiOut, $S.AiStatus))
+
+    # SuperCollider code tab
+    $S.ScCode = Sty (New-Object Windows.Forms.TextBox); $S.ScCode.Multiline = $true; $S.ScCode.AcceptsReturn = $true; $S.ScCode.AcceptsTab = $true; $S.ScCode.WordWrap = $false
+    $S.ScCode.Font = New-Object Drawing.Font('Consolas', 10); $S.ScCode.ScrollBars = 'Both'; $S.ScCode.SetBounds(8, 8, 1100, 200)
+    $S.ScCode.Text = "// Your own SynthDefs go here. They run before the patterns, with \out bound to ~hbbus.`r`n// Give a track the synth name (for example hello below) and SuperCollider will play it.`r`n// Args the sequencer sends: freq, amp, sustain, pan, cutoff, res, envamt, atk, rel, crush, out`r`n"
+    $S.ScTemplate = Btn 'Insert acid template' 1116 8 150; $S.ScTest = Btn 'Syntax-check run (render 1 bar)' 1116 42 180
+    $tSc.Controls.AddRange(@($S.ScCode, $S.ScTemplate, $S.ScTest))
+
+    $S.Log = Sty (New-Object Windows.Forms.TextBox); $S.Log.Multiline = $true; $S.Log.ReadOnly = $true; $S.Log.ScrollBars = 'Vertical'; $S.Log.Dock = 'Fill'
+    $tLog.Controls.Add($S.Log)
+
+    # Sound Lab tab: AI synth / effects / sample design on typed parameter models
+    function New-LabGrid([int]$x, [int]$w) {
+        $g = New-Object Windows.Forms.PropertyGrid; $g.SetBounds($x, 4, $w, 272); $g.ToolbarVisible = $false; $g.PropertySort = 'Categorized'
+        $g.BackColor = $dk.Panel; $g.ViewBackColor = $dk.Field; $g.ViewForeColor = $dk.Text; $g.LineColor = $dk.Bg; $g.CategoryForeColor = $dk.Accent
+        $g.HelpBackColor = $dk.Panel; $g.HelpForeColor = $dk.Muted; $g.CommandsBackColor = $dk.Panel; $g.CanShowVisualStyleGlyphs = $false
+        return $g
+    }
+    $S.GridPatch = New-LabGrid 4 410; $S.GridFx = New-LabGrid 420 410
+    $S.LabPrompt = Sty (New-Object Windows.Forms.TextBox); $S.LabPrompt.Multiline = $true; $S.LabPrompt.ScrollBars = 'Vertical'; $S.LabPrompt.SetBounds(846, 24, 500, 50)
+    $tLab.Controls.Add((Lbl 'Describe the sound (for example: "wet liquid FM bell that decays into static" or "tearing detuned acid bass")' 846 4 510))
+    $S.LabSynth = Btn 'Design synth' 846 80 118 28 $true; $S.LabRSynth = Btn 'Refine synth' 970 80 118; $S.LabFx = Btn 'Design effects' 1094 80 118; $S.LabRFx = Btn 'Refine effects' 1218 80 118
+    $S.LabSample = Btn 'Text to sample (new sampler track)' 846 112 250; $S.LabBake = Btn 'Bake track to sampler' 1102 112 160
+    $tLab.Controls.Add((Lbl 'Target' 846 150 44))
+    $S.LabTarget = Combo @('Synth patch', 'Effects') 892 146 104; $S.LabTarget.SelectedIndex = 0
+    $tLab.Controls.Add((Lbl 'Amount' 1002 150 52)); $S.LabAmt = Num 0.25 0 1 0.05 2 1056 146 54
+    $S.LabRand = Btn 'Randomize' 1116 144 84; $S.LabMut = Btn 'Mutate' 1204 144 66; $S.LabReset = Btn 'Reset' 1274 144 56
+    $tLab.Controls.Add((Lbl 'Audition note' 846 186 80)); $S.LabPitch = Num 48 0 127 1 0 930 182 52; $tLab.Controls.Add((Lbl 'seconds' 990 186 48)); $S.LabSecs = Num 1.5 0.1 12 0.25 2 1040 182 56
+    $S.LabAud = Btn 'Audition' 1104 180 80; $S.LabStop = Btn 'Stop' 1190 180 60; $S.LabInst = Btn 'Save instrument' 1256 180 106
+    $S.LabSave = Btn 'Save sample WAV' 846 218 130; $S.LabLoad = Btn 'Load WAV as sampler' 982 218 150; $S.LabRev = Btn 'Reverse' 1138 218 70; $S.LabNorm = Btn 'Normalize' 1214 218 80
+    $tLab.Controls.Add((Lbl 'Sample root note' 846 256 100)); $S.LabRoot = Num 60 0 127 1 0 950 252 52
+    $S.LabGate = New-Object Windows.Forms.CheckBox; $S.LabGate.Text = 'Gate to note length'; $S.LabGate.SetBounds(1014, 254, 140, 22)
+    $tLab.Controls.Add((Lbl 'Sample mode' 1160 256 86)); $S.LabMode = Combo @('Pitch (key)', 'One-shot', 'Loop') 1246 252 126; $S.LabMode.SelectedIndex = 0
+    $S.LabStatus = Lbl '' 846 284 500
+    $tLab.Controls.AddRange(@($S.GridPatch, $S.GridFx, $S.LabPrompt, $S.LabSynth, $S.LabRSynth, $S.LabFx, $S.LabRFx, $S.LabSample, $S.LabBake, $S.LabTarget, $S.LabAmt, $S.LabRand, $S.LabMut, $S.LabReset, $S.LabPitch, $S.LabSecs, $S.LabAud, $S.LabStop, $S.LabInst, $S.LabSave, $S.LabLoad, $S.LabRev, $S.LabNorm, $S.LabRoot, $S.LabGate, $S.LabMode, $S.LabStatus))
+
+    # Song tab: scenes (patterns), arrangement, preset browser, AI arranger
+    function New-LabList([int]$x, [int]$y, [int]$w, [int]$h) {
+        $l = New-Object Windows.Forms.ListBox; $l.SetBounds($x, $y, $w, $h); $l.BackColor = $dk.Field; $l.ForeColor = $dk.Text; $l.BorderStyle = 'FixedSingle'; return $l
+    }
+    $tSong.Controls.Add((Lbl 'Patterns (scenes: notes and mutes of every track)' 8 4 300))
+    $S.PatList = New-LabList 8 24 300 136
+    $S.PatCap = Btn 'Capture current' 8 166 104; $S.PatUpd = Btn 'Update selected' 116 166 104; $S.PatLoad = Btn 'Load to editor' 224 166 84
+    $S.PatDup = Btn 'Duplicate' 8 198 70; $S.PatDel = Btn 'Delete' 82 198 60
+    $S.PatName = Sty (New-Object Windows.Forms.TextBox); $S.PatName.SetBounds(148, 200, 160, 24)
+    $tSong.Controls.Add((Lbl 'Rename: edit the box, then click away.' 8 232 300))
+    $tSong.Controls.Add((Lbl 'Arrangement (song order)' 330 4 300))
+    $S.SongList = New-LabList 330 24 340 136
+    $S.SongAdd = Btn 'Add pattern' 330 166 86; $tSong.Controls.Add((Lbl 'x' 420 170 12)); $S.SongReps = Num 2 1 64 1 0 432 166 48
+    $S.SongRem = Btn 'Remove' 486 166 62; $S.SongUp = Btn 'Up' 552 166 40; $S.SongDn = Btn 'Down' 596 166 50
+    $S.SongAuto = Btn 'Auto-arrange from tracks' 330 198 168; $S.SongClear = Btn 'Clear' 502 198 52
+    $S.SongPlay = Btn 'Play song' 558 198 78 28 $true; $S.SongStop = Btn 'Stop' 640 198 40
+    $S.SongInfo = Lbl '' 330 232 340
+    $tSong.Controls.Add((Lbl 'Browse instrument presets' 692 4 300))
+    $S.PresetList = New-LabList 692 24 280 136; foreach ($k in $script:StudioPresets.Keys) { [void]$S.PresetList.Items.Add($k) }
+    $S.PresetAdd = Btn 'Add as new track' 692 166 130; $S.PresetApply = Btn 'Apply to selected track' 826 166 146
+    $tSong.Controls.Add((Lbl 'AI song arranger (uses your pattern names)' 996 4 360))
+    $S.SongPrompt = Sty (New-Object Windows.Forms.TextBox); $S.SongPrompt.Multiline = $true; $S.SongPrompt.SetBounds(996, 24, 360, 66)
+    $S.SongPrompt.Text = 'about 3 minutes: slow intro, build, hard drop, breakdown, second drop, outro'
+    $S.SongAi = Btn 'AI arrange song' 996 96 130 28 $true; $S.SongAiStatus = Lbl '' 996 130 360
+    $tSong.Controls.AddRange(@($S.PatList, $S.PatCap, $S.PatUpd, $S.PatLoad, $S.PatDup, $S.PatDel, $S.PatName, $S.SongList, $S.SongAdd, $S.SongReps, $S.SongRem, $S.SongUp, $S.SongDn, $S.SongAuto, $S.SongClear, $S.SongPlay, $S.SongStop, $S.SongInfo, $S.PresetList, $S.PresetAdd, $S.PresetApply, $S.SongPrompt, $S.SongAi, $S.SongAiStatus))
+
+    # Master tab: analysis, auto/AI mastering, preview, export
+    $S.GridMaster = New-LabGrid 4 410; $S.GridMaster.SelectedObject = $S.Proj.Master
+    $S.MAnalyze = Btn 'Analyze mix' 424 8 100; $S.MAuto = Btn 'Auto master' 530 8 100 28 $true; $S.MAi = Btn 'AI mastering assistant' 636 8 160
+    $tMaster.Controls.Add((Lbl 'Target' 424 46 40)); $S.MTarget = Combo @('Streaming -14 LUFS', 'Loud IDM -10 LUFS', 'Club -9 LUFS', 'Dynamic -18 LUFS') 466 42 150; $S.MTarget.SelectedIndex = 0
+    $tMaster.Controls.Add((Lbl 'Source' 626 46 44)); $S.MSource = Combo @('Current pattern', 'Whole song') 672 42 124; $S.MSource.SelectedIndex = 0
+    $S.MPrevM = Btn 'Preview mastered' 424 76 120; $S.MPrevD = Btn 'Preview dry' 550 76 96; $S.MStop = Btn 'Stop' 652 76 56
+    $S.MReset = Btn 'Reset' 714 76 82
+    $S.MReport = Sty (New-Object Windows.Forms.TextBox); $S.MReport.Multiline = $true; $S.MReport.ReadOnly = $true; $S.MReport.ScrollBars = 'Vertical'; $S.MReport.SetBounds(424, 110, 372, 164)
+    $tMaster.Controls.Add((Lbl 'Export' 820 4 120))
+    $tMaster.Controls.Add((Lbl 'Format' 820 30 44)); $S.EFormat = Combo @($script:StudioFormats.Keys) 866 26 170; $S.EFormat.SelectedIndex = 1
+    $S.ESong = New-Object Windows.Forms.CheckBox; $S.ESong.Text = 'Render whole song (arrangement)'; $S.ESong.SetBounds(820, 58, 240, 22)
+    $S.EMaster = New-Object Windows.Forms.CheckBox; $S.EMaster.Text = 'Apply mastering chain'; $S.EMaster.Checked = $true; $S.EMaster.SetBounds(820, 82, 240, 22)
+    $S.EGo = Btn 'Export...' 820 112 120 30 $true; $S.EFfmpeg = Btn 'Get FFmpeg (MP3/OGG)' 946 112 170
+    $S.EStatus = Lbl '' 820 150 520
+    $tMaster.Controls.Add((Lbl 'Ask the AI (mastering, mixing, sidechain...): e.g. "sidechain bass to kick, dark and warm, club ready"' 820 180 540))
+    $S.MPrompt = Sty (New-Object Windows.Forms.TextBox); $S.MPrompt.Multiline = $true; $S.MPrompt.SetBounds(820, 202, 520, 56)
+    $tMaster.Controls.AddRange(@($S.GridMaster, $S.MAnalyze, $S.MAuto, $S.MAi, $S.MTarget, $S.MSource, $S.MPrevM, $S.MPrevD, $S.MStop, $S.MReset, $S.MReport, $S.EFormat, $S.ESong, $S.EMaster, $S.EGo, $S.EFfmpeg, $S.EStatus, $S.MPrompt))
+
+    # Spectral tab: paint a spectrogram (time across, pitch up) and resynthesise it as a sample
+    $S.SpecGrid = New-Object HbStudio.SpectralGrid 160, 64; $S.SpecSet = New-Object HbStudio.SpectralSettings
+    $S.SpecPic = New-Object Windows.Forms.PictureBox; $S.SpecPic.SetBounds(4, 24, 640, 256); $S.SpecPic.BackColor = [Drawing.Color]::Black; $S.SpecPic.BorderStyle = 'FixedSingle'; $S.SpecPic.Cursor = 'Cross'
+    $tSpec.Controls.Add((Lbl 'Canvas: drag to paint. Left = start, right = end. Bottom = low pitch, top = high pitch. Brighter = louder.' 4 4 640))
+    $S.GridSpec = New-LabGrid 650 290; $S.GridSpec.SelectedObject = $S.SpecSet
+    $tSpec.Controls.Add((Lbl 'Brush' 950 6 40)); $S.SpecBrush = Num 3 1 20 0.5 1 992 2 52
+    $tSpec.Controls.Add((Lbl 'Brush type' 950 92 60)); $S.SpecBrushType = Combo @('Hard', 'Soft', 'Smooth', 'Streak', 'Gradient', 'Smudge', 'Harmonic') 1015 90 130 26; $S.SpecBrushType.SelectedIndex = 0
+    $tSpec.Controls.Add($S.SpecBrushType)
+    $tSpec.Controls.Add((Lbl 'Amount' 1052 6 50)); $S.SpecAmt = Num 0.9 0.05 1 0.05 2 1104 2 54
+    $S.SpecErase = New-Object Windows.Forms.CheckBox; $S.SpecErase.Text = 'Erase'; $S.SpecErase.SetBounds(1168, 4, 60, 22)
+    $S.SpecLine = New-Object Windows.Forms.CheckBox; $S.SpecLine.Text = 'Straight line'; $S.SpecLine.SetBounds(1232, 4, 110, 22)
+    $S.SpecClear = Btn 'Clear' 950 32 56 26; $S.SpecBlur = Btn 'Blur' 1010 32 50 26; $S.SpecSmear = Btn 'Smear' 1064 32 56 26; $S.SpecInvert = Btn 'Invert' 1124 32 56 26
+    $S.SpecFlipT = Btn 'Flip time' 1184 32 66 26; $S.SpecFlipF = Btn 'Flip pitch' 1254 32 70 26
+    $S.SpecGrain = Btn 'Grain' 950 62 56 26; $S.SpecThresh = Btn 'Threshold' 1010 62 76 26; $S.SpecUp = Btn 'Pitch +' 1090 62 62 26; $S.SpecDown = Btn 'Pitch -' 1156 62 62 26
+    $tSpec.Controls.Add((Lbl 'Harmonic stack: base Hz' 950 98 130)); $S.SpecHz = Num 110 20 4000 5 0 1150 94 60
+    $tSpec.Controls.Add((Lbl 'partials' 1214 98 48)); $S.SpecParts = Num 10 1 40 1 0 1264 94 44; $S.SpecAddStack = Btn 'Add stack' 1310 92 90 26
+    $S.SpecLoad = Btn 'Load image' 950 124 90 26; $S.SpecFromSmp = Btn 'From selected track sound' 1044 124 170 26; $S.SpecInst = Btn 'Save instrument' 1218 124 116 26
+    $S.SpecAud = Btn 'Render and play' 950 156 130 28 $true; $S.SpecStopB = Btn 'Stop' 1084 156 50 28; $S.SpecTrack = Btn 'Render to new sample track' 1138 156 192 28
+    $S.SpecPrompt = Sty (New-Object Windows.Forms.TextBox); $S.SpecPrompt.SetBounds(950, 186, 380, 24)
+    $S.SpecAi = Btn 'AI: draw this picture as a spectrogram' 950 214 200 28 $true
+    $S.SpecKBtn = Btn 'Kontext refine' 1154 214 110 28; $S.SpecKStop = Btn 'Cancel' 1268 214 62 28; $S.SpecKStop.Enabled = $false
+    $S.SpecMode = Combo @('Shapes (sound design)', 'Shapes + Kontext refine', 'Photo / illustration (FLUX)') 950 246 196; $S.SpecMode.SelectedIndex = 0
+    $S.SpecUndo = Btn 'Undo refine' 1154 244 110 26; $S.SpecKProc = $null; $S.SpecKCancel = $false; $S.SpecKTries = 2; $S.SpecBackup = $null
+    $S.SpecStatus = Lbl 'Tip: the AI prompt could be "a descending whale call over a rising shimmer" or "a harsh stuttering noise burst".' 950 272 420
+    
+    # Add audio visualization features
+    $S.SpecVisualize = Btn 'Visualize Audio' 950 298 180 26; $S.SpecVisualize.Enabled = $false
+    $S.SpecVisType = Combo @('Spectrogram', 'Waveform', 'Frequency Domain', 'Magnitude Spectrum') 1140 298 180 26; $S.SpecVisType.SelectedIndex = 0
+    
+    # Brush palette for spectral painting
+    $S.SpecBrushPalette = New-Object Windows.Forms.Panel
+    $S.SpecBrushPalette.SetBounds(950, 352, 410, 84)
+    $S.SpecBrushPalette.BackColor = [Drawing.Color]::FromArgb(35, 38, 50)
+    $S.SpecBrushPalette.BorderStyle = 'FixedSingle'
+    
+    # Brush palette buttons - use correct positioning to avoid conflicts
+    $S.SpecBrushPalBtns = @()
+    for ($i = 0; $i -lt 7; $i++) {
+        $b = Btn "B$i" (10 + ($i * 56)) 12 50 22
+        $b.Tag = $i
+        $b.Font = New-Object Drawing.Font('Segoe UI', 7)
+        $S.SpecBrushPalette.Controls.Add($b)
+        $S.SpecBrushPalBtns += $b
+    }
+    
+    # Add the palette to the spec tab and all controls
+    $tSpec.Controls.Add($S.SpecBrushPalette)
+    $tSpec.Controls.AddRange(@($S.SpecKBtn, $S.SpecKStop, $S.SpecMode, $S.SpecUndo, $S.SpecVisualize, $S.SpecVisType, $S.SpecBrushPalette))
+    $S.SpecStatus.Height = 22
+    $tSpec.Controls.AddRange(@($S.SpecPic, $S.GridSpec, $S.SpecBrush, $S.SpecBrushType, $S.SpecAmt, $S.SpecErase, $S.SpecLine, $S.SpecClear, $S.SpecBlur, $S.SpecSmear, $S.SpecInvert, $S.SpecFlipT, $S.SpecFlipF, $S.SpecGrain, $S.SpecThresh, $S.SpecUp, $S.SpecDown, $S.SpecHz, $S.SpecParts, $S.SpecAddStack, $S.SpecLoad, $S.SpecFromSmp, $S.SpecInst, $S.SpecAud, $S.SpecStopB, $S.SpecTrack, $S.SpecPrompt, $S.SpecAi, $S.SpecStatus))
+
+    # Meta synth tab: four patches on the corners of a square, morph between them
+    $S.MetaSlots = [HbStudio.Patch[]]@(1..4 | ForEach-Object { $p = New-Object HbStudio.Patch; [HbStudio.PropIO]::Randomize($p, 1.0, $_ * 17); $p })
+    $S.MetaSet = New-Object HbStudio.MetaSettings; $S.MetaSel = 0
+    $S.GridMetaPatch = New-LabGrid 4 400; $S.GridMetaPatch.SelectedObject = $S.MetaSlots[0]
+    $S.MetaPad = New-Object Windows.Forms.PictureBox; $S.MetaPad.SetBounds(412, 24, 200, 200); $S.MetaPad.BackColor = [Drawing.Color]::FromArgb(18, 20, 28); $S.MetaPad.BorderStyle = 'FixedSingle'; $S.MetaPad.Cursor = 'Cross'
+    $tMeta.Controls.Add((Lbl 'Morph pad: click or drag' 412 4 200))
+    $S.MetaSlotBtns = @(); $i = 0; foreach ($n in 'A', 'B', 'C', 'D') { $b = Btn "Edit $n" (412 + $i * 51) 230 48 26; $S.MetaSlotBtns += $b; $i++ }
+    $S.MetaSlotLbl = Lbl 'Editing patch A (top left)' 412 260 200
+    $S.GridMeta = New-LabGrid 620 290; $S.GridMeta.SelectedObject = $S.MetaSet
+    $tMeta.Controls.Add((Lbl 'Fill the selected slot' 920 4 200))
+    $S.MetaFromTrk = Btn 'From track synth' 920 24 120; $S.MetaRand = Btn 'Randomize' 1044 24 80; $S.MetaMut = Btn 'Mutate' 1128 24 66
+    $S.MetaAll = Btn 'Randomize all 4' 1198 24 112
+    $S.MetaAud = Btn 'Play morph point' 920 58 130 28 $true; $S.MetaStopB = Btn 'Stop' 1054 58 50 28
+    $S.MetaApply = Btn 'Apply morph point to track synth' 1108 58 214 28
+    $S.MetaRender = Btn 'Render evolving sound to new sample track' 920 92 300 28 $true; $S.MetaInst = Btn 'Save instrument' 1226 92 112 28
+    $tMeta.Controls.Add((Lbl 'Describe the journey (for example: "from a soft glassy pad to a screaming acid bass"). The AI writes all 4 patches.' 920 130 420)); $tMeta.Controls[$tMeta.Controls.Count - 1].Height = 34
+    $S.MetaPrompt = Sty (New-Object Windows.Forms.TextBox); $S.MetaPrompt.SetBounds(920, 168, 400, 24)
+    $S.MetaAi = Btn 'AI: design the 4 patches' 920 196 220 28 $true
+    $S.MetaStatus = Lbl '' 920 232 420; $S.MetaStatus.Height = 40
+    $tMeta.Controls.AddRange(@($S.GridMetaPatch, $S.MetaPad, $S.MetaSlotLbl, $S.GridMeta, $S.MetaFromTrk, $S.MetaRand, $S.MetaMut, $S.MetaAll, $S.MetaAud, $S.MetaStopB,     $S.MetaApply, $S.MetaRender, $S.MetaInst, $S.MetaPrompt, $S.MetaAi, $S.MetaStatus))
+    $tMeta.Controls.AddRange([Windows.Forms.Control[]]$S.MetaSlotBtns)
+
+    $S.Status = New-Object Windows.Forms.Label; $S.Status.Dock = 'Bottom'; $S.Status.Height = 22; $S.Status.BackColor = $dk.Panel; $S.Status.ForeColor = $dk.Muted; $S.Status.TextAlign = 'MiddleLeft'
+
+    # ---- Automation Painting Tab --------------------------------------------------------------------------
+    $tAuto = New-Object Windows.Forms.TabPage; $tAuto.Text = 'Automation Painting'; $tAuto.UseVisualStyleBackColor = $true
+    $tAuto.BackColor = $dk.Bg
+    
+    # Automation painting controls
+    $S.AutoGrid = New-Object HbStudio.SpectralGrid 160, 64; $S.AutoSet = New-Object HbStudio.SpectralSettings; $script:AutoUi = $S
+    $S.AutoPic = New-Object Windows.Forms.PictureBox; $S.AutoPic.SetBounds(4, 24, 640, 256); $S.AutoPic.BackColor = [Drawing.Color]::Black; $S.AutoPic.BorderStyle = 'FixedSingle'; $S.AutoPic.Cursor = 'Cross'
+    $tAuto.Controls.Add((Lbl 'The canvas spans the whole track/song. Pick a parameter, paint a shape, then Write to Lane. Bottom = low value, top = high value.' 4 4 640))
+    
+    # Effect selection for automation
+    $tAuto.Controls.Add((Lbl 'Target' 950 8 50))
+    $S.AutoTarget = Combo @('Track') 1000 4 260 26; $S.AutoTarget.SelectedIndex = 0
+    $tAuto.Controls.Add($S.AutoTarget)
+    $S.AutoTrackName = Lbl 'Track: (none)' 1270 6 190
+    $tAuto.Controls.Add($S.AutoTrackName)
+    $S.AutoModule = Combo @('Synth Filter', 'Synth Drive/Crush', 'Synth FM/Unison', 'Synth LFO', 'Track FX Filter', 'Track FX Drive/Crush', 'Track FX Ring', 'Track FX Chorus', 'Track FX Delay', 'Track FX Reverb', 'Track FX Phaser/Flanger', 'Track FX Tape', 'Track FX Plate/Vinyl', 'Track FX Compressor', 'Track FX EQ/Width', 'Track Mixer') 1050 30 180 26; $S.AutoModule.SelectedIndex = 0
+    $tAuto.Controls.Add((Lbl 'Effect module' 950 34 94))
+    $tAuto.Controls.Add($S.AutoModule)
+    $S.AutoParam = Combo @('Cutoff', 'Resonance', 'Filter Env') 1280 30 180 26
+    $tAuto.Controls.Add((Lbl 'Parameter' 1200 34 74))
+    $tAuto.Controls.Add($S.AutoParam)
+    $S.AutoEffect = Combo @('Filter Cutoff', 'Filter Resonance', 'Drive', 'Delay Mix', 'Reverb Wet', 'LFO Rate', 'LFO Depth', 'FM Amount', 'Unison', 'Noise Level') 950 70 180 26; $S.AutoEffect.SelectedIndex = 0; $S.AutoEffect.Visible = $false
+    
+    # Brush selection for automation
+    $S.AutoBrush = Combo @('Hard', 'Soft', 'Smooth', 'Streak', 'Gradient', 'Smudge', 'Smear') 1050 78 180 26; $S.AutoBrush.SelectedIndex = 0
+    $tAuto.Controls.Add((Lbl 'Brush type' 950 82 94))
+    $tAuto.Controls.Add($S.AutoBrush)
+    $tAuto.Controls.Add((Lbl 'Value map' 1200 82 74)); $S.AutoMap = Combo @('Exact shape', 'Smooth curve', 'Quantize steps', 'Linear ramp') 1280 78 180 26; $S.AutoMap.SelectedIndex = 1
+    $tAuto.Controls.Add($S.AutoMap)
+    
+    # Brush size
+    $tAuto.Controls.Add((Lbl 'Brush size' 950 112 80)); $S.AutoBrushSize = Num 3 1 20 0.5 1 1030 108 52
+    # Z axis: the brightness (density) of the painted column, not just its vertical position.
+    $tAuto.Controls.Add((Lbl 'Z axis' 1200 112 74))
+    $S.AutoZ = Combo @('Depth (scale value)', 'Direct value', 'Off (position only)') 1280 108 180 26; $S.AutoZ.SelectedIndex = 0
+    $tAuto.Controls.Add($S.AutoZ)
+    $tAuto.Controls.Add((Lbl 'Z depth' 1200 166 74)); $S.AutoZDepth = Num 1 0 1 0.05 1 1280 162 70
+    
+    # Automation painting controls
+    $S.AutoPaint = Btn 'Write to Lane' 950 130 120 28 $true
+    $S.AutoClear = Btn 'Clear Canvas' 1080 130 100 28
+    $S.AutoClearLane = Btn 'Clear Lane' 950 162 120 26
+    $S.AutoReset = Btn 'Reset Track Auto' 1080 162 120 26
+    $S.AutoApply = Btn 'Apply to Piano Roll' 1210 130 130 28
+    
+    # Brush palette
+    $S.AutoBrushPalette = New-Object Windows.Forms.Panel
+    $S.AutoBrushPalette.SetBounds(950, 196, 410, 84)
+    $S.AutoBrushPalette.BackColor = [Drawing.Color]::FromArgb(35, 38, 50)
+    $S.AutoBrushPalette.BorderStyle = 'FixedSingle'
+    
+    # Brush palette controls - add them to the palette panel instead of the main tab
+    $S.AutoBrushPalBtns = @()
+    for ($i = 0; $i -lt 7; $i++) {
+        $b = Btn "Brush $i" (10 + ($i * 56)) 12 50 22
+        $b.Tag = $i
+        $b.Font = New-Object Drawing.Font('Segoe UI', 7)
+        $S.AutoBrushPalette.Controls.Add($b)
+        $S.AutoBrushPalBtns += $b
+    }
+    
+    # Add the palette to the automation tab
+    $tAuto.Controls.Add($S.AutoBrushPalette)
+    
+    # Status label for automation painting
+    $S.AutoStatus = Lbl 'Painter v4 - whole-track canvas. Pick a parameter, paint, then Write to Lane. Z axis = brightness/depth.' 4 285 900
+    $S.AutoStatus.Height = 20
+    $tAuto.Controls.Add($S.AutoStatus)
+    
+    # Add automation painting controls to tab (excluding brush palette which is added separately)
+    $tAuto.Controls.AddRange(@($S.AutoPic, $S.AutoModule, $S.AutoParam, $S.AutoMap, $S.AutoEffect, $S.AutoBrush, $S.AutoBrushSize, $S.AutoZ, $S.AutoZDepth, $S.AutoTarget, $S.AutoPaint, $S.AutoClear, $S.AutoClearLane, $S.AutoReset, $S.AutoApply, $S.AutoBrushPalette))
+    
+    # ---- center: piano roll <-> patch graph switcher ----------------------------------------------------------
+    $center = New-Object HbStudio.GradientPanel; $center.Dock = 'Fill'
+    $switchBar = New-Object Windows.Forms.Panel; $switchBar.Dock = 'Top'; $switchBar.Height = 34; $switchBar.BackColor = $dk.Panel
+    $S.BtnViewRoll = Btn 'Piano roll' 8 4 96 26 $true; $S.BtnViewPatch = Btn 'Patch graph' 112 4 100 26
+    $S.BtnPatchFit = Btn 'Fit view' 220 4 72 26; $S.BtnPatchTidy = Btn 'Tidy layout' 298 4 92 26; $S.BtnGroupSel = Btn 'Group selection' 396 4 100 26
+    $capPatchHint = Lbl 'Patch: ctrl+click selects several modules > Group selection > right-click a group to condense it into one component node' 506 9 900 18; $capPatchHint.ForeColor = $dk.Muted
+    $switchBar.Controls.AddRange(@($S.BtnViewRoll, $S.BtnViewPatch, $S.BtnPatchFit, $S.BtnPatchTidy, $S.BtnGroupSel, $capPatchHint))
+    $side = New-Object Windows.Forms.Panel; $side.Dock = 'Right'; $side.Width = 252; $side.BackColor = $dk.Panel; $side.Visible = $false
+    $S.PatchSide = $side
+    $null = Make-Resizer $side 'Right' 200 480
+    $capMod = Lbl 'MODULE' 10 8 234 18; $capMod.ForeColor = $dk.Accent; $capMod.Font = New-Object Drawing.Font('Segoe UI', 9, [Drawing.FontStyle]::Bold); $side.Controls.Add($capMod)
+    $S.PatchTitle = New-Object Windows.Forms.Label; $S.PatchTitle.SetBounds(10, 30, 232, 22); $S.PatchTitle.ForeColor = $dk.Text; $S.PatchTitle.Font = New-Object Drawing.Font('Segoe UI', 11, [Drawing.FontStyle]::Bold); $side.Controls.Add($S.PatchTitle)
+    $S.PatchType = New-Object Windows.Forms.Label; $S.PatchType.SetBounds(10, 52, 232, 18); $S.PatchType.ForeColor = $dk.Muted; $side.Controls.Add($S.PatchType)
+    $S.PatchBypass = New-Object Windows.Forms.CheckBox; $S.PatchBypass.Text = 'Bypass module'; $S.PatchBypass.SetBounds(10, 74, 120, 22); $S.PatchBypass.ForeColor = $dk.Text; $side.Controls.Add($S.PatchBypass)
+    $capPatchKnobs = Lbl 'KNOBS' 10 104 234 18; $capPatchKnobs.ForeColor = $dk.Muted; $side.Controls.Add($capPatchKnobs)
+    $S.PatchHost = New-Object Windows.Forms.FlowLayoutPanel; $S.PatchHost.SetBounds(12, 124, 228, 200); $S.PatchHost.AutoScroll = $true; $S.PatchHost.BackColor = $dk.Panel; $S.PatchHost.ForeColor = $dk.Text; $side.Controls.Add($S.PatchHost)
+    $S.BtnPatchDelete = Btn 'Delete module' 10 330 232 26
+    $S.PatchAiAssist = New-Object Windows.Forms.CheckBox; $S.PatchAiAssist.Text = 'AI wiring assist (review each wire)'; $S.PatchAiAssist.Checked = $true; $S.PatchAiAssist.SetBounds(10, 362, 234, 20); $S.PatchAiAssist.ForeColor = $dk.Text; $side.Controls.Add($S.PatchAiAssist)
+    $S.BtnPatchAiReview = Btn 'Ask AI to review my patch' 10 386 232 28 $true; $side.Controls.Add($S.BtnPatchAiReview)
+    $side.Controls.Add($S.BtnPatchDelete)
+    $S.BtnPatchDelHelper = $S.BtnPatchDelete
+    # Keep the side-panel buttons pinned near the bottom and let the knob list use the space in between,
+    # so nothing gets clipped when the bottom tab strip or window height changes.
+    $side.Add_Resize({
+        $h = $side.ClientSize.Height
+        $S.BtnPatchAiReview.SetBounds(10, [Math]::Max(150, $h - 34), 232, 28)
+        $S.PatchAiAssist.SetBounds(10, [Math]::Max(122, $h - 62), 234, 20)
+        $S.BtnPatchDelete.SetBounds(10, [Math]::Max(94, $h - 96), 232, 26)
+        $S.PatchHost.SetBounds(12, 124, 228, [Math]::Max(48, $h - 226))
+    })
+    $roll = New-Object HbStudio.PianoRoll; $roll.Dock = 'Fill'; $S.Roll = $roll
+    $patch = New-Object HbStudio.PatchGraphControl; $patch.Dock = 'Fill'; $patch.Proj = $S.Proj; $patch.Visible = $false; $S.Patch = $patch
+    $center.Controls.Add($S.Patch); $center.Controls.Add($roll); $center.Controls.Add($side); $center.Controls.Add($switchBar)
+    
+    # Initialize brush palette buttons for automation tab
+    $S.AutoBrushPalBtns[0].Text = 'Hard'
+    $S.AutoBrushPalBtns[1].Text = 'Soft' 
+    $S.AutoBrushPalBtns[2].Text = 'Smooth'
+    $S.AutoBrushPalBtns[3].Text = 'Streak'
+    $S.AutoBrushPalBtns[4].Text = 'Grad'
+    $S.AutoBrushPalBtns[5].Text = 'Smud'
+    $S.AutoBrushPalBtns[6].Text = 'Smear'
+    
+    # Initialize brush palette buttons for spectral tab
+    $S.SpecBrushPalBtns[0].Text = 'Hard'
+    $S.SpecBrushPalBtns[1].Text = 'Soft' 
+    $S.SpecBrushPalBtns[2].Text = 'Smooth'
+    $S.SpecBrushPalBtns[3].Text = 'Streak'
+    $S.SpecBrushPalBtns[4].Text = 'Grad'
+    $S.SpecBrushPalBtns[5].Text = 'Smud'
+    $S.SpecBrushPalBtns[6].Text = 'Harm'
+    
+    # Add automation tab to the main tabs
+    $tabs.TabPages.Add($tAuto)
+    
+    $f.Controls.Add($center); $f.Controls.Add($left); $f.Controls.Add($S.Status); $f.Controls.Add($tabs); $f.Controls.Add($top)
+    $null = Make-Resizer $top 'Top' 110 320
+    $null = Make-Resizer $left 'Left' 180 420
+    $rz = New-Object Windows.Forms.Panel; $rz.BackColor = $script:ResizerIdle; $rz.Height = 10; $rz.Dock = 'Bottom'; $rz.Cursor = 'SizeNS'
+    $rz.Tag = @{ Target = $tabs; Hor = $false; Min = 220; Max = 620; Invert = $true; On = $false; StartPos = 0; StartSize = 0 }
+    $rz.Add_MouseEnter({ param($snd, $e) $snd.BackColor = $script:ResizerHot })
+    $rz.Add_MouseLeave({ param($snd, $e) if (-not $snd.Tag.On) { $snd.BackColor = $script:ResizerIdle } })
+    $rz.Add_MouseDown({
+        param($snd, $e)
+        if ($e.Button -ne [Windows.Forms.MouseButtons]::Left) { return }
+        $t = $snd.Tag; $t.On = $true; $t.StartPos = [System.Windows.Forms.Cursor]::Position.Y; $t.StartSize = $t.Target.Height
+        $snd.Capture = $true; $snd.BackColor = $script:ResizerHot
+    })
+    $rz.Add_MouseMove({
+        param($snd, $e)
+        $t = $snd.Tag; if (-not $t.On) { return }
+        $d = -([System.Windows.Forms.Cursor]::Position.Y - $t.StartPos)
+        $t.Target.Height = [math]::Max($t.Min, [math]::Min($t.Max, $t.StartSize + $d))
+    })
+    $rz.Add_MouseUp({ param($snd, $e) $snd.Tag.On = $false; $snd.Capture = $false; $snd.BackColor = $script:ResizerIdle })
+    $f.Controls.Add($rz)
+    $center.BringToFront()
+
+    # ---- behaviour --------------------------------------------------------------------------------------------
+    $gridMap = @(1.0, 0.5, 0.25, 0.125, 0.0625, (1.0 / 3), (1.0 / 6), (1.0 / 12))
+
+    function Update-ScLabel {
+        if ($S.Sc) { $S.ScLbl.Text = 'SuperCollider: ' + (Split-Path $S.Sc -Parent); $S.ScLbl.ForeColor = $dk.Accent }
+        else { $S.ScLbl.Text = 'SuperCollider not found (built-in preview works)'; $S.ScLbl.ForeColor = $dk.Muted }
+    }
+    function Get-CurTrack { $i = $S.TrackList.SelectedIndex; if ($i -lt 0 -or $i -ge $S.Proj.Tracks.Count) { return $null }; return $S.Proj.Tracks[$i] }
+    function Refresh-Tracks([int]$Select = -1) {
+        $S.Loading = $true
+        $idx = if ($Select -ge 0) { $Select } else { $S.TrackList.SelectedIndex }
+        $S.TrackList.Items.Clear()
+        foreach ($t in $S.Proj.Tracks) { [void]$S.TrackList.Items.Add($(if ($t.Mute) { "($($t.Name))" } elseif ($t.Solo) { "$($t.Name)  [S]" } else { $t.Name })) }
+        if ($idx -lt 0) { $idx = 0 }; if ($idx -ge $S.TrackList.Items.Count) { $idx = $S.TrackList.Items.Count - 1 }
+        $S.TrackList.SelectedIndex = $idx
+        $S.Loading = $false
+        Load-TrackProps
+        # Keep an initialized patch graph in sync: any track that has no node yet gets one
+        # (this covers Sound Lab / AI / any other code path that appends to $S.Proj.Tracks).
+        try {
+            if ($S.Proj.Graph.Initialized) {
+                try { [void][HbStudio.PatchGraphControl]::PruneTrackNodes($S.Proj) } catch { }
+                $added = $false
+                foreach ($t in $S.Proj.Tracks) {
+                    $has = $false
+                    foreach ($n in $S.Proj.Graph.Nodes) { if ($n.Kind -eq 'track' -and $n.TrackUid -eq $t.Uid) { $has = $true; break } }
+                    if (-not $has) { [HbStudio.PatchGraphControl]::AddTrackNode($S.Proj, $t); $added = $true }
+                }
+                if ($added -and $S.Patch) { $S.Patch.Invalidate() }
+            }
+        } catch { }
+    }
+    function Load-TrackProps {
+        $t = Get-CurTrack; if (-not $t) { return }
+        try { if (Get-Command Sync-AutoCanvasFromLane -ErrorAction SilentlyContinue) { Sync-AutoCanvasFromLane } } catch { }
+        $S.Loading = $true
+        $S.TName.Text = $t.Name; $S.TSynth.Text = $t.Synth; $S.TMute.Checked = $t.Mute; $S.TSolo.Checked = $t.Solo
+        $isPatch = ($t.Synth -eq 'patch' -and $t.Patch)
+        $S.TVol.Value = [double][math]::Min(1.5, $t.Vol); $S.TPan.Value = [double]$t.Pan
+        $S.TCut.Value = [double][math]::Min(12000, [math]::Max(60, $(if ($isPatch) { $t.Patch.Cutoff } else { $t.Cutoff })))
+        $S.TRes.Value = [double]$(if ($isPatch) { $t.Patch.Resonance } else { $t.Res })
+        $S.TEnv.Value = [double]$(if ($isPatch) { $t.Patch.FilterEnv } else { $t.EnvAmt })
+        $S.TAtk.Value = [double][math]::Max(0.001, $(if ($isPatch) { $t.Patch.Attack } else { $t.Atk }))
+        $S.TRel.Value = [double][math]::Max(0.005, $(if ($isPatch) { $t.Patch.Release } else { $t.Rel }))
+        $S.TCrush.Value = [double]$(if ($isPatch) { $t.Patch.Bits } else { $t.Crush })
+        $S.TBus.SelectedIndex = [math]::Max(0, [math]::Min(4, [int]$t.Bus))
+        try { if ($S.TKit) { $ki = [array]::IndexOf([HbStudio.DrumKits]::Names, $t.DrumKit); if ($ki -lt 0) { $ki = 0 }; $S.TKit.SelectedIndex = $ki } } catch { }
+        try { if ($S.TSamplerMode) { $S.TSamplerMode.SelectedIndex = [math]::Max(0, [math]::Min(2, [int]$t.SampleMode)) } } catch { }
+        try {
+            if ($S.TInstrument) {
+                $label = $null
+                if ($t.InstrumentName) { $label = 'Inst: ' + $t.InstrumentName }
+                elseif ($t.Synth -eq 'drums' -and $t.DrumKit -and $t.DrumKit -ne 'Standard') { $label = 'Kit: ' + $t.DrumKit }
+                elseif ($script:StudioSynths -contains $t.Synth) { $label = $t.Synth }
+                if ($label -and [array]::IndexOf([string[]]@($S.TInstrument.Items), $label) -ge 0) { $S.TInstrument.Text = $label } 
+            }
+            if ($S.TSample -and $t.InstrumentName) { $k = [array]::IndexOf([string[]]@($S.TSample.Items), $t.InstrumentName); if ($k -ge 0) { $S.TSample.Text = $t.InstrumentName } }
+        } catch { }
+        $S.StripName.Text = $t.Name; $S.StripName.ForeColor = $(if ($t.Mute) { $dk.Muted } else { $dk.Accent })
+        Refresh-StripBus
+        $S.Loading = $false
+        $S.GridPatch.SelectedObject = $t.Patch; $S.GridFx.SelectedObject = $t.Fx; $S.LabRoot.Value = [decimal][math]::Max(0, [math]::Min(127, $t.SampleRoot)); $S.LabGate.Checked = $t.SampleGate; if ($S.LabMode) { $S.LabMode.SelectedIndex = [math]::Max(0, [math]::Min(2, [int]$t.SampleMode)) }
+        $S.Roll.Cur = $t; $S.Roll.Sel.Clear()
+        if ($t.Synth -eq 'drums') { $S.Roll.ScrollToPitch(40) } elseif ($t.Notes.Count) { $S.Roll.ScrollToPitch([int](($t.Notes | Measure-Object Pitch -Average).Average)) }
+        $S.Roll.Invalidate()
+        try { if ($S.AutoTrackName) { $S.AutoTrackName.Text = 'Track: ' + $t.Name + '  (' + $t.Synth + ')' } } catch { }
+        try { if ($S.KnobHost -and $tabs.SelectedTab -eq $tKnobs) { Update-Knobs } } catch { }
+    }
+    function Save-TrackProps {
+        if ($S.Loading) { return }
+        $t = Get-CurTrack; if (-not $t) { return }
+        $t.Name = $S.TName.Text; $t.Synth = $S.TSynth.Text.Trim(); $t.Mute = $S.TMute.Checked; $t.Solo = $S.TSolo.Checked
+        if ($S.TKit) { $t.DrumKit = [string]$S.TKit.SelectedItem }
+        if ($S.TSamplerMode) { $t.SampleMode = [int]$S.TSamplerMode.SelectedIndex }
+        if ($S.TInstrument) { $sel = [string]$S.TInstrument.SelectedItem; if ($sel -and $sel -ne '(none)') { $t.InstrumentName = $sel } }
+        $t.Vol = [double]$S.TVol.Value; $t.Pan = [double]$S.TPan.Value; $t.Cutoff = [double]$S.TCut.Value; $t.Res = [double]$S.TRes.Value
+        $t.EnvAmt = [double]$S.TEnv.Value; $t.Atk = [double]$S.TAtk.Value; $t.Rel = [double]$S.TRel.Value; $t.Crush = [double]$S.TCrush.Value
+        if ($t.Synth -eq 'patch' -and $t.Patch) { $t.Patch.Cutoff = [double]$S.TCut.Value; $t.Patch.Resonance = [double]$S.TRes.Value; $t.Patch.FilterEnv = [double]$S.TEnv.Value; $t.Patch.Attack = [double]$S.TAtk.Value; $t.Patch.Release = [double]$S.TRel.Value; $t.Patch.Bits = [double]$S.TCrush.Value; if ($t.Patch.Filter -eq [HbStudio.FilterMode]::off) { $t.Patch.Filter = [HbStudio.FilterMode]::lowpass }; }
+        $t.Bus = [math]::Max(0, $S.TBus.SelectedIndex)
+        if ($t.Synth -eq 'patch' -and -not $t.Patch) { $t.Patch = New-Object HbStudio.Patch }
+        if ($S.GridPatch.SelectedObject -ne $t.Patch) { $S.GridPatch.SelectedObject = $t.Patch }
+        $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit
+    }
+    function Set-FxModule($fx, [string]$name, [bool]$on) {
+        switch ($name) {
+            'Filter'  { if ($on) { $fx.Filter = [HbStudio.FilterMode]::lowpass; if ($fx.Cutoff -gt 8000) { $fx.Cutoff = 1200 }; $fx.Resonance = [math]::Max($fx.Resonance, 0.4) } else { $fx.Filter = [HbStudio.FilterMode]::off } }
+            'Drive'   { $fx.Drive = $(if ($on) { 0.35 } else { 0 }) }
+            'Crush'   { if ($on) { $fx.Bits = 6; $fx.Downsample = 2 } else { $fx.Bits = 16; $fx.Downsample = 1 } }
+            'Ring'    { if ($on) { $fx.RingMix = 0.5; $fx.RingFreq = 200 } else { $fx.RingMix = 0 } }
+            'Stutter' { if ($on) { $fx.StutterBeats = 0.25; $fx.StutterDiv = 4; $fx.StutterChance = 0.3 } else { $fx.StutterBeats = 0 } }
+            'Chorus'  { if ($on) { $fx.Chorus = 0.35; $fx.ChorusRate = 0.6; $fx.ChorusDepth = 0.5 } else { $fx.Chorus = 0 } }
+            'Delay'   { if ($on) { $fx.DelayMix = 0.3 } else { $fx.DelayMix = 0 } }
+            'Reverb'  { if ($on) { $fx.ReverbMix = 0.3 } else { $fx.ReverbMix = 0 } }
+            'Phaser'  { if ($on) { $fx.PhaserMix = 0.4; $fx.PhaserRate = 0.5; $fx.PhaserDepth = 0.6; $fx.PhaserStages = 4 } else { $fx.PhaserMix = 0 } }
+            'Flanger' { if ($on) { $fx.FlangerMix = 0.4; $fx.FlangerRate = 0.8; $fx.FlangerDepth = 0.6; $fx.FlangerFb = 0.4 } else { $fx.FlangerMix = 0 } }
+            'TapeStop' { if ($on) { $fx.TapeStop = 0.8; $fx.TapeStopRate = 1.2 } else { $fx.TapeStop = 0 } }
+            'TapeDelay' { if ($on) { $fx.TapeDelayMix = 0.3; $fx.TapeDelayTime = 280; $fx.TapeDelayFb = 0.45; $fx.TapeDelayWow = 0.3 } else { $fx.TapeDelayMix = 0 } }
+            'Plate'   { if ($on) { $fx.PlateMix = 0.35; $fx.PlateSize = 0.6; $fx.PlateDamping = 0.5 } else { $fx.PlateMix = 0 } }
+            'Vinyl'   { if ($on) { $fx.VinylCrackle = 0.4; $fx.TapeHiss = 0.2; $fx.TapeWow = 0.3 } else { $fx.VinylCrackle = 0; $fx.TapeHiss = 0; $fx.TapeWow = 0 } }
+            'Comp'    { if ($on) { $fx.CompThresh = -18; $fx.CompRatio = 3; $fx.CompAttack = 10; $fx.CompRelease = 120; $fx.CompMakeup = 3 } else { $fx.CompRatio = 1; $fx.CompMakeup = 0 } }
+            'EQ'      { if ($on) { $fx.LowShelf = 2; $fx.HighShelf = 2 } else { $fx.LowShelf = 0; $fx.HighShelf = 0 } }
+        }
+    }
+    function Get-FxModuleOn($fx, [string]$name) {
+        switch ($name) {
+            'Filter'  { return ($fx.Filter -ne [HbStudio.FilterMode]::off) }
+            'Drive'   { return ($fx.Drive -gt 0) }
+            'Crush'   { return (($fx.Bits -lt 16) -or ($fx.Downsample -gt 1)) }
+            'Ring'    { return ($fx.RingMix -gt 0) }
+            'Stutter' { return ($fx.StutterBeats -gt 0) }
+            'Chorus'  { return ($fx.Chorus -gt 0) }
+            'Delay'   { return ($fx.DelayMix -gt 0) }
+            'Reverb'  { return ($fx.ReverbMix -gt 0) }
+            'Phaser'  { return ($fx.PhaserMix -gt 0) }
+            'Flanger' { return ($fx.FlangerMix -gt 0) }
+            'TapeStop' { return ($fx.TapeStop -gt 0) }
+            'TapeDelay' { return ($fx.TapeDelayMix -gt 0) }
+            'Plate'   { return ($fx.PlateMix -gt 0) }
+            'Vinyl'   { return ($fx.VinylCrackle -gt 0 -or $fx.TapeHiss -gt 0 -or $fx.TapeWow -gt 0) }
+            'Comp'    { return ($fx.CompRatio -gt 1 -or $fx.CompMakeup -ne 0) }
+            'EQ'      { return ($fx.LowShelf -ne 0 -or $fx.HighShelf -ne 0 -or $fx.MidPeak -ne 0) }
+        }
+        return $false
+    }
+    function Set-ModBtnStyle($b, [bool]$on) {
+        $b.BackColor = $(if ($on) { $dk.Accent } else { $dk.Field }); $b.ForeColor = $(if ($on) { [Drawing.Color]::Black } else { $dk.Text })
+    }
+    function Refresh-StripBus {
+        $S.Loading = $true
+        $t = Get-CurTrack
+        if ($t) {
+            $S.StripBusName.Text = 'Send: ' + $(if ($t.Bus -ge 1 -and $t.Bus -le 4) { 'Bus ' + [char](64 + $t.Bus) } else { 'none' })
+            $S.StripName.Text = $t.Name; $S.StripName.ForeColor = $(if ($t.Mute) { $dk.Muted } else { $dk.Accent })
+        } else { $S.StripBusName.Text = 'Send: -' }
+        foreach ($b in $S.BusBtns) {
+            $idx = [int][char]$b.Tag - 64
+            Set-ModBtnStyle $b ($t -and $t.Bus -eq $idx)
+        }
+        foreach ($b in $S.ModBtns) { Set-ModBtnStyle $b ($t -and (Get-FxModuleOn $t.Fx $b.Tag)) }
+        for ($i = 0; $i -lt 4; $i++) {
+            $bus = $S.Proj.Buses[$i]; if (-not $bus) { continue }
+            $S.BusRows[$i].Check.Checked = $bus.Enabled
+            $S.BusRows[$i].Fader.Value = [int][math]::Round([math]::Max(0, [math]::Min(200, $bus.Fx.Gain * 100)))
+        }
+        $S.Loading = $false
+        if ($S.BusEditBtns) {
+            for ($i = 0; $i -lt 4; $i++) { Set-ModBtnStyle $S.BusEditBtns[$i] ($i -eq $S.CurBus) }
+            for ($i = 0; $i -lt 4; $i++) { $b = $S.Proj.Buses[$i]; if ($b -and $S.BusEnableChecks) { $S.BusEnableChecks[$i].Checked = $b.Enabled } }
+            foreach ($b in $S.BusModBtns) { $bus = $S.Proj.Buses[$S.CurBus]; if ($bus) { Set-ModBtnStyle $b (Get-FxModuleOn $bus.Fx $b.Tag) } }
+            if ($S.BusTrackList) { Refresh-BusTrackList }
+        }
+    }
+    function Refresh-BusTrackList {
+        if (-not $S.BusTrackList) { return }
+        $sel = $S.TrackList.SelectedIndex
+        $S.BusTrackList.Items.Clear()
+        foreach ($t in $S.Proj.Tracks) {
+            $tag = $(if ($t.Bus -ge 1 -and $t.Bus -le 4) { '  [' + [char](64 + $t.Bus) + ']' } else { '  [-]' })
+            [void]$S.BusTrackList.Items.Add($t.Name + $tag)
+        }
+        if ($sel -ge 0 -and $sel -lt $S.BusTrackList.Items.Count) { $S.BusTrackList.SelectedIndex = $sel }
+    }
+    function Update-BusKnobs {
+        $S.BusModCaption.Text = 'Modules - Bus ' + [char](65 + $S.CurBus)
+        $bus = $S.Proj.Buses[$S.CurBus]
+        $cur = [EventHandler]{ $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; foreach ($b in $S.BusModBtns) { Set-ModBtnStyle $b (Get-FxModuleOn $S.Proj.Buses[$S.CurBus].Fx $b.Tag) } }
+        [HbStudio.KnobPanel]::Build($bus.Fx, $S.BusKnobHost, $cur, $dk.Panel, $dk.Text, $dk.Accent)
+    }
+
+    function Update-PatchSide {
+        try {
+        if ($S.Proj -and $S.Proj.Graph) { [HbStudio.PatchRender]::BindFxNodes($S.Proj) }
+        if (-not $S.PatchSide) { return }
+        $S.Loading = $true
+        $n = $S.Patch.Selected
+        $S.PatchBypass.Visible = $false
+        [HbStudio.KnobPanel]::Build($null, $S.PatchHost, $null, $dk.Panel, $dk.Text, $dk.Accent)
+        $S.PatchTitle.Text = 'Patch graph'; $S.PatchType.Text = 'click a module to edit it'
+        if ($n) {
+            $S.PatchBypass.Visible = ($n.Kind -ne 'out'); $S.PatchBypass.Checked = $n.Bypass
+            $kobj = $null; $modFilter = $null
+            switch ($n.Kind) {
+                'track' {
+                    $ti = -1; for ($i = 0; $i -lt $S.Proj.Tracks.Count; $i++) { if ($S.Proj.Tracks[$i].Uid -eq $n.TrackUid) { $ti = $i; break } }
+                    if ($ti -ge 0) { $t = $S.Proj.Tracks[$ti]; $S.PatchTitle.Text = $t.Name; $S.PatchType.Text = 'track module - knobs edit its FX chain'; $kobj = $t.Fx; $modFilter = $null } else { $S.PatchTitle.Text = '(missing track)'; $S.PatchType.Text = 'track was deleted - delete this module'; $modFilter = $null }
+                }
+                'fx'  { $S.PatchTitle.Text = $n.Label; $S.PatchType.Text = 'FX module - section'; $kobj = $n.Fx; $modFilter = $(if ($n.Type -ieq 'trackfx' -or $n.Type -ieq 'busfx') { $null } else { [string]$n.Type }) }
+                'bus' { $S.PatchTitle.Text = $n.Label; $S.PatchType.Text = 'bus amp - gain & pan'; $kobj = $n; $modFilter = $null }
+                'group' { $pgName = $n.Label; $pgCount = 0; $pgState = ''; foreach ($pg in $S.Proj.Graph.Groups) { if ($pg.NodeId -eq $n.Id) { $pgCount = @($pg.Members).Count; $pgState = $(if ($pg.Collapsed) { 'condensed component' } else { 'expanded' }); break } }; $S.PatchTitle.Text = $n.Label; $S.PatchType.Text = "group master - $pgState, $pgCount direct members"; $kobj = $n; $modFilter = $null }
+                'out' { $S.PatchTitle.Text = 'MASTER OUT'; $S.PatchType.Text = 'feeds the delay + master chain' }
+            }
+            if ($kobj) { [HbStudio.KnobPanel]::Build($kobj, $S.PatchHost, [EventHandler]{ $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit }, $dk.Panel, $dk.Text, $dk.Accent, $modFilter) }
+        }
+        $S.Loading = $false
+        } catch {
+            $msg = 'Update-PatchSide failed: ' + ($_ | Out-String)
+            try { Log $msg } catch { }
+            try { Add-Content -LiteralPath (Join-Path (Get-StudioDir) 'studio-errors.log') -Value ("[{0}] {1}" -f (Get-Date), $msg) } catch { }
+            try { Status 'Patch UI failed - see studio-errors.log' } catch { }
+            $S.Loading = $false
+        }
+    }
+    function Set-ViewMode([string]$m) {
+        try {
+            $patchMode = ($m -eq 'patch')
+            $S.Roll.Visible = -not $patchMode; $S.Patch.Visible = $patchMode; $S.PatchSide.Visible = $patchMode
+            $S.BtnViewRoll.BackColor = $(if ($patchMode) { $dk.Field } else { $dk.Accent }); $S.BtnViewRoll.ForeColor = $(if ($patchMode) { $dk.Text } else { [Drawing.Color]::Black })
+            $S.BtnViewPatch.BackColor = $(if ($patchMode) { $dk.Accent } else { $dk.Field }); $S.BtnViewPatch.ForeColor = $(if ($patchMode) { [Drawing.Color]::Black } else { $dk.Text })
+            if ($patchMode) {
+                if (-not $S.Proj.Graph.Initialized) { [HbStudio.PatchGraphControl]::AutoPatch($S.Proj); Status 'Patch graph auto-wired from your mixer: tracks > buses > master out. Rewire anything you like.' }
+                try { [void][HbStudio.PatchGraphControl]::PruneTrackNodes($S.Proj) } catch { }
+                Update-PatchSide; $S.Patch.EnsureVisible(); $S.Patch.Invalidate()
+            }
+        } catch {
+            $msg = 'Set-ViewMode(' + $m + ') failed: ' + ($_ | Out-String)
+            try { Log $msg } catch { }
+            try { Add-Content -LiteralPath (Join-Path (Get-StudioDir) 'studio-errors.log') -Value ("[{0}] {1}" -f (Get-Date), $msg) } catch { }
+            try { Status 'Patch view failed - see studio-errors.log' } catch { }
+        }
+    }
+    function Invoke-PatchAiReview {
+        if ($S.AiPatchReviewing) { return }
+        if ($S.Loading) { return }
+        $S.AiPatchReviewing = $true
+        $S.BtnPatchAiReview.Enabled = $false
+        $f.Cursor = 'AppStarting'; Status 'AI is reviewing the wiring...'
+        try {
+            $g = $S.Proj.Graph
+            if (-not $g -or -not $g.Nodes.Count) { throw 'Nothing patched yet. Switch to Patch graph first (or connect a wire).' }
+            # ---- describe the patch -------------------------------------------
+            $ci = [Globalization.CultureInfo]::InvariantCulture
+            $trs = New-Object System.Collections.Generic.List[string]
+            foreach ($t in $S.Proj.Tracks) {
+                $trs.Add(('- "{0}" synth={1} notes={2} vol={3:N2} pan={4:N2}{5}{6}' -f $t.Name, $t.Synth, $t.Notes.Count, $t.Vol, $t.Pan, $(if ($t.Mute) { ' (MUTED)' } else { '' }), $(if ($t.Solo) { ' (SOLO)' } else { '' })))
+            }
+            $mods = New-Object System.Collections.Generic.List[string]
+            $patchable = New-Object System.Collections.Generic.List[string]
+            foreach ($n in $g.Nodes) {
+                switch ($n.Kind) {
+                    'track' {
+                        $tn = $S.Proj.Tracks | Where-Object { $_.Uid -eq $n.TrackUid } | Select-Object -First 1
+                        $tname = if ($tn) { $tn.Name } else { '(missing track)' }
+                        $mods.Add(('- id={0} "{1}" TRACK MODULE (not adjustable by you)' -f $n.Id, $tname))
+                    }
+                    'fx' {
+                        $props = New-Object System.Collections.Generic.List[string]
+                        foreach ($pi in $n.Fx.GetType().GetProperties()) {
+                            if (-not $pi.CanWrite) { continue }
+                            $v = $pi.GetValue($n.Fx, $null)
+                            if ($v -is [double]) { $props.Add(('{0}={1:N2}' -f $pi.Name, [double]$v)) } else { $props.Add(('{0}={1}' -f $pi.Name, $v)) }
+                        }
+                        $mods.Add(('- id={0} "{1}" FX module{2}: {3}' -f $n.Id, $n.Label, $(if ($n.Bypass) { ' (BYPASSED)' } else { '' }), ($props -join ' ')))
+                        $patchable.Add(('  {0}  "{1}" (FX module)' -f $n.Id, $n.Label))
+                    }
+                    'bus' {
+                        $mods.Add(('- id={0} "{1}" BUS AMP Gain={2:N2} Pan={3:N2}{4}' -f $n.Id, $n.Label, $n.Gain, $n.Pan, $(if ($n.Bypass) { ' (BYPASSED)' } else { '' })))
+                        $patchable.Add(('  {0}  "{1}" (bus amp, Gain and Pan only)' -f $n.Id, $n.Label))
+                    }
+                    'out' { $mods.Add(('- id={0} "{1}" MASTER OUT (feeds the global delay and master chain, not adjustable)' -f $n.Id, $n.Label)) }
+                }
+            }
+            if (-not $patchable.Count) { throw 'Nothing in the patch can be tuned yet (patch an FX or bus module and wire it up first).' }
+            $links = (@($g.Links | ForEach-Object {
+                $f = $g.Find($_.From), $t = $g.Find($_.To)
+                $fn = if ($f) { $f.Label } else { $_.From }; $tn = if ($t) { $t.Label } else { $_.To }
+                "- $fn -> $tn"
+            }) -join "`n")
+            $sys = @"
+You are a mixing and patching assistant inside a eurorack-style modular DAW (IDM, techno, ambient and hip-hop all welcome).
+
+Signal flow: TRACK modules -> FX modules and BUS amps -> MASTER OUT -> global delay -> mastering chain.
+Wires sum at their destination. Infer the user's intent from the wiring: they say a lot by connecting things.
+Your job: make the patch mix seamlessly. Change only the parameters of the ADJUSTABLE nodes listed below, in SMALL musical moves. Respect genre norms (drums dry and hard up front, bass mostly mono, pads wide and darker, leads with character, FX wet levels just enough).
+Do NOT change Bypass on any node. Do NOT touch track modules or the master out. If a change would be a guess, make the smallest sensible move or skip it.
+
+Adjustable nodes (id "label" (kind)):
+$($patchable -join "`n")
+
+FX module parameters (with ranges - stay inside them):
+$([HbStudio.PropIO]::Describe([HbStudio.Fx]))
+
+Bus amp parameters: Gain 0..2 (1 = unity), Pan -1..1.
+
+Reply with ONE JSON object and nothing else (no markdown):
+{"changes":[{"id":"<node id>","param":"<exact parameter name>","value":<number>}],"notes":["one very short line per change, plain language"]}
+Rules for the reply: max 8 changes; only the adjustable nodes above; param must be an exact parameter name; notes explain the musical reason (space, masking, groove, width).
+"@
+            $user = "TRACKS:`n$($trs -join "`n")`n`nMODULES:`n$($mods -join "`n")`n`nWIRES:`n$links`n`nWhy review now: the user just connected these modules. Patch it so it sounds like they meant to."
+            $res = Invoke-StudioJsonModel (Get-AiModel) $sys $user 1800 ({ param($x) $o = Find-StudioJsonObject $x ''; if (-not ($o.changes -or $o.notes)) { throw 'Reply needs a "changes" array (and ideally "notes").' }; $o })
+            $j = $res.Value
+            $lines = New-Object System.Collections.Generic.List[string]
+            $applied = 0
+            foreach ($c in @($j.changes)) {
+                if (-not $c) { continue }
+                $cid = [string]$c.id; $pname = [string]$c.param; if ($null -eq $c.value) { continue }
+                $node = $g.Nodes | Where-Object { $_.Id -eq $cid } | Select-Object -First 1
+                if (-not $node) { $node = $g.Nodes | Where-Object { $_.Label -ieq $cid } | Select-Object -First 1 }
+                if (-not $node) { $lines.Add("skipped: no node '$($cid)'"); continue }
+                if ($node.Kind -ne 'fx' -and $node.Kind -ne 'bus') { $lines.Add("skipped: '$($node.Label)' is not AI-adjustable"); continue }
+                if ($pname -ieq 'Bypass') { $lines.Add("skipped: will not flip Bypass on '$($node.Label)'"); continue }
+                if ($node.Kind -eq 'bus' -and $pname -notmatch '^(Gain|Pan)$') { $lines.Add("skipped: '$($node.Label)' only takes Gain and Pan"); continue }
+                $tgt = $(if ($node.Kind -eq 'fx') { $node.Fx } else { $node })
+                $vs = ([double]$c.value).ToString('R', $ci)
+                if ([HbStudio.PropIO]::Set($tgt, $pname, $vs)) { $applied++; $lines.Add(('{0}.{1} = {2}' -f $node.Label, $pname, $vs)) } else { $lines.Add(("skipped: '{0}' has no settable parameter '{1}'" -f $node.Label, $pname)) }
+            }
+            $notes = @(); foreach ($nnote in @($j.notes)) { if ($nnote) { $notes += [string]$nnote } }
+            if ($notes.Count) { $lines.Add(''); $lines.AddRange([string[]]$notes) }
+            if ($applied -gt 0) {
+                $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit
+                Update-PatchSide; $S.Patch.Invalidate()
+                foreach ($gr in @($S.GridPatch, $S.GridFx, $S.GridMaster, $S.GridMix)) { try { $gr.Refresh() } catch { } }
+            }
+            Log ("PATCH REVIEW" + ($(if ($applied) { " (applied $applied)" } else { '' })) + "`r`n" + ($lines -join "`r`n"))
+            Status ('AI patch review: ' + $applied + ' tweak(s) applied - see Log.')
+        } catch { Status ('AI patch review failed: ' + $_.Exception.Message); Log ('AI patch review failed: ' + $_.Exception.Message) }
+        finally { $S.AiPatchReviewing = $false; $S.BtnPatchAiReview.Enabled = $true; $f.Cursor = 'Default' }
+    }
+
+    function Sync-Project {
+        if ($S.Loading) { return }
+        $p = $S.Proj
+        $p.Bpm = [double]$S.Bpm.Value; $p.BeatsPerBar = [int]$S.Bpb.Value; $p.BeatUnit = [int]$S.Den.SelectedItem; $p.PhraseBars = [int]$S.Phrase.Value; $p.Swing = [double]$S.KSwing.Value / 100.0
+        # The Bars box follows the project (the composer can make it much longer) unless the user changed it by hand.
+        $bv = [int]$S.Bars.Value
+        if ($bv -ne [int]$S.BarsShown) { $p.Bars = $bv; $S.BarsShown = $bv }
+        elseif ($p.Bars -ne $bv) { $S.Loading = $true; $S.Bars.Value = [decimal][math]::Max([double]$S.Bars.Minimum, [math]::Min([double]$S.Bars.Maximum, [double]$p.Bars)); $S.Loading = $false; $S.BarsShown = [int]$S.Bars.Value }
+        $p.DelayMix = [double]$S.KDelay.Value; $p.DelayBeats = [double]$S.KBeats.Value; $p.DelayFb = [double]$S.KFb.Value
+        $p.Click = $S.Click.Checked
+        $p.Key = [math]::Max(0, $S.Key.SelectedIndex); $p.Scale = [string]$S.Scale.SelectedItem
+        $S.Roll.Proj = $p; $S.Roll.Root = $p.Key; $S.Roll.Mask = [HbStudio.Scales]::Mask($p.Key, $p.Scale); $S.Roll.SnapScale = $S.SnapScale.Checked
+        $gi = $S.Grid.SelectedIndex; if ($gi -ge 0) { $S.Roll.Grid = $gridMap[$gi] }
+        $S.Roll.UpdateScroll(); $S.Roll.Invalidate()
+    }
+    function Push-Undo {
+        $t = Get-CurTrack; if (-not $t) { return }
+        $S.Undo.Add(@{ Track = $t; Notes = @($t.Notes | ForEach-Object { $_.Clone() }) })
+        if ($S.Undo.Count -gt 60) { $S.Undo.RemoveAt(0) }
+    }
+    function Invoke-Undo {
+        if ($S.Undo.Count -eq 0) { Status 'Nothing to undo.'; return }
+        $u = $S.Undo[$S.Undo.Count - 1]; $S.Undo.RemoveAt($S.Undo.Count - 1)
+        if (-not $S.Proj.Tracks.Contains($u.Track)) { return }
+        $u.Track.Notes.Clear(); foreach ($n in $u.Notes) { $u.Track.Notes.Add($n) }
+        $S.Roll.Sel.Clear(); $S.Roll.Invalidate(); $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Status 'Undone.'
+    }
+    function Get-Target {
+        $t = Get-CurTrack; if (-not $t) { return @() }
+        $sel = @($S.Roll.Sel | Where-Object { $t.Notes.Contains($_) })
+        if ($sel.Count) { return $sel }
+        return @($t.Notes)
+    }
+    function Set-TrackNotes($Notes) {
+        $t = Get-CurTrack; $t.Notes.Clear(); foreach ($n in $Notes) { $t.Notes.Add($n) }
+        $S.Roll.Sel.Clear(); $S.Roll.Invalidate(); $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit
+    }
+    function Quantum { return [double]$S.Roll.Grid }
+    function Get-ScalePitches([int]$Lo, [int]$Hi) { $m = $S.Roll.Mask; return @($Lo..$Hi | Where-Object { $m[$_ % 12] }) }
+
+    function Invoke-StudioTool([string]$Id) {
+        $t = Get-CurTrack; if (-not $t) { return }
+        $g = Quantum; $loop = $S.Proj.LoopBeats
+        $rnd = New-Object Random
+        if ($Id -eq 'undo') { Invoke-Undo; return }
+        if ($Id -eq 'all') { $S.Roll.Sel.Clear(); foreach ($n in $t.Notes) { [void]$S.Roll.Sel.Add($n) }; $S.Roll.Invalidate(); return }
+        Push-Undo
+        $tg = @(Get-Target)
+        switch ($Id) {
+            'up1' { foreach ($n in $tg) { $n.Pitch = [math]::Min(127, $n.Pitch + 1) } }
+            'dn1' { foreach ($n in $tg) { $n.Pitch = [math]::Max(0, $n.Pitch - 1) } }
+            'up12' { foreach ($n in $tg) { $n.Pitch = [math]::Min(127, $n.Pitch + 12) } }
+            'dn12' { foreach ($n in $tg) { $n.Pitch = [math]::Max(0, $n.Pitch - 12) } }
+            'quant' { foreach ($n in $tg) { $n.Start = [math]::Max(0.0, [math]::Round($n.Start / $g) * $g) } }
+            'scale' { foreach ($n in $tg) { $n.Pitch = [HbStudio.Scales]::Snap($n.Pitch, $S.Roll.Mask) } }
+            'rev' {
+                if ($tg.Count) {
+                    $lo = ($tg | Measure-Object Start -Minimum).Minimum; $hi = ($tg | ForEach-Object { $_.Start + $_.Len } | Measure-Object -Maximum).Maximum
+                    foreach ($n in $tg) { $n.Start = $lo + $hi - ($n.Start + $n.Len) }
+                }
+            }
+            'dbl' { foreach ($n in $tg) { $n.Start /= 2; $n.Len /= 2 } }
+            'half' { foreach ($n in $tg) { $n.Start *= 2; $n.Len *= 2 } }
+            'legato' { $so = @($tg | Sort-Object Start); for ($i = 0; $i -lt $so.Count; $i++) { $nx = $loop; for ($j = $i + 1; $j -lt $so.Count; $j++) { if ($so[$j].Start -gt $so[$i].Start + 0.001) { $nx = $so[$j].Start; break } }; $so[$i].Len = [math]::Max(0.03, $nx - $so[$i].Start) } }
+            'stacc' { foreach ($n in $tg) { $n.Len = [math]::Max(0.03, [math]::Min($n.Len, $g * 0.5)) } }
+            'velup' { $so = @($tg | Sort-Object Start); for ($i = 0; $i -lt $so.Count; $i++) { $so[$i].Vel = [int](35 + 90 * $i / [math]::Max(1, $so.Count - 1)) } }
+            'veldn' { $so = @($tg | Sort-Object Start); for ($i = 0; $i -lt $so.Count; $i++) { $so[$i].Vel = [int](125 - 90 * $i / [math]::Max(1, $so.Count - 1)) } }
+            'velrnd' { foreach ($n in $tg) { $n.Vel = $rnd.Next(40, 128) } }
+            'accent' { foreach ($n in $tg) { $beat = $n.Start - [math]::Floor($n.Start); $n.Vel = if ([math]::Abs($beat - 0.5) -lt 0.05) { 120 } elseif ($beat -lt 0.05) { 100 } else { 70 } } }
+            'inv' { if ($tg.Count) { $lo = ($tg | Measure-Object Pitch -Minimum).Minimum; $hi = ($tg | Measure-Object Pitch -Maximum).Maximum; foreach ($n in $tg) { $n.Pitch = [math]::Max(0, [math]::Min(127, $lo + $hi - $n.Pitch)) } } }
+            'nudge' { foreach ($n in $tg) { $n.Start = [math]::Min($loop - 0.03, $n.Start + $g) } }
+            'nudgeb' { foreach ($n in $tg) { $n.Start = [math]::Max(0.0, $n.Start - $g) } }
+            'thin' { $keep = @($tg | Where-Object { $rnd.NextDouble() -ge 0.3 }); foreach ($n in $tg) { if ($keep -notcontains $n) { [void]$t.Notes.Remove($n) } }; $S.Roll.Sel.Clear() }
+            'octl' { foreach ($n in @($tg)) { if ($n.Pitch + 12 -le 127) { $t.Notes.Add((New-Object HbStudio.Note ($n.Pitch + 12), $n.Start, $n.Len, ([int]($n.Vel * 0.7)))) } } }
+            'clear' { $t.Notes.Clear(); $S.Roll.Sel.Clear() }
+            'hum' {
+                $a = [double]$S.Amt.Value
+                foreach ($n in $tg) { $n.Start = [math]::Max(0.0, $n.Start + ($rnd.NextDouble() * 2 - 1) * $a); $n.Vel = [math]::Max(1, [math]::Min(127, $n.Vel + [int](($rnd.NextDouble() * 2 - 1) * 25 * [math]::Min(1.0, $a * 6)))) }
+            }
+            'mut' {
+                $chance = [double]$S.Chance.Value / 100.0
+                $drum = ($t.Synth -eq 'drums')
+                $pool = Get-ScalePitches 24 96
+                $new = New-Object Collections.Generic.List[object]
+                foreach ($n in $tg) {
+                    if ($rnd.NextDouble() -ge $chance) { $new.Add($n); continue }
+                    switch ($rnd.Next(0, 5)) {
+                        0 { if (-not $drum) { $n.Pitch = [math]::Max(0, [math]::Min(127, $n.Pitch + @(-12, -7, -5, -2, 2, 3, 5, 7, 12)[$rnd.Next(0, 9)])); $n.Pitch = [HbStudio.Scales]::Snap($n.Pitch, $S.Roll.Mask) }; $new.Add($n) }
+                        1 { $n.Start = [math]::Max(0.0, $n.Start + @(-1, 1)[$rnd.Next(0, 2)] * $g); $new.Add($n) }
+                        2 { }
+                        3 { $n.Len = [math]::Max($g / 2, $n.Len * @(0.5, 2)[$rnd.Next(0, 2)]); $new.Add($n) }
+                        4 { $new.Add($n); $c = $n.Clone(); $c.Start += $g; $c.Vel = [math]::Max(1, $c.Vel - 25); $new.Add($c) }
+                    }
+                }
+                $keep = @($t.Notes | Where-Object { $tg -notcontains $_ })
+                Set-TrackNotes (@($keep) + @($new)); return
+            }
+            'ratch' {
+                $k = [int]$S.Rolls.Value; $new = New-Object Collections.Generic.List[object]; $chance = [double]$S.Chance.Value / 100.0
+                foreach ($n in $tg) {
+                    if ($rnd.NextDouble() -ge $chance) { $new.Add($n); continue }
+                    $sub = $n.Len / $k
+                    foreach ($i in 0..($k - 1)) { $new.Add((New-Object HbStudio.Note $n.Pitch, ($n.Start + $i * $sub), ($sub * 0.9), ([math]::Max(1, [int]($n.Vel * (0.6 + 0.4 * ($i + 1) / $k)))))) }
+                }
+                $keep = @($t.Notes | Where-Object { $tg -notcontains $_ })
+                Set-TrackNotes (@($keep) + @($new)); return
+            }
+            'chop' {
+                # Slice the target region on the grid and shuffle slices (breakcore edit).
+                if ($tg.Count) {
+                    $lo = [math]::Floor(($tg | Measure-Object Start -Minimum).Minimum / $S.Proj.BarBeats) * $S.Proj.BarBeats
+                    $hi = [math]::Min($loop, $lo + [math]::Ceiling((($tg | Measure-Object Start -Maximum).Maximum - $lo + 0.001) / $S.Proj.BarBeats) * $S.Proj.BarBeats)
+                    $slice = [math]::Max($g * 2, 0.5)
+                    $count = [int][math]::Floor(($hi - $lo) / $slice)
+                    if ($count -ge 2) {
+                        $order = @(0..($count - 1) | Sort-Object { $rnd.Next() })
+                        $chance = [double]$S.Chance.Value / 100.0
+                        for ($i = 0; $i -lt $count; $i++) { if ($rnd.NextDouble() -gt $chance * 2) { $order[$i] = $i } }
+                        foreach ($n in $tg) {
+                            $si = [int][math]::Floor(($n.Start - $lo) / $slice)
+                            if ($si -lt 0 -or $si -ge $count) { continue }
+                            $n.Start = $lo + $order[$si] * $slice + ($n.Start - ($lo + $si * $slice))
+                        }
+                    }
+                }
+            }
+        }
+        $S.Roll.Invalidate(); $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit
+    }
+
+    function Invoke-StudioGenerator([string]$Id) {
+        $t = Get-CurTrack; if (-not $t) { return }
+        Push-Undo
+        $rnd = New-Object Random; $loop = $S.Proj.LoopBeats; $new = New-Object Collections.Generic.List[object]
+        switch ($Id) {
+            'euc' {
+                $k = [int]$S.EucK.Value; $n = [int]$S.EucN.Value; $r = [int]$S.EucR.Value; $p = [int]$S.EucP.Value
+                $step = $S.Proj.BarBeats / $n
+                $pat = @(0) * $n; $acc = 0
+                for ($i = 0; $i -lt $n; $i++) { $acc += $k; if ($acc -ge $n) { $acc -= $n; $pat[$i] = 1 } }
+                for ($bar = 0; $bar -lt $S.Proj.Bars; $bar++) {
+                    for ($i = 0; $i -lt $n; $i++) {
+                        if ($pat[(($i + $r) % $n)]) { $new.Add((New-Object HbStudio.Note $p, ($bar * $S.Proj.BarBeats + $i * $step), ([math]::Min($step, 0.25)), 105)) }
+                    }
+                }
+            }
+            'walk' {
+                $pool = @(Get-ScalePitches 48 79); $i = [int]($pool.Count / 2); $pos = 0.0
+                $lens = @(0.25, 0.25, 0.5, 0.125, 0.25, 0.75)
+                while ($pos -lt $loop) {
+                    $l = $lens[$rnd.Next(0, $lens.Count)]
+                    if ($rnd.NextDouble() -gt 0.2) { $new.Add((New-Object HbStudio.Note $pool[$i], $pos, ($l * 0.9), ($rnd.Next(70, 120)))) }
+                    $i = [math]::Max(0, [math]::Min($pool.Count - 1, $i + @(-3, -2, -1, -1, 1, 1, 2, 3)[$rnd.Next(0, 8)]))
+                    $pos += $l
+                }
+            }
+            'poly' {
+                # 7 against 4: hats on a 7-beat cycle over the loop, accents each 5th hit.
+                $step = 4.0 / 7.0; $pos = 0.0; $i = 0
+                while ($pos -lt $loop) { $new.Add((New-Object HbStudio.Note 42, $pos, 0.1, $(if ($i % 5 -eq 0) { 120 } else { 70 }))); $pos += $step; $i++ }
+                if ($t.Synth -ne 'drums') { foreach ($n in $new) { $n.Pitch = 60 } }
+            }
+        }
+        if ($Id -eq 'euc') { # keep a drum pitch on drum tracks; melodic tracks use the chosen note as is
+        }
+        Set-TrackNotes $new
+    }
+
+    # ---- transport -----------------------------------------------------------------------------------------------
+    function Stop-Studio {
+        $S.Clock.Stop()
+        if ($S.Player) { try { $S.Player.Stop(); $S.Player.Dispose() } catch { }; $S.Player = $null }
+        $S.PendingWav = $null; $S.Rendering = $false; $S.AudioDirtyAt = $null
+        $S.SuspendedForEdit = $false
+        if ($S.Proc -and -not $S.Proc.HasExited) {
+            try { Set-Content -LiteralPath $S.StopFile -Value 'stop' } catch { }
+            if (-not $S.Proc.WaitForExit(2500)) { try { & taskkill.exe /PID $S.Proc.Id /T /F 2>&1 | Out-Null } catch { } }
+        }
+        $S.Proc = $null; $S.Playing = $false; $S.Roll.Playhead = -1; $S.Roll.Invalidate(); $S.Play.Text = 'Play'
+    }
+    function Suspend-AudioForEdit {
+        if ($S.Loading) { return }
+        if ($S.SuspendedForEdit) { return }
+        if (-not $S.Playing) { return }
+        Stop-Studio
+        $S.SuspendedForEdit = $true
+        Status 'Editing paused audio - will resume when ready.'
+    }
+    function Start-Studio {
+        Stop-Studio
+        Sync-Project
+        $p = $S.Proj
+        if ($S.Engine.SelectedIndex -eq 1) {
+            if (-not $S.Sc) { Show-StudioMsg 'SuperCollider was not found. Use "Get SuperCollider" to install it, then "Locate SuperCollider" if it is not detected. The built-in preview works without it.'; return }
+            $dir = Get-StudioDir
+            $scd = Join-Path $dir 'live.scd'; $S.StopFile = Join-Path $dir 'live.stop'
+            Remove-Item -LiteralPath $S.StopFile -Force -ErrorAction SilentlyContinue
+            [IO.File]::WriteAllText($scd, (Get-StudioScd $p $S.ScCode.Text 'live' '' $S.StopFile), (New-Object Text.UTF8Encoding($false)))
+            $log = Join-Path $dir 'sclang.log'
+            $S.Proc = Start-Process -FilePath $S.Sc -ArgumentList @('-D', ('"{0}"' -f $scd)) -WorkingDirectory (Split-Path $S.Sc -Parent) -WindowStyle Hidden -PassThru -RedirectStandardOutput $log -RedirectStandardError (Join-Path $dir 'sclang.err.log')
+            Log "SuperCollider started (pid $($S.Proc.Id)); server boot takes a few seconds."
+            Status 'Starting SuperCollider server...'
+            $S.PlayDelay = 3.5
+        } else {
+            if ($S.LiveWavA -and (Test-Path $S.LiveWavA)) { try { Remove-Item $S.LiveWavA -Force -ErrorAction SilentlyContinue } catch { } }
+            $pcm = [HbStudio.Dsp]::Render($p, $true)
+            $wav = Join-Path $env:TEMP 'hb-studio-live-0.wav'
+            try { Remove-Item $wav -Force -ErrorAction SilentlyContinue } catch { }
+            [HbStudio.Dsp]::WriteWav($wav, $pcm)
+            $S.LiveWavA = $wav
+            $S.RenderedRev = $S.AudioRev; $S.Rendering = $false; $S.PendingWav = $null; $S.AudioDirtyAt = $null
+            $S.Player = New-Object System.Media.SoundPlayer $wav
+            $S.Player.Load()
+            if ($S.Loop.Checked) { $S.Player.PlayLooping() } else { $S.Player.Play() }
+            $S.PlayDelay = 0
+            Status 'Playing (built-in preview - edits apply live at the next bar line).'
+        }
+        $S.Playing = $true; $S.Play.Text = 'Restart'
+        $S.Clock.Reset(); $S.Clock.Start()
+    }
+    function Show-StudioMsg([string]$m) { [void][Windows.Forms.MessageBox]::Show($m, 'Audio Studio', 'OK', 'Information') }
+
+    function Invoke-LiveRender {
+        # Synchronous snapshot + render on the timer thread, wrapped in a single catch-all.
+        # Anything caught here is logged and converted to "audio is stale but stable";
+        # nothing is allowed to hop to a hidden worker thread where an unhandled exception would kill the process.
+        if ($S.Rendering) { return }
+        $S.Rendering = $true
+        try {
+            $snap = Read-StudioProjectData ((Get-StudioProjectData $S.Proj) | ConvertTo-Json -Depth 9 | ConvertFrom-Json)
+            $S.PendingRev = $S.AudioRev
+            $token = ++$S.RenderToken
+            $wav = Join-Path $env:TEMP ('hb-studio-live-' + $token + '.wav')
+            $pcm = [HbStudio.Dsp]::Render($snap, $true)
+            $pendingFromFrame = 0
+            if ($S.Playing) {
+                # Per-block real-time synthesis: only synthesize the upcoming segment of the loop
+                # ([playhead frame, end of loop) and let the periodic loop wrap seamlessly.
+                $loopSec = [double]$S.Proj.LoopBeats * 60.0 / [double]$S.Proj.Bpm
+                $t = [double]$S.Clock.Elapsed.TotalSeconds - [double]$S.PlayDelay
+                if ($t -lt 0) { $t = 0 }
+                $posSec = if ($loopSec -gt 1e-6) { $t % $loopSec } else { 0.0 }
+                $N = [int][math]::Round($loopSec * 44100.0)
+                $F = [int][math]::Round($posSec * 44100.0)
+                if ($F -lt $N) { $pcm = [HbStudio.Dsp]::Render($snap, $true, $true, $F, ($F + $N)); $pendingFromFrame = $F }
+            }
+            [HbStudio.Dsp]::WriteWav($wav, $pcm)
+            $S.PendingWav = $wav
+            $S.PendingFromFrame = $pendingFromFrame
+            $S.PendingSince = Get-Date
+            $S.Rendering = $false
+            $S.AudioDirtyAt = $null
+        } catch {
+            $msg = 'Live re-render failed: ' + ($_ | Out-String)
+            $S.Rendering = $false
+            $S.PendingWav = $null
+            $S.PendingRev = $S.AudioRev
+            $S.RenderedRev = $S.AudioRev          # pretend we're caught up so the pipeline doesn't loop forever on the same broken state
+            $S.AudioDirtyAt = $null
+            $S.PendingFromFrame = 0
+            try { Log $msg } catch { }
+            try { Add-Content -LiteralPath $script:StudioCrashLog -Value ("[{0}] LIVE RENDER FAIL`r`n{1}`r`n" -f (Get-Date), $msg) } catch { }
+            try { Status 'Audio could not be rebuilt - see studio-errors.log' } catch { }
+        }
+    }
+    function Complete-LiveRender { }
+    function Invoke-LiveApply([double]$loopSec, [double]$t) {
+        if (-not $S.PendingWav) { return }
+        if (-not (Test-Path -LiteralPath $S.PendingWav)) { $S.PendingWav = $null; $S.RenderedRev = $S.AudioRev; return }
+        $posInLoop = if ($loopSec -gt 1e-6) { $t % $loopSec } else { 0.0 }
+        $remaining = $loopSec - $posInLoop
+        $elapsed = if ($S.PendingSince) { ((Get-Date) - $S.PendingSince).TotalSeconds } else { 999 }
+        if ($remaining -gt 0.12 -and $elapsed -lt 6.0) { return }   # wait for the bar line (max 6 s)
+        try {
+            $old = $S.Player
+            $S.Player = New-Object System.Media.SoundPlayer $S.PendingWav
+            $S.Player.Load()
+            if ($S.Loop.Checked) { $S.Player.PlayLooping() } else { $S.Player.Play() }
+            if ($old) { try { $old.Stop(); $old.Dispose() } catch { } }
+            $S.LiveWavA = $S.PendingWav
+            $S.RenderedRev = $S.PendingRev
+            $S.Clock.Reset(); $S.PlayDelay = 0
+            Get-ChildItem -LiteralPath $env:TEMP -Filter 'hb-studio-live-token-*.wav' -ErrorAction SilentlyContinue | Where-Object { $_.FullName -ne $S.LiveWavA } | ForEach-Object { try { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue } catch { } }
+            Status 'Changes applied at the bar line.'
+        } catch { Log ('Live swap failed: ' + $_.Exception.Message) }
+        $S.PendingWav = $null
+    }
+
+    $S.Clock = New-Object Diagnostics.Stopwatch
+    $timer = New-Object Windows.Forms.Timer; $timer.Interval = 33
+    $timer.Add_Tick({
+        try {
+            if (-not $S.Playing) {
+                # edit-suspend mode: keep the background render busy so we can auto-resume when it catches up
+                if ($S.SuspendedForEdit) {
+                    if ($S.AudioRev -ne $S.RenderedRev -and -not $S.Rendering -and -not $S.PendingWav) {
+                        if (-not $S.AudioDirtyAt) { $S.AudioDirtyAt = Get-Date }
+                        elseif (((Get-Date) - $S.AudioDirtyAt).TotalMilliseconds -ge 250) { Invoke-LiveRender }
+                    }
+                    Complete-LiveRender
+                    if ($S.PendingWav) { $S.RenderedRev = $S.PendingRev; $S.PendingWav = $null; $S.AudioDirtyAt = $null }
+                    if ($S.AudioRev -eq $S.RenderedRev -and -not $S.Rendering) {
+                        $S.SuspendedForEdit = $false
+                        Start-Studio
+                    }
+                }
+                return
+            }
+            $loopSec = $S.Proj.LoopBeats * 60.0 / $S.Proj.Bpm
+            $t = $S.Clock.Elapsed.TotalSeconds - $S.PlayDelay
+            if ($t -lt 0) { return }
+            if ($S.Engine.SelectedIndex -eq 1 -and $S.Proc -and $S.Proc.HasExited) { Log 'SuperCollider exited. See sclang.log in the studio folder.'; Stop-Studio; return }
+            if ($S.Engine.SelectedIndex -eq 0) {
+                Complete-LiveRender
+                Invoke-LiveApply $loopSec $t
+                if ($S.AudioRev -ne $S.RenderedRev -and -not $S.Rendering -and -not $S.PendingWav) {
+                    if (-not $S.AudioDirtyAt) { $S.AudioDirtyAt = Get-Date }
+                    elseif (((Get-Date) - $S.AudioDirtyAt).TotalMilliseconds -ge 450) { Invoke-LiveRender }
+                }
+                if ($S.Rendering -or $S.PendingWav) { $S.AudioDirtyAt = $null }
+            }
+            if (-not $S.Loop.Checked -and $S.Engine.SelectedIndex -eq 0 -and $t -gt $loopSec) { Stop-Studio; return }
+            $S.Roll.Playhead = (($t % $loopSec) / $loopSec) * $S.Proj.LoopBeats
+            $S.Roll.Invalidate()
+        } catch { }
+    })
+    $timer.Start()
+
+    function Invoke-StudioRender {
+        Sync-Project
+        $dir = Join-Path (Get-StudioDir) 'renders'
+        $name = 'studio-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.wav'
+        $path = Join-Path $dir $name
+        $f.Cursor = 'WaitCursor'
+        try {
+            if ($S.Engine.SelectedIndex -eq 1 -and $S.Sc) {
+                Stop-Studio
+                $scd = Join-Path (Get-StudioDir) 'render.scd'
+                [IO.File]::WriteAllText($scd, (Get-StudioScd $S.Proj $S.ScCode.Text 'render' $path ''), (New-Object Text.UTF8Encoding($false)))
+                Status 'Rendering with SuperCollider (real time)...'
+                $pr = Start-Process -FilePath $S.Sc -ArgumentList @('-D', ('"{0}"' -f $scd)) -WorkingDirectory (Split-Path $S.Sc -Parent) -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path (Get-StudioDir) 'sclang.log') -RedirectStandardError (Join-Path (Get-StudioDir) 'sclang.err.log')
+                $limit = [Diagnostics.Stopwatch]::StartNew()
+                while (-not $pr.HasExited -and $limit.Elapsed.TotalSeconds -lt ($S.Proj.LoopBeats * 60.0 / $S.Proj.Bpm + 40)) { Start-Sleep -Milliseconds 150; [Windows.Forms.Application]::DoEvents() }
+                if (-not $pr.HasExited) { & taskkill.exe /PID $pr.Id /T /F 2>&1 | Out-Null }
+                if (-not (Test-Path -LiteralPath $path)) { throw 'SuperCollider did not produce a file. Check sclang.log and sclang.err.log in the studio folder (see the Log tab).' }
+            } else {
+                $pcm = [HbStudio.Dsp]::Render($S.Proj, $false)
+                [HbStudio.Dsp]::WriteWav($path, $pcm)
+            }
+            Log "Rendered $path"; Status "Rendered $name"
+            try { if (Get-Command Add-AudioPlaylistFiles -ErrorAction SilentlyContinue) { [void](Add-AudioPlaylistFiles @($path)) } } catch { }
+            Start-Process explorer.exe -ArgumentList "/select,`"$path`""
+        } catch { Log ('Render failed: ' + $_.Exception.Message); Show-StudioMsg ('Render failed: ' + $_.Exception.Message) }
+        finally { $f.Cursor = 'Default' }
+    }
+
+    # ---- AI actions --------------------------------------------------------------------------------------------------
+    function Get-AiModel { $m = [string]$S.AiModel.Text; if ($m -like '(auto*') { return '' }; return $m }
+    function Invoke-AiAction([string]$Kind) {
+        $t = Get-CurTrack; if (-not $t) { return }
+        $S.AiCompose.Enabled = $S.AiVary.Enabled = $S.AiSynth.Enabled = $S.AiAdvice.Enabled = $false
+        $S.AiStatus.Text = 'Thinking (a local model may need to load first)...'; $f.Cursor = 'AppStarting'
+        try {
+            Sync-Project
+            $p = $S.Proj; $loop = $p.LoopBeats; $drum = ($t.Synth -eq 'drums')
+            $ask = $S.AiPrompt.Text.Trim()
+            $ctx = "Project: {0} BPM, time signature {1}/$($p.BeatUnit), {2} bars (loop = {3} beats), key {4} {5}, swing {6}%. Track: '{7}' (synth {8}{9})." -f $p.Bpm, $p.BeatsPerBar, $p.Bars, $loop, $S.Key.Text, $p.Scale, [int]($p.Swing * 100), $t.Name, $t.Synth, $(if ($drum) { ', DRUMS: 36 kick, 38 snare, 39 clap, 37 rim, 42 closed hat, 46 open hat, 45 tom, 49 crash, 51 ride' } else { '' })
+            $model = Get-AiModel
+            $tsound = Get-StudioTrackSoundText $t; if ($tsound -and -not $drum) { $ctx += " Track sound: $tsound" }
+            if ($Kind -in 'compose', 'vary') {
+                if (-not $ask) { $ask = 'something that fits, in the style of Aphex Twin: odd rhythms, off-grid syncopation, acid and glitch detail' }
+                $sys = 'You are an expert electronic music composer in the style of Aphex Twin, Autechre and Squarepusher. You write note data only. Reply with ONE JSON object and nothing else: {"notes":[{"p":<midi pitch 0-127>,"s":<start in beats, float>,"l":<length in beats, float>,"v":<velocity 1-127>}]}. Start times are in beats from 0 and must be less than the loop length. Write a full, dense part: at least 24 notes (drums and hats: 40 or more), covering the whole loop and never repeating a bar verbatim. Use rhythmic variety (16ths, 32nds, triplets, syncopation, ratchets) and stay in the given scale for melodic parts. Do not wrap the JSON in markdown.'
+                $user = $ctx + "`nRequest: $ask"
+                if ($Kind -eq 'vary') {
+                    $cur = ($t.Notes | Sort-Object Start | Select-Object -First 160 | ForEach-Object { '[{0},{1:0.###},{2:0.###},{3}]' -f $_.Pitch, $_.Start, $_.Len, $_.Vel }) -join ','
+                    $user += "`nHere are the current notes as [pitch,start,length,velocity]: $cur`nReturn a varied or mutated version of this part that keeps its identity but adds surprises. Same JSON format."
+                }
+                $res = Invoke-StudioJsonModel $model $sys $user 4000 ({ param($x) ConvertFrom-StudioNotesJson $x $drum $loop }.GetNewClosure())
+                $reply = $res.Reply; $notes = $res.Value
+                Push-Undo; Set-TrackNotes $notes
+                $S.AiOut.Text = $reply; $S.AiStatus.Text = "Placed $($notes.Count) notes on '$($t.Name)'. Ctrl+Z undoes."
+            } elseif ($Kind -eq 'synth') {
+                if (-not $ask) { throw 'Describe the sound first (for example: "gritty detuned acid bass with a resonant filter sweep").' }
+                $sys = 'You are a SuperCollider sound designer. Reply with ONE complete SuperCollider SynthDef in a ```supercollider code block, then at most two sentences about it. Rules: SynthDef(\name, { |out=0, freq=110, amp=0.3, pan=0, sustain=0.3, cutoff=2400, res=0.3, envamt=0.6, atk=0.005, rel=0.15, crush=16| ... }).add; declare all var first; use a percussive or linen envelope with EnvGen.ar(..., doneAction: 2) using sustain, atk and rel; finish with Out.ar(out, Pan2.ar(sig * env * amp, pan)); use only core UGens (no sc3-plugins); keep levels sane with .tanh; name must be a lowercase word like hbacid2.'
+                $reply = Invoke-StudioModel $model $sys ($ctx + "`nSound wanted: $ask") 3000
+                $code = Get-StudioScSnippet $reply
+                $S.AiOut.Text = $reply
+                $S.ScCode.AppendText("`r`n// AI: $ask`r`n$code`r`n")
+                $nm = [regex]::Match($code, 'SynthDef\(\s*\\(\w+)')
+                if ($nm.Success) { $S.TSynth.Text = $nm.Groups[1].Value; Save-TrackProps; $S.AiStatus.Text = "SynthDef \$($nm.Groups[1].Value) added to the SuperCollider code tab and assigned to '$($t.Name)'. Switch the engine to SuperCollider to hear it." }
+                else { $S.AiStatus.Text = 'Code added to the SuperCollider code tab (no SynthDef name found to assign).' }
+                $tabs.SelectedIndex = 2
+            } else {
+                $all = foreach ($tr in $p.Tracks) { "{0} ({1}, {2} notes{3})" -f $tr.Name, $tr.Synth, $tr.Notes.Count, $(if ($tr.Mute) { ', muted' } else { '' }) }
+                $notes = ($t.Notes | Sort-Object Start | Select-Object -First 100 | ForEach-Object { '{0}@{1:0.##}' -f $_.Pitch, $_.Start }) -join ' '
+                $sys = 'You are a seasoned electronic music producer who knows Aphex Twin, Autechre, Boards of Canada and Squarepusher production. Give concrete, short, actionable advice (a bulleted list of at most 8 items) covering arrangement, rhythm, harmony, sound design and mixing for the described project. Mention specific parameter values and techniques.'
+                $reply = Invoke-StudioModel $model $sys ($ctx + "`nAll tracks: $($all -join '; ')`nSelected track notes (pitch@beat): $notes`nQuestion or goal: $(if ($ask) { $ask } else { 'what would you do next to make this more interesting?' })") 2000
+                $S.AiOut.Text = $reply; $S.AiStatus.Text = 'Done.'
+            }
+        } catch { $S.AiStatus.Text = 'AI failed: ' + $_.Exception.Message; Log ('AI failed: ' + $_.Exception.Message) }
+        finally { $S.AiCompose.Enabled = $S.AiVary.Enabled = $S.AiSynth.Enabled = $S.AiAdvice.Enabled = $true; $f.Cursor = 'Default' }
+    }
+    function Update-AiModels {
+        try {
+            $names = @()
+            if (Get-Command Get-InstalledChatModelNames -ErrorAction SilentlyContinue) { $names = @(Get-InstalledChatModelNames) }
+            $S.AiModel.Items.Clear(); [void]$S.AiModel.Items.Add('(auto: best general model)'); foreach ($n in $names) { [void]$S.AiModel.Items.Add($n) }
+            $S.AiModel.SelectedIndex = 0
+        } catch { }
+    }
+
+    # ---- Sound Lab --------------------------------------------------------------------------------------------------------
+    $script:LabPatchEx = @'
+Examples:
+"acid bass": {"Osc1":"saw","Level1":1,"Osc2":"square","Level2":0.4,"Detune2":7,"Filter":"lowpass","Cutoff":450,"Resonance":0.8,"FilterEnv":0.7,"FilterDecay":0.18,"Attack":0.002,"Decay":0.2,"Sustain":0.5,"Release":0.1,"Drive":0.3}
+"glassy FM bell": {"Osc1":"sine","Level1":1,"Level2":0,"FmAmount":2.5,"FmRatio":3.5,"Filter":"off","Attack":0.001,"Decay":1.8,"Sustain":0,"Release":1.2}
+"punchy kick": {"Osc1":"sine","Level1":1,"Level2":0,"PitchEnv":36,"PitchDecay":0.05,"Attack":0.001,"Decay":0.35,"Sustain":0,"Release":0.05,"Drive":0.25,"Filter":"off"}
+"dark evolving pad": {"Osc1":"saw","Level1":0.8,"Osc2":"saw","Level2":0.6,"Detune2":9,"Unison":5,"UnisonSpread":18,"Filter":"lowpass","Cutoff":900,"LfoRate":0.15,"LfoFilter":0.4,"Attack":1.2,"Decay":1,"Sustain":0.8,"Release":2.5}
+"nylon guitar pluck": {"Osc1":"pluck","Level1":1,"Level2":0,"Ring":1.6,"Damping":0.55,"Strike":0.18,"Filter":"lowpass","Cutoff":6500,"Attack":0.001,"Sustain":1,"Release":0.3,"Variation":0.6}
+"choir pad that moves between vowels": {"Osc1":"vowel","Level1":1,"Level2":0,"Vowel":0,"VowelEnd":3,"Morph":0.2,"Lfo2Morph":0.4,"Lfo2Rate":0.2,"Lfo2Shape":"smooth","Harmonics":32,"Unison":4,"UnisonSpread":14,"Attack":0.6,"Sustain":0.85,"Release":1.5,"LfoPitch":18,"LfoDelay":0.6,"Drift":0.4}
+"electric piano": {"Osc1":"sine","Level1":1,"Level2":0,"FmAmount":1.6,"FmRatio":1,"FmDecay":0.35,"FmSustain":0.15,"Filter":"off","Attack":0.002,"Decay":1.6,"Sustain":0.1,"Release":0.5,"VelFm":0.7,"Variation":0.3}
+"marimba": {"Osc1":"bell","Level1":1,"Level2":0,"Inharmonic":0.5,"Ring":0.7,"Damping":0.65,"Strike":0.15,"Filter":"off","Sustain":1,"Release":0.2,"Variation":0.5}
+"screaming sync lead": {"Osc1":"sync","Level1":1,"Level2":0,"SyncRatio":2,"ModSync":0.8,"ModDecay":0.6,"Filter":"lowpass","Cutoff":6000,"Drive":0.2,"Sustain":0.7,"LfoPitch":8,"LfoDelay":0.2}
+"breathy flute": {"Osc1":"sine","Level1":1,"Osc2":"tri","Level2":0.2,"Semi2":12,"Detune2":0,"ModNoise":0.3,"ModDecay":0.25,"Noise":"pink","Filter":"lowpass","Cutoff":5000,"Attack":0.07,"Sustain":0.85,"LfoPitch":20,"LfoDelay":0.5,"Drift":0.3}
+'@
+    $script:LabFxEx = @'
+Examples:
+"broken tape": {"Filter":"lowpass","Cutoff":3500,"Chorus":0.5,"ChorusRate":0.4,"ChorusDepth":0.8,"Bits":12,"DelayMix":0.3,"DelayBeats":0.75,"DelayFeedback":0.5,"ReverbMix":0.25}
+"glitch stutter": {"StutterBeats":0.5,"StutterDiv":8,"StutterChance":0.5,"Bits":8,"Downsample":4,"Drive":0.2}
+"metallic ring": {"RingFreq":380,"RingMix":0.6,"Fold":0.3,"ReverbMix":0.2,"ReverbSize":0.7}
+'@
+    function Get-LabPatch([bool]$Create) {
+        $t = Get-CurTrack; if (-not $t) { return $null }
+        if ($Create -and ($t.Synth -ne 'patch' -or -not $t.Patch)) { if (-not $t.Patch) { $t.Patch = New-Object HbStudio.Patch }; $t.Synth = 'patch'; Load-TrackProps }
+        return $t.Patch
+    }
+    function Set-LabStatus([string]$m) { $S.LabStatus.Text = $m; Status $m }
+    function Invoke-LabAi([string]$Kind) {
+        $t = Get-CurTrack; if (-not $t) { return }
+        $ask = $S.LabPrompt.Text.Trim()
+        if (-not $ask -and $Kind -ne 'refinesynth' -and $Kind -ne 'refinefx') { Set-LabStatus 'Describe the sound first.'; return }
+        if (-not $ask) { Set-LabStatus 'Say what to change first (for example: "darker and more aggressive").'; return }
+        $btns = @($S.LabSynth, $S.LabRSynth, $S.LabFx, $S.LabRFx, $S.LabSample)
+        foreach ($b in $btns) { $b.Enabled = $false }
+        Set-LabStatus 'Thinking (a local model may need to load first)...'; $f.Cursor = 'AppStarting'
+        try {
+            Sync-Project
+            $model = Get-AiModel
+            $rules = 'Reply with ONE JSON object and nothing else (no markdown). Use only the listed parameter names with numeric values inside their ranges, enum names as strings. Omit parameters that should stay at their defaults.'
+            $pdoc = [HbStudio.PropIO]::Describe([HbStudio.Patch]); $fdoc = [HbStudio.PropIO]::Describe([HbStudio.Fx])
+            switch ($Kind) {
+                { $_ -in 'synth', 'refinesynth' } {
+                    $sys = "You are a synthesizer sound designer with deep knowledge of acoustic instruments and every synthesis method. $rules`n$script:StudioSoundKnowledge`nSynth parameters:`n$pdoc`n$script:LabPatchEx"
+                    $user = "Sound wanted: $ask"
+                    $refTxt = Get-StudioInstrumentReferenceText $ask; if ($refTxt) { $user += "`n$refTxt" }
+                    if ($Kind -eq 'refinesynth') { $cur = Get-LabPatch $false; if (-not $cur) { throw 'This track has no synth patch yet. Use Design synth first.' }; $user = "Current patch: $((ConvertTo-StudioMap $cur) | ConvertTo-Json -Compress)`nChange it as asked, return only the parameters that change. Change: $ask" }
+                    $res = Invoke-StudioJsonModel $model $sys $user 2500 ({ param($x) Find-StudioJsonObject $x 'patch' }); $reply = $res.Reply; $j = $res.Value
+                    if ($Kind -eq 'synth') { $t.Patch = New-Object HbStudio.Patch; $t.Synth = 'patch' }
+                    $c = Set-StudioObjectFromJson $t.Patch $j
+                    Load-TrackProps; $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; $S.AiOut.Text = $reply
+                    Set-LabStatus "Applied $c synth parameters to '$($t.Name)'. Press Audition or Play."
+                }
+                { $_ -in 'fx', 'refinefx' } {
+                    $sys = "You are an audio effects designer for electronic music. $rules`nEffect chain order: stutter, filter, fold, drive, bitcrush/downsample, ring mod, chorus, delay, reverb, gain. Parameters:`n$fdoc`n$script:LabFxEx"
+                    $user = "Effect wanted: $ask"
+                    if ($Kind -eq 'refinefx') { $user = "Current effects: $((ConvertTo-StudioMap $t.Fx) | ConvertTo-Json -Compress)`nChange them as asked, return only the parameters that change. Change: $ask" }
+                    $res = Invoke-StudioJsonModel $model $sys $user 2000 ({ param($x) Find-StudioJsonObject $x 'fx' }); $reply = $res.Reply; $j = $res.Value
+                    if ($Kind -eq 'fx') { $nf = New-Object HbStudio.Fx; $t.Fx = $nf }
+                    $c = Set-StudioObjectFromJson $t.Fx $j
+                    Load-TrackProps; $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; $S.AiOut.Text = $reply
+                    Set-LabStatus "Applied $c effect parameters to '$($t.Name)'."
+                }
+                'sample' {
+                    $sys = "You are a sound designer making one-shot samples from a text description (drums, hits, risers, textures, bass notes, stabs). $rules`nReturn {`"note`":<midi pitch 0-127 the sound is centred on>,`"seconds`":<length 0.1-8>,`"patch`":{synth parameters},`"fx`":{effect parameters}}.`nSynth parameters:`n$pdoc`n$script:LabPatchEx`nEffect parameters:`n$fdoc`n$script:LabFxEx"
+                    $res = Invoke-StudioJsonModel $model $sys "Sample wanted: $ask" 3500 ({ param($x) Find-StudioJsonObject $x '' }); $reply = $res.Reply; $j = $res.Value
+                    $tmp = New-Object HbStudio.Track; $tmp.Synth = 'patch'; $tmp.Patch = New-Object HbStudio.Patch
+                    $pj = if ($j.patch -is [System.Management.Automation.PSCustomObject]) { $j.patch } else { $j }
+                    [void](Set-StudioObjectFromJson $tmp.Patch $pj)
+                    if ($j.fx -is [System.Management.Automation.PSCustomObject]) { [void](Set-StudioObjectFromJson $tmp.Fx $j.fx) }
+                    $note = 48; if ($null -ne $j.note) { $note = [math]::Max(0, [math]::Min(127, [int][double]$j.note)) }
+                    $secs = 1.5; if ($null -ne $j.seconds) { $secs = [math]::Max(0.1, [math]::Min(8, [double]$j.seconds)) }
+                    $smp = [HbStudio.Dsp]::RenderSample($tmp, $note, $secs, $true)
+                    $nt = New-StudioTrack ($(if ($ask.Length -gt 22) { $ask.Substring(0, 22) } else { $ask })) 'sample'
+                    $nt.Sample = $smp; $nt.SampleRoot = $note; $nt.Patch = $tmp.Patch; $nt.Fx = New-Object HbStudio.Fx
+                    $nt.Notes.Add((New-Object HbStudio.Note $note, 0, 1, 110))
+                    $S.Proj.Tracks.Add($nt); Refresh-Tracks ($S.Proj.Tracks.Count - 1); $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; $S.AiOut.Text = $reply
+                    Set-LabStatus "New sampler track '$($nt.Name)' ($([math]::Round($smp.Length / 44100.0, 2)) s). Playing it now."
+                    Invoke-LabAudition $nt $note $false
+                }
+            }
+        } catch { Set-LabStatus ('AI failed: ' + $_.Exception.Message); Log ('AI failed: ' + $_.Exception.Message) }
+        finally { foreach ($b in $btns) { $b.Enabled = $true }; $f.Cursor = 'Default' }
+    }
+    function Invoke-LabAudition($Track, [int]$Pitch, [bool]$Normalize = $true) {
+        if (-not $Track) { return }
+        $secs = [double]$S.LabSecs.Value
+        $smp = [HbStudio.Dsp]::RenderSample($Track, $Pitch, $secs, $Normalize)
+        $wav = Join-Path $env:TEMP 'hb-studio-audition.wav'
+        [HbStudio.Dsp]::WriteWavMono($wav, $smp)
+        if ($S.Aud) { try { $S.Aud.Stop() } catch { } }
+        $S.Aud = New-Object System.Media.SoundPlayer $wav; $S.Aud.Load(); $S.Aud.Play()
+    }
+    function Invoke-LabRandom([double]$Amount) {
+        $t = Get-CurTrack; if (-not $t) { return }
+        $seed = [int](Get-Random -Maximum 1000000)
+        if ($S.LabTarget.SelectedIndex -eq 0) {
+            $p = Get-LabPatch $true
+            [HbStudio.PropIO]::Randomize($p, $Amount, $seed)
+        } else { [HbStudio.PropIO]::Randomize($t.Fx, $Amount, $seed) }
+        $S.GridPatch.Refresh(); $S.GridFx.Refresh(); $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit
+        Invoke-LabAudition $t ([int]$S.LabPitch.Value) $false
+    }
+    function Get-LabSampleTrack {
+        $t = Get-CurTrack
+        if (-not $t -or -not $t.Sample) { Set-LabStatus 'Select a sampler track with a sample first.'; return $null }
+        return $t
+    }
+
+    # ---- Spectral and Meta synth ------------------------------------------------------------------------------------------
+    function Play-StudioSamples([float[]]$Smp) {
+        $wav = Join-Path $env:TEMP 'hb-studio-audition.wav'
+        [HbStudio.Dsp]::WriteWavMono($wav, $Smp)
+        if ($S.Aud) { try { $S.Aud.Stop() } catch { } }
+        $S.Aud = New-Object System.Media.SoundPlayer $wav; $S.Aud.Load(); $S.Aud.Play()
+    }
+    function Add-StudioSampleTrack([string]$Name, [float[]]$Smp, [int]$Root = 60) {
+        $nm = if ($Name.Length -gt 22) { $Name.Substring(0, 22) } else { $Name }
+        $nt = New-StudioTrack $nm 'sample'
+        $nt.Sample = $Smp; $nt.SampleRoot = $Root; $nt.Fx = New-Object HbStudio.Fx
+        $nt.Notes.Add((New-Object HbStudio.Note $Root, 0, 1, 110))
+        $S.Proj.Tracks.Add($nt); Refresh-Tracks ($S.Proj.Tracks.Count - 1); $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit
+        try { if ($S.Proj.Graph.Initialized) { [HbStudio.PatchGraphControl]::AddTrackNode($S.Proj, $nt); $S.Patch.Invalidate() } } catch { }
+        return $nt
+    }
+    function Update-SpecView {
+        $b = $S.SpecGrid.ToBitmap(); $w = $S.SpecPic.Width - 2; $h = $S.SpecPic.Height - 2
+        $out = New-Object Drawing.Bitmap $w, $h; $g = [Drawing.Graphics]::FromImage($out)
+        $g.InterpolationMode = 'NearestNeighbor'; $g.PixelOffsetMode = 'Half'; $g.DrawImage($b, 0, 0, $w, $h)
+        $gp = New-Object Drawing.Pen ([Drawing.Color]::FromArgb(60, 255, 255, 255))
+        foreach ($oct in 1..6) {
+            $hz = 55 * [math]::Pow(2, $oct - 1); if ($hz -lt $S.SpecSet.MinHz -or $hz -gt $S.SpecSet.MaxHz) { continue }
+            $row = [HbStudio.Spectral]::HzToRow($hz, $S.SpecSet.MinHz, $S.SpecSet.MaxHz, $S.SpecGrid.Rows); $y = $h - 1 - $row / ($S.SpecGrid.Rows - 1) * ($h - 1)
+            $g.DrawLine($gp, 0, [single]$y, 10, [single]$y); $g.DrawString("$([int]$hz)", $f.Font, [Drawing.Brushes]::Gray, 12, [single]($y - 7))
+        }
+        $g.Dispose(); $b.Dispose(); $old = $S.SpecPic.Image; $S.SpecPic.Image = $out; if ($old) { $old.Dispose() }
+    }
+    function Set-SpecStatus([string]$m) { $S.SpecStatus.Text = $m; Status $m }
+    function Invoke-SpecRender {
+        $f.Cursor = 'WaitCursor'
+        try { return , [HbStudio.Spectral]::Render($S.SpecGrid, $S.SpecSet) } finally { $f.Cursor = 'Default' }
+    }
+    function Import-SpecImage([string]$Path) {
+        $img = [Drawing.Image]::FromFile($Path)
+        try { $S.SpecGrid.FromBitmap([Drawing.Bitmap]$img, $false) } finally { $img.Dispose() }
+        Update-SpecView; Set-SpecStatus "Loaded image '$([IO.Path]::GetFileName($Path))' (brightness becomes loudness)."
+    }
+    function Import-SpecFromTrack {
+        $t = Get-CurTrack; if (-not $t) { Set-SpecStatus 'Select a track first.'; return }
+        Sync-Project
+        $smp = if ($t.Sample) { $t.Sample } else { [HbStudio.Dsp]::RenderSample($t, 48, 2.5, $true) }
+        [HbStudio.Spectral]::FromSample($S.SpecGrid, $smp, $S.SpecSet.MinHz, $S.SpecSet.MaxHz); Update-SpecView
+        Set-SpecStatus "Spectrogram of '$($t.Name)' loaded. Paint over it, then Render."
+    }
+    function Add-SpecShapes($j) {
+        $g = $S.SpecGrid; $cw = $g.Cols - 1; $rh = $g.Rows - 1; $n = 0
+        $cl = { param($v) [math]::Max(0.0, [math]::Min(1.0, [double]$v)) }
+        $shapes = @($j.shapes); if ($shapes.Count -eq 0 -or $null -eq $shapes[0]) { throw 'The reply had no shapes.' }
+        foreach ($sh in $shapes) {
+            if ($null -eq $sh) { continue }
+            $amp = if ($null -ne $sh.amp) { & $cl $sh.amp } else { 0.8 }
+            $wd = if ($null -ne $sh.width) { 0.6 + (& $cl $sh.width) * 6 } else { 1.5 }
+            switch -Regex ([string]$sh.type) {
+                '^(line|sweep)$' { $g.Line((& $cl $sh.x0) * $cw, (& $cl $sh.y0) * $rh, (& $cl $sh.x1) * $cw, (& $cl $sh.y1) * $rh, $wd, $amp, $false); $n++ }
+                '^(curve|path)$' {
+                    $pts = @($sh.points); for ($k = 1; $k -lt $pts.Count; $k++) { $a = @($pts[$k - 1]); $b = @($pts[$k]); if ($a.Count -ge 2 -and $b.Count -ge 2) { $g.Line((& $cl $a[0]) * $cw, (& $cl $a[1]) * $rh, (& $cl $b[0]) * $cw, (& $cl $b[1]) * $rh, $wd, $amp, $false) } }
+                    $n++
+                }
+                '^(blob|circle)$' { $g.Dab((& $cl $sh.x) * $cw, (& $cl $sh.y) * $rh, 1 + (& $cl $sh.r) * $rh * 0.5, $amp, $false); $n++ }
+                '^(band|noise)$' {
+                    $x0 = [int]((& $cl $sh.x0) * $cw); $x1 = [int]((& $cl $sh.x1) * $cw); $r0 = [int]((& $cl $sh.y0) * $rh); $r1 = [int]((& $cl $sh.y1) * $rh)
+                    if ($r1 -lt $r0) { $r0, $r1 = $r1, $r0 }; $rnd = New-Object Random 3
+                    for ($c = $x0; $c -le $x1; $c++) { for ($r = $r0; $r -le $r1; $r++) { $g.A[$c * $g.Rows + $r] = [math]::Max($g.A[$c * $g.Rows + $r], [single]($amp * (0.3 + 0.7 * $rnd.NextDouble()))) } }
+                    $n++
+                }
+                '^harmonic' {
+                    $hz = if ($null -ne $sh.hz) { [math]::Max(20, [double]$sh.hz) } else { 110 }; $cnt = if ($null -ne $sh.count) { [int][math]::Max(1, [math]::Min(40, [double]$sh.count)) } else { 8 }
+                    $ro = if ($null -ne $sh.rolloff) { [math]::Max(0.3, [math]::Min(1, [double]$sh.rolloff)) } else { 0.75 }
+                    $x0 = if ($null -ne $sh.x0) { [int]((& $cl $sh.x0) * $cw) } else { 0 }; $x1 = if ($null -ne $sh.x1) { [int]((& $cl $sh.x1) * $cw) } else { $cw }
+                    $g.Harmonics($hz, $x0, $x1, $cnt, $ro, $amp, $S.SpecSet.MinHz, $S.SpecSet.MaxHz); $n++
+                }
+            }
+        }
+        if ($n -eq 0) { throw 'None of the shapes were recognised.' }
+        return $n
+    }
+    # Photographic mode: FLUX paints a real picture and its brightness becomes the spectrogram (up to 384 x 192 cells).
+    function Invoke-SpecPicture([string]$Wish) {
+        $why = Test-KontextReady
+        if (-not $why) { $why = if (Test-ImageModelInstalled (Get-ImageModelDef 'flux-schnell')) { '' } else { 'FLUX.1 schnell is not downloaded yet (Humble Baker > Images).' } }
+        if ($why) { Set-SpecStatus $why; return $false }
+        $S.SpecKBtn.Enabled = $false; $S.SpecAi.Enabled = $false; $S.SpecKStop.Enabled = $true; $f.Cursor = 'AppStarting'
+        try {
+            if (Get-Command Clear-GpuModels -ErrorAction SilentlyContinue) { Set-SpecStatus 'Freeing the GPU for FLUX...'; Clear-GpuModels }
+            $m = Get-ImageModelDef 'flux-schnell'
+            $prompt = "$Wish, photographic quality illustration, extremely detailed, sharp focus, rich textures, dramatic high-contrast lighting, the subject bright against a deep black background, monochrome"
+            $P = @{ Model = $m; Prompt = $prompt; Negative = ''; W = 768; H = 384; Steps = [int]$m.Steps; Cfg = [double]$m.Cfg; Sampler = [string]$m.Sampler }
+            $sd = Get-SdExe; $log = Join-Path $env:TEMP 'hb-spec-flux.log'
+            $dir = Join-Path (Get-ImageDir) 'outputs'; New-Item -ItemType Directory -Force -Path $dir | Out-Null
+            $out = Join-Path $dir ('spec-photo-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.png')
+            $job = @{ P = $P; Seed = (Get-Random -Minimum 1 -Maximum 2147483000); Ref = ''; Out = $out }
+            $proc = Start-Process -FilePath $sd.Path -ArgumentList (Join-ProcessArgs (New-SdArgs $job)) -WorkingDirectory (Split-Path $sd.Path) -RedirectStandardOutput $log -RedirectStandardError "$log.err" -WindowStyle Hidden -PassThru
+            [void]$proc.Handle; $S.SpecKProc = $proc; $t0 = Get-Date
+            while (-not $proc.HasExited) { Start-Sleep -Milliseconds 150; [Windows.Forms.Application]::DoEvents(); Set-SpecStatus ('FLUX is painting the picture... {0:N0} s' -f ((Get-Date) - $t0).TotalSeconds) }
+            if ($S.SpecKCancel) { $S.SpecKCancel = $false; Set-SpecStatus 'Cancelled.'; return $false }
+            if (-not (Test-Path -LiteralPath $out)) { $tail = if (Test-Path "$log.err") { (Get-Content "$log.err" -Tail 3) -join ' ' } else { '' }; throw "FLUX made no picture. $tail" }
+            $ng = New-Object HbStudio.SpectralGrid 384, 192
+            $img = Read-ImageNoLock $out; try { $ng.FromBitmap($img, $false) } finally { $img.Dispose() }
+            $ng.Normalize(); $S.SpecBackup = $S.SpecGrid; $S.SpecGrid = $ng; Update-SpecView
+            Set-SpecStatus "Picture drawn into the spectrogram at 384 x 192 ($([math]::Round(((Get-Date) - $t0).TotalSeconds)) s). Render and play (long sounds take a few seconds to render); Undo refine restores the old one."
+            return $true
+        } catch { Set-SpecStatus ('Picture failed: ' + $_.Exception.Message); Log ('Spectral picture failed: ' + $_.Exception.Message); return $false }
+        finally { $S.SpecKBtn.Enabled = $true; $S.SpecAi.Enabled = $true; $S.SpecKStop.Enabled = $false; $f.Cursor = 'Default' }
+    }    function Invoke-SpecAi {
+        $ask = $S.SpecPrompt.Text.Trim(); if (-not $ask) { Set-SpecStatus 'Describe the picture/sound first.'; return }
+        if ($S.SpecMode.SelectedIndex -eq 2) { [void](Invoke-SpecPicture $ask); return }
+        $S.SpecAi.Enabled = $false; $f.Cursor = 'AppStarting'; Set-SpecStatus 'Thinking (a local model may need to load first)...'
+        try {
+            $model = Get-AiModel
+            $sdoc = [HbStudio.PropIO]::Describe([HbStudio.SpectralSettings])
+            $sys = @"
+You design sounds by drawing on a spectrogram. The canvas is 0..1 in both axes: x = time (0 start, 1 end), y = pitch (0 lowest, 1 highest, logarithmic). Reply with ONE JSON object and nothing else (no markdown):
+{"shapes":[...],"settings":{...optional...}}
+Shape types (all numbers 0..1 except hz, count):
+{"type":"line","x0":0,"y0":0.2,"x1":1,"y1":0.8,"width":0.3,"amp":0.9}   a pitch sweep
+{"type":"curve","points":[[0,0.3],[0.3,0.7],[0.6,0.4],[1,0.5]],"width":0.2,"amp":0.9}   a melodic contour
+{"type":"harmonics","hz":110,"count":10,"rolloff":0.75,"x0":0,"x1":1,"amp":0.8}   a tone with overtones
+{"type":"blob","x":0.5,"y":0.5,"r":0.2,"amp":0.7}   a soft patch of sound
+{"type":"band","x0":0.4,"x1":0.6,"y0":0.6,"y1":0.9,"amp":0.6}   a burst of noise
+Use 4 to 14 shapes that match the description. Optional settings (numbers inside ranges):
+$sdoc
+"@
+            $res = Invoke-StudioJsonModel $model $sys "Sound wanted: $ask" 3000 ({ param($x) $o = Find-StudioJsonObject $x ''; if (@($o.shapes).Count -lt 3) { throw 'The JSON must have a "shapes" array with at least 4 shapes.' }; $o })
+            $S.SpecGrid.Clear(); $n = Add-SpecShapes $res.Value
+            $c = 0; if ($res.Value.settings -is [System.Management.Automation.PSCustomObject]) { $c = Set-StudioObjectFromJson $S.SpecSet $res.Value.settings }
+            $S.GridSpec.Refresh(); Update-SpecView; $S.AiOut.Text = $res.Reply
+            Set-SpecStatus "Drew $n shapes and set $c parameters. Press Render and play."
+            if ($S.SpecMode.SelectedIndex -eq 1) { $S.SpecAi.Enabled = $true; [void](Invoke-SpecKontext $ask) }
+        } catch { Set-SpecStatus ('AI failed: ' + $_.Exception.Message); Log ('Spectral AI failed: ' + $_.Exception.Message) }
+        finally { $S.SpecAi.Enabled = $true; $f.Cursor = 'Default' }
+    }
+    # FLUX Kontext edits the spectrogram picture into a detailed, high-resolution one; its brightness becomes the new canvas.
+    function Test-KontextReady {
+        foreach ($n in 'Get-SdExe', 'Get-ImageModelDef', 'Test-ImageModelInstalled', 'New-SdArgs', 'New-ReferenceImage', 'Get-ImageDir') { if (-not (Get-Command $n -ErrorAction SilentlyContinue)) { return 'FLUX Kontext is only available when the Studio is opened from Humble Baker.' } }
+        if (-not (Get-SdExe)) { return 'The image engine is not installed yet (Humble Baker > Images > Install engine).' }
+        if (-not (Test-ImageModelInstalled (Get-ImageModelDef 'flux-kontext'))) { return 'FLUX.1 Kontext is not downloaded yet (Humble Baker > Images).' }
+        return ''
+    }
+    # Scores a candidate spectrogram: rich fine detail, still resembling the original drawing, and neither empty nor flooded.
+    function Get-SpecQuality($Cand, $Orig) {
+        $n = $Cand.A.Length; $rows = $Cand.Rows; $mc = 0.0; $mo = 0.0
+        for ($i = 0; $i -lt $n; $i++) { $mc += $Cand.A[$i]; $mo += $Orig.A[$i] }; $mc /= $n; $mo /= $n
+        $sxy = 0.0; $sxx = 0.0; $syy = 0.0; $grad = 0.0; $gn = 0; $cov = 0
+        for ($x = 1; $x -lt $Cand.Cols; $x++) { for ($r = 1; $r -lt $rows; $r++) {
+            $i = $x * $rows + $r; $v = $Cand.A[$i]; $ov = $Orig.A[$i]
+            $dx = $v - $mc; $dy = $ov - $mo; $sxy += $dx * $dy; $sxx += $dx * $dx; $syy += $dy * $dy
+            if ($v -gt 0.15) { $cov++ }
+            if ($v -gt 0.05) { $grad += [math]::Abs($v - $Cand.A[$i - $rows]) + [math]::Abs($v - $Cand.A[$i - 1]); $gn++ }
+        } }
+        $sim = if ($sxx -gt 0 -and $syy -gt 0) { [math]::Max(0.0, $sxy / [math]::Sqrt($sxx * $syy)) } else { 0.0 }
+        $cover = $cov / [double]$n; $detail = if ($gn) { [math]::Min(1.0, 2.5 * $grad / $gn) } else { 0.0 }
+        $score = $detail * (0.3 + $sim)
+        if ($cover -lt 0.02 -or $cover -gt 0.5) { $score *= 0.4 }
+        return @{ Score = $score; Detail = $detail; Sim = $sim; Cover = $cover }
+    }    function Invoke-SpecKontext([string]$Wish) {
+        $why = Test-KontextReady; if ($why) { Set-SpecStatus $why; return $false }
+        if ($S.SpecGrid.Peak() -lt 0.01) { Set-SpecStatus 'The canvas is empty. Paint or AI-draw something first.'; return $false }
+        $S.SpecKBtn.Enabled = $false; $S.SpecAi.Enabled = $false; $S.SpecKStop.Enabled = $true; $f.Cursor = 'AppStarting'
+        try {
+            if (Get-Command Clear-GpuModels -ErrorAction SilentlyContinue) { Set-SpecStatus 'Freeing the GPU for FLUX Kontext...'; Clear-GpuModels }
+            $W = 768; $H = 384
+            $b = $S.SpecGrid.ToBitmap(); $gray = New-Object Drawing.Bitmap $S.SpecGrid.Cols, $S.SpecGrid.Rows
+            for ($c = 0; $c -lt $S.SpecGrid.Cols; $c++) { for ($r = 0; $r -lt $S.SpecGrid.Rows; $r++) { $v = [int](255 * [math]::Min(1.0, [double]$S.SpecGrid.A[$c * $S.SpecGrid.Rows + $r])); $gray.SetPixel($c, $S.SpecGrid.Rows - 1 - $r, [Drawing.Color]::FromArgb($v, $v, $v)) } }
+            $b.Dispose(); $big = New-Object Drawing.Bitmap $W, $H; $gg = [Drawing.Graphics]::FromImage($big); $gg.InterpolationMode = 'HighQualityBicubic'; $gg.DrawImage($gray, 0, 0, $W, $H); $gg.Dispose()
+            $og = New-Object HbStudio.SpectralGrid 320, 128; $og.FromBitmap($gray, $false); $gray.Dispose()
+            $src = Join-Path $env:TEMP 'hb-spec-src.png'; $big.Save($src, [Drawing.Imaging.ImageFormat]::Png); $big.Dispose()
+            $ref = New-ReferenceImage $src $W $H
+            $m = (Get-ImageModelDef 'flux-kontext').Clone(); $m.Guidance = 4.5
+            $what = if ($Wish) { " of a recorded sound: $Wish" } else { '' }
+            $prompt = "Transform this crude sketch into a real, detailed spectrogram$what. Follow the same rough contours and positions of the sketch, but replace every hard straight line with organic, wavering, curved ridges that have thick glowing cores and soft halos. Give each bright ridge fainter harmonic overtone copies, add fine grainy noise texture and soft smeared clouds, vary the brightness smoothly, keep a pure black background. Grayscale, no text, no axes."
+            $P = @{ Model = $m; Prompt = $prompt; Negative = ''; W = $W; H = $H; Steps = [int]$m.Steps; Cfg = [double]$m.Cfg; Sampler = [string]$m.Sampler }
+            $sd = Get-SdExe; $log = Join-Path $env:TEMP 'hb-spec-kontext.log'; $t0 = Get-Date
+            New-Item -ItemType Directory -Force -Path (Join-Path (Get-ImageDir) 'outputs') | Out-Null
+            $best = $null; $bestScore = -1.0; $tries = [int]$S.SpecKTries
+            for ($k = 1; $k -le $tries; $k++) {
+                $out = Join-Path (Get-ImageDir) ('outputs\spec-kontext-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + "-$k.png")
+                $job = @{ P = $P; Seed = (Get-Random -Minimum 1 -Maximum 2147483000); Ref = $ref; Out = $out }
+                $proc = Start-Process -FilePath $sd.Path -ArgumentList (Join-ProcessArgs (New-SdArgs $job)) -WorkingDirectory (Split-Path $sd.Path) -RedirectStandardOutput $log -RedirectStandardError "$log.err" -WindowStyle Hidden -PassThru
+                [void]$proc.Handle; $S.SpecKProc = $proc; $t1 = Get-Date
+                while (-not $proc.HasExited) { Start-Sleep -Milliseconds 150; [Windows.Forms.Application]::DoEvents(); Set-SpecStatus ('FLUX Kontext redraw {0} of {1}... {2:N0} s (about a minute each)' -f $k, $tries, ((Get-Date) - $t1).TotalSeconds) }
+                if ($S.SpecKCancel) { $S.SpecKCancel = $false; Set-SpecStatus 'Kontext cancelled.'; return $false }
+                if (-not (Test-Path -LiteralPath $out)) { $tail = if (Test-Path "$log.err") { (Get-Content "$log.err" -Tail 3) -join ' ' } else { '' }; throw "Kontext made no picture. $tail" }
+                $cand = New-Object HbStudio.SpectralGrid 320, 128
+                $img = Read-ImageNoLock $out; try { $cand.FromBitmap($img, $false) } finally { $img.Dispose() }
+                $cand.Normalize()
+                # Keep the AI's shapes underneath so the sound still matches the idea; Kontext adds the organic detail on top.
+                for ($i = 0; $i -lt $cand.A.Length; $i++) { $cand.A[$i] = [math]::Max($cand.A[$i], 0.6 * $og.A[$i]) }
+                $sc = Get-SpecQuality $cand $og
+                Set-SpecStatus ('Redraw {0}: quality {1:N2} (detail {2:N2}, similarity {3:N2}, coverage {4:P0})' -f $k, $sc.Score, $sc.Detail, $sc.Sim, $sc.Cover)
+                if ($sc.Score -gt $bestScore) { $best = $cand; $bestScore = $sc.Score; $bestInfo = $sc }
+            }
+            $S.SpecBackup = $S.SpecGrid; $S.SpecGrid = $best; Update-SpecView
+            Set-SpecStatus ("Kontext picked the best of $tries redraws (quality {0:N2}: detail {1:N2}, similarity to your drawing {2:N2}) at 320 x 128. Render and play, or Undo refine." -f $bestInfo.Score, $bestInfo.Detail, $bestInfo.Sim)
+            return $true
+            return $true
+        } catch { Set-SpecStatus ('Kontext failed: ' + $_.Exception.Message); Log ('Spectral Kontext failed: ' + $_.Exception.Message); return $false }
+        finally { $S.SpecKBtn.Enabled = $true; $S.SpecAi.Enabled = $true; $S.SpecKStop.Enabled = $false; $f.Cursor = 'Default' }
+    }
+    $S.SpecMode.SelectedIndex = $(if (Test-KontextReady) { 0 } else { 1 })
+    $S.SpecKBtn.Add_Click({ [void](Invoke-SpecKontext $S.SpecPrompt.Text.Trim()) })
+    $S.SpecKStop.Add_Click({ if ($S.SpecKProc -and -not $S.SpecKProc.HasExited) { $S.SpecKCancel = $true; try { $S.SpecKProc.Kill() } catch { } } })
+    $S.SpecUndo.Add_Click({ if ($S.SpecBackup) { $S.SpecGrid = $S.SpecBackup; $S.SpecBackup = $null; Update-SpecView; Set-SpecStatus 'Restored the drawing from before the Kontext refine.' } else { Set-SpecStatus 'Nothing to undo.' } })
+    $S.SpecDrag = $null
+    function Get-SpecCell($e) { @(($e.X / ($S.SpecPic.Width - 2.0) * $S.SpecGrid.Cols), (($S.SpecGrid.Rows - 1) - $e.Y / ($S.SpecPic.Height - 2.0) * ($S.SpecGrid.Rows - 1))) }
+    function Apply-SpecBrush($x0, $y0, $x1, $y1) {
+        $kind = $S.SpecBrushType.SelectedIndex; $size = [double]$S.SpecBrush.Value; $amt = [double]$S.SpecAmt.Value; $erase = $S.SpecErase.Checked
+        if ($kind -eq 0) { $S.SpecGrid.Line($x0, $y0, $x1, $y1, $size, $amt, $erase) }
+        elseif ($kind -eq 1) { $S.SpecGrid.Line($x0, $y0, $x1, $y1, $size * 1.8, $amt * 0.55, $erase) }
+        elseif ($kind -eq 2) { $S.SpecGrid.Line($x0, $y0, $x1, $y1, $size, $amt * 0.7, $erase); $S.SpecGrid.Blur(1, 0) }
+        elseif ($kind -eq 3) { $S.SpecGrid.Line($x0, $y0, $x1, $y1, $size * 0.55, $amt, $erase) }
+        elseif ($kind -eq 4) { $S.SpecGrid.Line($x0, $y0, $x1, $y1, $size * 2.2, $amt * 0.35, $erase) }
+        elseif ($kind -eq 5) { $S.SpecGrid.Smear(0.9); $S.SpecGrid.Line($x0, $y0, $x1, $y1, $size, $amt * 0.6, $erase) }
+        else { $S.SpecGrid.Harmonics(110, [int]$x0, [int]$x1, 10, 0.8, $amt, $S.SpecSet.MinHz, $S.SpecSet.MaxHz) }
+    }
+    $S.SpecPic.Add_MouseDown({ param($snd, $e)
+        $p = Get-SpecCell $e; $S.SpecDrag = $p; $S.SpecStart = $p
+        if (-not $S.SpecLine.Checked) { Apply-SpecBrush $p[0] $p[1] $p[0] $p[1]; Update-SpecView } })
+    $S.SpecPic.Add_MouseMove({ param($snd, $e)
+        if (-not $S.SpecDrag -or $S.SpecLine.Checked) { return }
+        $p = Get-SpecCell $e; Apply-SpecBrush $S.SpecDrag[0] $S.SpecDrag[1] $p[0] $p[1]; $S.SpecDrag = $p; Update-SpecView })
+    $S.SpecPic.Add_MouseUp({ param($snd, $e)
+        if ($S.SpecDrag -and $S.SpecLine.Checked) { $p = Get-SpecCell $e; Apply-SpecBrush $S.SpecStart[0] $S.SpecStart[1] $p[0] $p[1]; Update-SpecView }
+        $S.SpecDrag = $null; $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit })
+    $S.SpecBrushType.Add_SelectedIndexChanged({ $idx = $S.SpecBrushType.SelectedIndex; foreach ($b in $S.SpecBrushPalBtns) { $j = [int]$b.Tag; $b.BackColor = $(if ($j -eq $idx) { [Drawing.Color]::FromArgb(255, 20, 147) } else { [Drawing.Color]::FromArgb(70, 76, 94) }); $b.ForeColor = $(if ($j -eq $idx) { [Drawing.Color]::Black } else { $dk.Text }) } })
+    foreach ($btn in $S.SpecBrushPalBtns) { $btn.Add_Click({ $S.SpecBrushType.SelectedIndex = [int]$btn.Tag }) }
+    $S.GridSpec.Add_PropertyValueChanged({ Update-SpecView })
+    $S.SpecClear.Add_Click({ $S.SpecGrid.Clear(); Update-SpecView })
+    $S.SpecBlur.Add_Click({ $S.SpecGrid.Blur(1, 1); Update-SpecView }); $S.SpecSmear.Add_Click({ $S.SpecGrid.Smear(0.93); Update-SpecView })
+    $S.SpecInvert.Add_Click({ $S.SpecGrid.Invert(); Update-SpecView }); $S.SpecFlipT.Add_Click({ $S.SpecGrid.FlipTime(); Update-SpecView }); $S.SpecFlipF.Add_Click({ $S.SpecGrid.FlipFreq(); Update-SpecView })
+    $S.SpecGrain.Add_Click({ $S.SpecGrid.Grain(0.7, (Get-Random -Maximum 99999)); Update-SpecView }); $S.SpecThresh.Add_Click({ $S.SpecGrid.Threshold(0.4); Update-SpecView })
+    $S.SpecUp.Add_Click({ $S.SpecGrid.ShiftRows(2); Update-SpecView }); $S.SpecDown.Add_Click({ $S.SpecGrid.ShiftRows(-2); Update-SpecView })
+    $S.SpecAddStack.Add_Click({ $S.SpecGrid.Harmonics([double]$S.SpecHz.Value, 4, $S.SpecGrid.Cols - 5, [int]$S.SpecParts.Value, 0.8, [double]$S.SpecAmt.Value, $S.SpecSet.MinHz, $S.SpecSet.MaxHz); Update-SpecView })
+    $S.SpecLoad.Add_Click({
+        $d = New-Object Windows.Forms.OpenFileDialog; $d.Filter = 'Images|*.png;*.jpg;*.jpeg;*.bmp;*.gif|All files|*.*'
+        if ($d.ShowDialog() -eq 'OK') { try { Import-SpecImage $d.FileName } catch { Set-SpecStatus ('Could not load image: ' + $_.Exception.Message) } } })
+    $S.SpecFromSmp.Add_Click({ try { Import-SpecFromTrack } catch { Set-SpecStatus ('Failed: ' + $_.Exception.Message) } })
+    $S.SpecAud.Add_Click({ try { if ($S.SpecGrid.Peak() -lt 0.01) { Set-SpecStatus 'The canvas is empty. Paint something first.'; return }; $o = Invoke-SpecRender; Play-StudioSamples $o; Set-SpecStatus "Playing $([math]::Round($o.Length / 44100.0, 1)) s." } catch { Set-SpecStatus ('Render failed: ' + $_.Exception.Message) } })
+    $S.SpecStopB.Add_Click({ if ($S.Aud) { try { $S.Aud.Stop() } catch { } } })
+    $S.SpecTrack.Add_Click({ try { if ($S.SpecGrid.Peak() -lt 0.01) { Set-SpecStatus 'The canvas is empty. Paint something first.'; return }; $o = Invoke-SpecRender; $nt = Add-StudioSampleTrack 'Spectral' $o 60; Set-SpecStatus "New sampler track '$($nt.Name)' ($([math]::Round($o.Length / 44100.0, 1)) s)." } catch { Set-SpecStatus ('Render failed: ' + $_.Exception.Message) } })
+    $S.SpecAi.Add_Click({ Invoke-SpecAi })
+    Update-SpecView
+
+    # ---- Automation painting: spectral canvas -> AutoLane points on the selected track -------------------------
+    # The canvas rows map to a value range; columns map to the project loop. Painting writes into $script:AutoUi.AutoGrid.
+    # "Apply to Piano Roll" converts the painted columns into points of an AutoLane for the chosen parameter
+    # on the currently selected track. The canvas itself only paints brightness into AutoGrid (like SpecPic).
+    function Set-AutoStatus([string]$m) { $script:AutoUi.AutoStatus.Text = $m; Status $m }
+    function Update-AutoView {
+        $b = $script:AutoUi.AutoGrid.ToBitmap(); $w = $script:AutoUi.AutoPic.Width - 2; $h = $script:AutoUi.AutoPic.Height - 2
+        $out = New-Object Drawing.Bitmap $w, $h; $g = [Drawing.Graphics]::FromImage($out)
+        $g.InterpolationMode = 'NearestNeighbor'; $g.PixelOffsetMode = 'Half'; $g.DrawImage($b, 0, 0, $w, $h)
+        # draw value-range guide lines so each painted column's height means something
+        $gp = New-Object Drawing.Pen ([Drawing.Color]::FromArgb(70, 255, 255, 255))
+        foreach ($frac in @(0.25, 0.5, 0.75)) {
+            $y = $h - 1 - $frac * ($h - 1); $g.DrawLine($gp, 0, [single]$y, 10, [single]$y)
+        }
+        $g.Dispose(); $b.Dispose(); $old = $script:AutoUi.AutoPic.Image; $script:AutoUi.AutoPic.Image = $out; if ($old) { $old.Dispose() }
+    }
+    function Get-AutoCell($e) { @(($e.X / ($script:AutoUi.AutoPic.Width - 2.0) * $script:AutoUi.AutoGrid.Cols), (($script:AutoUi.AutoGrid.Rows - 1) - $e.Y / ($script:AutoUi.AutoPic.Height - 2.0) * ($script:AutoUi.AutoGrid.Rows - 1))) }
+    function Update-AutoParams {
+        $m = [string]$script:AutoUi.AutoModule.SelectedItem
+        $params = switch ($m) {
+            'Synth Filter' { @('Cutoff', 'Resonance', 'Filter Env') }
+            'Synth Drive/Crush' { @('Drive', 'Bits', 'Fold') }
+            'Synth FM/Unison' { @('FM Amount', 'Unison', 'Noise Level') }
+            'Synth LFO' { @('LFO Rate', 'LFO Filter', 'LFO Pitch') }
+            'Track FX Filter' { @('Cutoff', 'Resonance', 'Filter LFO Depth') }
+            'Track FX Drive/Crush' { @('Drive', 'Bits', 'Fold') }
+            'Track FX Ring' { @('Ring Mix', 'Ring Freq') }
+            'Track FX Chorus' { @('Chorus', 'Chorus Rate', 'Chorus Depth') }
+            'Track FX Delay' { @('Delay Mix', 'Delay Beats', 'Delay Feedback') }
+            'Track FX Reverb' { @('Reverb Mix', 'Reverb Size') }
+            'Track FX Phaser/Flanger' { @('Phaser Mix', 'Phaser Rate', 'Phaser Depth', 'Flanger Mix', 'Flanger Rate', 'Flanger Depth', 'Flanger Feedback') }
+            'Track FX Tape' { @('Tape Stop', 'Tape Stop Time', 'Tape Delay Mix', 'Tape Delay Ms', 'Tape Delay Feedback', 'Tape Delay Wow') }
+            'Track FX Plate/Vinyl' { @('Plate Mix', 'Plate Size', 'Vinyl Crackle', 'Tape Hiss', 'Tape Wow') }
+            'Track FX Compressor' { @('Threshold', 'Ratio', 'Attack', 'Release', 'Makeup Gain', 'Sidechain Mix', 'Sidechain Attack', 'Sidechain Release') }
+            'Track FX EQ/Width' { @('Low Shelf', 'High Shelf', 'Mid Peak', 'Width', 'Pitch Shift') }
+            default { @('Volume', 'Pan', 'Low-Pass (post FX)', 'High-Pass (post FX)') }
+        }
+        $sel = [string]$script:AutoUi.AutoParam.SelectedItem
+        $script:AutoUi.AutoParam.Items.Clear(); foreach ($p in $params) { [void]$script:AutoUi.AutoParam.Items.Add($p) }
+        $idx = if ($sel) { [array]::IndexOf([string[]]@($script:AutoUi.AutoParam.Items), $sel) } else { -1 }; $script:AutoUi.AutoParam.SelectedIndex = $(if ($idx -ge 0) { $idx } else { 0 })
+        try { Sync-AutoCanvasFromLane } catch { }
+    }
+    function Get-AutoParamInfo {
+        $m = [string]$script:AutoUi.AutoModule.SelectedItem; $sel = [string]$script:AutoUi.AutoParam.SelectedItem
+        $map = @{
+            'Synth Filter|Cutoff' = @{ Param = 'p:Cutoff'; Min = 30.0; Max = 12000.0 }
+            'Synth Filter|Resonance' = @{ Param = 'p:Resonance'; Min = 0.0; Max = 1.0 }
+            'Synth Filter|Filter Env' = @{ Param = 'p:FilterEnv'; Min = -1.0; Max = 1.0 }
+            'Synth Drive/Crush|Drive' = @{ Param = 'p:Drive'; Min = 0.0; Max = 1.0 }
+            'Synth Drive/Crush|Bits' = @{ Param = 'p:Bits'; Min = 2.0; Max = 16.0 }
+            'Synth Drive/Crush|Fold' = @{ Param = 'p:Fold'; Min = 0.0; Max = 1.0 }
+            'Synth FM/Unison|FM Amount' = @{ Param = 'p:FmAmount'; Min = 0.0; Max = 10.0 }
+            'Synth FM/Unison|Unison' = @{ Param = 'p:Unison'; Min = 1.0; Max = 7.0 }
+            'Synth FM/Unison|Noise Level' = @{ Param = 'p:NoiseLevel'; Min = 0.0; Max = 1.0 }
+            'Synth LFO|LFO Rate' = @{ Param = 'p:LfoRate'; Min = 0.0; Max = 40.0 }
+            'Synth LFO|LFO Filter' = @{ Param = 'p:LfoFilter'; Min = 0.0; Max = 1.0 }
+            'Synth LFO|LFO Pitch' = @{ Param = 'p:LfoPitch'; Min = 0.0; Max = 1200.0 }
+            'Track FX Filter|Cutoff' = @{ Param = 'f:Cutoff'; Min = 30.0; Max = 12000.0 }
+            'Track FX Filter|Resonance' = @{ Param = 'f:Resonance'; Min = 0.0; Max = 0.95 }
+            'Track FX Filter|Filter LFO Depth' = @{ Param = 'f:FilterLfoDepth'; Min = 0.0; Max = 1.0 }
+            'Track FX Drive/Crush|Drive' = @{ Param = 'f:Drive'; Min = 0.0; Max = 1.0 }
+            'Track FX Drive/Crush|Bits' = @{ Param = 'f:Bits'; Min = 2.0; Max = 16.0 }
+            'Track FX Drive/Crush|Fold' = @{ Param = 'f:Fold'; Min = 0.0; Max = 1.0 }
+            'Track FX Ring|Ring Mix' = @{ Param = 'f:RingMix'; Min = 0.0; Max = 1.0 }
+            'Track FX Ring|Ring Freq' = @{ Param = 'f:RingFreq'; Min = 20.0; Max = 5000.0 }
+            'Track FX Chorus|Chorus' = @{ Param = 'f:Chorus'; Min = 0.0; Max = 1.0 }
+            'Track FX Chorus|Chorus Rate' = @{ Param = 'f:ChorusRate'; Min = 0.05; Max = 10.0 }
+            'Track FX Chorus|Chorus Depth' = @{ Param = 'f:ChorusDepth'; Min = 0.0; Max = 1.0 }
+            'Track FX Delay|Delay Mix' = @{ Param = 'f:DelayMix'; Min = 0.0; Max = 1.0 }
+            'Track FX Delay|Delay Beats' = @{ Param = 'f:DelayBeats'; Min = 0.0625; Max = 8.0 }
+            'Track FX Delay|Delay Feedback' = @{ Param = 'f:DelayFeedback'; Min = 0.0; Max = 0.95 }
+            'Track FX Phaser/Flanger|Phaser Mix' = @{ Param = 'f:PhaserMix'; Min = 0.0; Max = 1.0 }
+            'Track FX Phaser/Flanger|Phaser Rate' = @{ Param = 'f:PhaserRate'; Min = 0.01; Max = 8.0 }
+            'Track FX Phaser/Flanger|Phaser Depth' = @{ Param = 'f:PhaserDepth'; Min = 0.0; Max = 1.0 }
+            'Track FX Phaser/Flanger|Flanger Mix' = @{ Param = 'f:FlangerMix'; Min = 0.0; Max = 1.0 }
+            'Track FX Phaser/Flanger|Flanger Rate' = @{ Param = 'f:FlangerRate'; Min = 0.02; Max = 10.0 }
+            'Track FX Phaser/Flanger|Flanger Depth' = @{ Param = 'f:FlangerDepth'; Min = 0.0; Max = 1.0 }
+            'Track FX Phaser/Flanger|Flanger Feedback' = @{ Param = 'f:FlangerFb'; Min = 0.0; Max = 0.95 }
+            'Track FX Tape|Tape Stop' = @{ Param = 'f:TapeStop'; Min = 0.0; Max = 1.0 }
+            'Track FX Tape|Tape Stop Time' = @{ Param = 'f:TapeStopRate'; Min = 0.05; Max = 3.0 }
+            'Track FX Tape|Tape Delay Mix' = @{ Param = 'f:TapeDelayMix'; Min = 0.0; Max = 1.0 }
+            'Track FX Tape|Tape Delay Ms' = @{ Param = 'f:TapeDelayTime'; Min = 10.0; Max = 2000.0 }
+            'Track FX Tape|Tape Delay Feedback' = @{ Param = 'f:TapeDelayFb'; Min = 0.0; Max = 0.95 }
+            'Track FX Tape|Tape Delay Wow' = @{ Param = 'f:TapeDelayWow'; Min = 0.0; Max = 1.0 }
+            'Track FX Plate/Vinyl|Plate Mix' = @{ Param = 'f:PlateMix'; Min = 0.0; Max = 1.0 }
+            'Track FX Plate/Vinyl|Plate Size' = @{ Param = 'f:PlateSize'; Min = 0.0; Max = 1.0 }
+            'Track FX Plate/Vinyl|Vinyl Crackle' = @{ Param = 'f:VinylCrackle'; Min = 0.0; Max = 1.0 }
+            'Track FX Plate/Vinyl|Tape Hiss' = @{ Param = 'f:TapeHiss'; Min = 0.0; Max = 1.0 }
+            'Track FX Plate/Vinyl|Tape Wow' = @{ Param = 'f:TapeWow'; Min = 0.0; Max = 1.0 }
+            'Track FX Compressor|Threshold' = @{ Param = 'f:CompThresh'; Min = -40.0; Max = 0.0 }
+            'Track FX Compressor|Ratio' = @{ Param = 'f:CompRatio'; Min = 1.0; Max = 12.0 }
+            'Track FX Compressor|Attack' = @{ Param = 'f:CompAttack'; Min = 0.1; Max = 100.0 }
+            'Track FX Compressor|Release' = @{ Param = 'f:CompRelease'; Min = 10.0; Max = 1000.0 }
+            'Track FX Compressor|Makeup Gain' = @{ Param = 'f:CompMakeup'; Min = -12.0; Max = 24.0 }
+            'Track FX Compressor|Sidechain Mix' = @{ Param = 'f:SidechainMix'; Min = 0.0; Max = 1.0 }
+            'Track FX Compressor|Sidechain Attack' = @{ Param = 'f:SidechainAttack'; Min = 0.5; Max = 100.0 }
+            'Track FX Compressor|Sidechain Release' = @{ Param = 'f:SidechainRelease'; Min = 10.0; Max = 1000.0 }
+            'Track FX EQ/Width|Low Shelf' = @{ Param = 'f:LowShelf'; Min = -12.0; Max = 12.0 }
+            'Track FX EQ/Width|High Shelf' = @{ Param = 'f:HighShelf'; Min = -12.0; Max = 12.0 }
+            'Track FX EQ/Width|Mid Peak' = @{ Param = 'f:MidPeak'; Min = -12.0; Max = 12.0 }
+            'Track FX EQ/Width|Width' = @{ Param = 'f:Width'; Min = 0.0; Max = 1.6 }
+            'Track FX EQ/Width|Pitch Shift' = @{ Param = 'f:PitchShift'; Min = -12.0; Max = 12.0 }
+            'Track FX Reverb|Reverb Mix' = @{ Param = 'f:ReverbMix'; Min = 0.0; Max = 1.0 }
+            'Track FX Reverb|Reverb Size' = @{ Param = 'f:ReverbSize'; Min = 0.0; Max = 1.0 }
+            'Track Mixer|Volume' = @{ Param = 'vol'; Min = 0.0; Max = 2.0 }
+            'Track Mixer|Pan' = @{ Param = 'pan'; Min = -1.0; Max = 1.0 }
+            'Track Mixer|Low-Pass (post FX)' = @{ Param = 'lp'; Min = 20.0; Max = 20000.0 }
+            'Track Mixer|High-Pass (post FX)' = @{ Param = 'hp'; Min = 20.0; Max = 20000.0 }
+        }
+        $key = "$m|$sel"
+        if ($map.ContainsKey($key)) { return $map[$key] }
+        # legacy fallback
+        $legacy = @{ 'Filter Cutoff' = @{ Param = 'p:Cutoff'; Min = 30.0; Max = 12000.0 }; 'Filter Resonance' = @{ Param = 'p:Resonance'; Min = 0.0; Max = 1.0 }; 'Drive' = @{ Param = 'p:Drive'; Min = 0.0; Max = 1.0 }; 'Delay Mix' = @{ Param = 'f:DelayMix'; Min = 0.0; Max = 1.0 }; 'Reverb Wet' = @{ Param = 'f:ReverbMix'; Min = 0.0; Max = 1.0 } }
+        if ($legacy.ContainsKey($sel)) { return $legacy[$sel] }
+        return @{ Param = 'vol'; Min = 0.0; Max = 1.0 }
+    }
+    function Test-AutoParamWired([string]$param) {
+        if ($param.StartsWith('p:')) { return $true }
+        return $param -in @('vol', 'pan', 'lp', 'hp', 'f:Cutoff', 'f:Resonance', 'f:Drive', 'f:Fold', 'f:Bits', 'f:RingMix', 'f:RingFreq', 'f:DelayMix', 'f:ReverbMix', 'f:Chorus', 'f:TapeStop', 'f:Width', 'f:CompThresh')
+    }
+    function Update-AutoTargets {
+        try {
+            $u = $script:AutoUi
+            if (-not $u.AutoTarget) { return }
+            $script:AutoTargetsUpdating = $true
+            $prev = [string]$u.AutoTarget.SelectedItem
+            $items = @('Track'); $map = @{}
+            foreach ($n in @($u.Proj.Graph.Nodes)) {
+                if ($n.Kind -ne 'fx' -and $n.Kind -ne 'group' -and $n.Kind -ne 'bus') { continue }
+                if ($n.Type -eq 'busfx' -or $n.Type -eq 'trackfx') { continue }
+                if (-not $n.Fx) { continue }
+                $lab = if ($n.Label) { $n.Label } else { $n.Type }
+                $disp = 'Node: ' + $lab + ' (' + $n.Kind + ')'
+                if ($map.ContainsKey($disp)) { $disp += ' #' + $n.Id.Substring(0, 4) }
+                $items += $disp
+                $map[$disp] = @{ Kind = 'node'; Name = $disp; Auto = $n.Auto; Fx = $n.Fx; Patch = $null; Node = $n; Bus = $null; TrackIndex = 0 }
+            }
+            for ($i = 0; $i -lt @($u.Proj.Buses).Count; $i++) {
+                $b = $u.Proj.Buses[$i]; if (-not $b) { continue }
+                $disp = 'Bus: ' + $b.Name
+                $items += $disp
+                $map[$disp] = @{ Kind = 'bus'; Name = $disp; Auto = $b.Auto; Fx = $b.Fx; Patch = $null; Node = $null; Bus = $b; TrackIndex = 0 }
+            }
+            $u.AutoTarget.Items.Clear(); foreach ($it in $items) { [void]$u.AutoTarget.Items.Add($it) }
+            $idx = [array]::IndexOf([string[]]$items, $prev)
+            $script:AutoTargets = $map
+            $u.AutoTarget.SelectedIndex = $(if ($idx -ge 0) { $idx } else { 0 })
+        } catch { } finally { $script:AutoTargetsUpdating = $false }
+    }
+    function Get-AutoTarget {
+        $u = $script:AutoUi
+        $sel = if ($u.AutoTarget) { [string]$u.AutoTarget.SelectedItem } else { 'Track' }
+        if (-not $sel -or $sel -eq 'Track') {
+            $t = Get-CurTrack
+            if (-not $t) { return $null }
+            return @{ Kind = 'track'; Name = $t.Name; Auto = $t.Auto; Fx = $t.Fx; Patch = $t.Patch; Node = $null; Bus = $null; TrackIndex = $u.Proj.Tracks.IndexOf($t) }
+        }
+        if ($script:AutoTargets -and $script:AutoTargets.ContainsKey($sel)) { return $script:AutoTargets[$sel] }
+        return $null
+    }
+    function Get-AutoNeutral($t, $param, $min, $max) {
+        try {
+            if ($param.StartsWith('p:') -and $t.Patch) { $v = $t.Patch.($param.Substring(2)); if ($null -ne $v) { return [double]$v } }
+            if ($param.StartsWith('f:') -and $t.Fx) { $v = $t.Fx.($param.Substring(2)); if ($null -ne $v) { return [double]$v } }
+        } catch { }
+        if ($param -eq 'vol') { return 1.0 }
+        if ($param -eq 'pan') { return 0.0 }
+        if ($param -eq 'lp') { return 20000.0 }
+        if ($param -eq 'hp') { return 20.0 }
+        return $min
+    }
+    function Write-AutoDebug([string]$Where) {
+        try {
+            $peak = [double]$script:AutoUi.AutoGrid.Peak(); $nz = 0; $total = 0.0
+            for ($c = 0; $c -lt $script:AutoUi.AutoGrid.Cols; $c++) {
+                $s = 0.0
+                for ($r = 0; $r -lt $script:AutoUi.AutoGrid.Rows; $r++) { $s += [double]$script:AutoUi.AutoGrid.Get($c, $r) }
+                if ($s -ge 0.02) { $nz++ }
+                $total += $s
+            }
+            $line = '{0:yyyy-MM-dd HH:mm:ss} {1} cols={2} rows={3} peak={4:F4} nz={5} total={6:F1} pic={7}x{8}' -f (Get-Date), $Where, $script:AutoUi.AutoGrid.Cols, $script:AutoUi.AutoGrid.Rows, $peak, $nz, $total, $script:AutoUi.AutoPic.Width, $script:AutoUi.AutoPic.Height
+            Add-Content -LiteralPath (Join-Path $env:TEMP 'hb-automation-debug.log') -Value $line
+            try {
+                $g = $script:AutoUi.AutoGrid
+                $line2 = '  diag alen={0} cols=[{1}] rows=[{2}] hash={3}' -f $g.A.Length, $g.Cols, $g.Rows, $g.GetHashCode()
+                Add-Content -LiteralPath (Join-Path $env:TEMP 'hb-automation-debug.log') -Value $line2
+            } catch { }
+        } catch { }
+    }
+    function Sync-AutoCanvasFromLane {
+        try {
+            $u = $script:AutoUi
+            if (-not $u) { return }
+            $u.AutoGrid.Clear()
+            $tgt = Get-AutoTarget
+            if (-not $tgt) { Set-AutoStatus 'Select a track or node target first.'; Update-AutoView; return }
+            if ($u.AutoTrackName) { $u.AutoTrackName.Text = 'Target: ' + $tgt.Name }
+            $info = Get-AutoParamInfo
+            $param = [string]$info.Param
+            $min = [double]$info.Min; $max = [double]$info.Max; $range = $max - $min
+            $lane = $tgt.Auto | Where-Object { $_.Param -eq $param } | Select-Object -First 1
+            Write-AutoDebug ("sync {0} on '{1}' lane={2}" -f $param, $tgt.Name, ($null -ne $lane))
+            if ($lane -and $lane.Points.Count -gt 0) {
+                $trackBeats = 0.0
+                try { $trackBeats = [double][HbStudio.Arranger]::SongBeats($u.Proj) } catch { }
+                if ($trackBeats -le 0) { $trackBeats = [double]$u.Proj.LoopBeats }
+                if ($trackBeats -le 0) { $trackBeats = 1.0 }
+                $isLog = ($param -eq 'p:Cutoff' -or $param -eq 'f:Cutoff' -or $param -eq 'lp' -or $param -eq 'hp')
+                $prev = $null
+                foreach ($pt in ($lane.Points | Sort-Object { $_[0] })) {
+                    $beat = [double]$pt[0]; $val = [double]$pt[1]
+                    $cx = $beat / $trackBeats * $u.AutoGrid.Cols
+                    if ($isLog -and $val -gt 0 -and $min -gt 0) { $frac = [math]::Log($val / $min) / [math]::Log($max / $min) }
+                    else { $frac = if ($range -ne 0) { ($val - $min) / $range } else { 0 } }
+                    $frac = [math]::Max(0.0, [math]::Min(1.0, $frac))
+                    $cy = $frac * ($u.AutoGrid.Rows - 1)
+                    if ($prev) { $u.AutoGrid.Line($prev[0], $prev[1], $cx, $cy, 1.4, 0.85, $false) }
+                    else { $u.AutoGrid.Dab($cx, $cy, 1.4, 0.85, $false) }
+                    $prev = @($cx, $cy)
+                }
+                Set-AutoStatus ("Showing the saved {0} curve on '{1}' ({2} point(s)). Paint to replace it.{3}" -f $param, $tgt.Name, $lane.Points.Count, $(if (Test-AutoParamWired $param) { '' } else { ' This parameter is not processed by the renderer yet.' }))
+            } else {
+                $all = @($tgt.Auto | ForEach-Object { $_.Param }) -join ', '
+                $extra = if ($all) { " Saved lanes on this target: $all." } else { ' This target has no automation lanes yet.' }
+                Set-AutoStatus ("No saved {0} curve on '{1}'.{2}{3}" -f $param, $tgt.Name, $extra, $(if (Test-AutoParamWired $param) { '' } else { ' This parameter is not processed by the renderer yet.' }))
+            }
+            Update-AutoView
+        } catch { }
+    }
+    function Apply-AutoPainting {
+        $tgt = Get-AutoTarget
+        if (-not $tgt) { Set-AutoStatus 'Select a track or node target first.'; return }
+        $info = Get-AutoParamInfo; $param = [string]$info.Param; $min = [double]$info.Min; $max = [double]$info.Max
+        if ($tgt.Kind -ne 'track' -and $param.StartsWith('p:')) { Set-AutoStatus 'Synth patch parameters only apply to track targets. Pick a Track FX module for a node target.'; return }
+        # Enable the matching FX module so the painted curve has something to modulate on the target's FX
+        if ($param.StartsWith('f:') -and $tgt.Fx) { $m = [string]$script:AutoUi.AutoModule.SelectedItem; $en = switch ($m) { 'Track FX Filter' { 'Filter' } 'Track FX Drive/Crush' { 'Drive' } 'Track FX Ring' { 'Ring' } 'Track FX Chorus' { 'Chorus' } 'Track FX Delay' { 'Delay' } 'Track FX Reverb' { 'Reverb' } 'Track FX Phaser/Flanger' { 'Phaser' } 'Track FX Tape' { 'TapeDelay' } 'Track FX Plate/Vinyl' { 'Plate' } 'Track FX Compressor' { 'Comp' } 'Track FX EQ/Width' { 'EQ' } default { '' } }; if ($en) { try { Set-FxModule $tgt.Fx $en $true } catch { }; try { $script:AutoUi.GridFx.SelectedObject = $tgt.Fx } catch { } } }
+        $lane = $tgt.Auto | Where-Object { $_.Param -eq $param } | Select-Object -First 1
+        if (-not $lane) { $lane = New-Object HbStudio.AutoLane ([int]$tgt.TrackIndex), $param; $tgt.Auto.Add($lane) }
+        $range = $max - $min; $fromCol = 0; $toCol = $script:AutoUi.AutoGrid.Cols
+        # The canvas always represents the whole track: arranged song length if there is one, otherwise the loop.
+        $trackBeats = 0.0
+        try { $trackBeats = [double][HbStudio.Arranger]::SongBeats($script:AutoUi.Proj) } catch { }
+        if ($trackBeats -le 0) { $trackBeats = [double]$script:AutoUi.Proj.LoopBeats }
+        $loop = $trackBeats
+        $mapMode = if ($script:AutoUi.AutoMap) { [string]$script:AutoUi.AutoMap.SelectedItem } else { 'Smooth curve' }
+        $isLog = ($param -eq 'p:Cutoff' -or $param -eq 'f:Cutoff' -or $param -eq 'lp' -or $param -eq 'hp')
+        # If the grid is empty but the visible canvas has paint, recover the shapes from the rendered image.
+        # (The canvas is what the user sees; this keeps Apply working even if the grid was reset underneath.)
+        if ([double]$script:AutoUi.AutoGrid.Peak() -lt 0.002 -and $script:AutoUi.AutoPic.Image) {
+            try {
+                $script:AutoUi.AutoGrid.FromBitmap([Drawing.Bitmap]$script:AutoUi.AutoPic.Image, $false)
+                $a = $script:AutoUi.AutoGrid.A
+                for ($i = 0; $i -lt $a.Length; $i++) { $v = [double]$a[$i]; $a[$i] = [float][math]::Max(0.0, ($v - 0.14) / 0.86) }
+                Update-AutoView
+                Write-AutoDebug ("apply recovered from canvas image on '{0}'" -f $tgt.Name)
+            } catch { }
+        }
+        $zMode = if ($script:AutoUi.AutoZ) { [string]$script:AutoUi.AutoZ.SelectedItem } else { 'Depth (scale value)' }
+        $zAmt = if ($script:AutoUi.AutoZDepth) { [double]$script:AutoUi.AutoZDepth.Value } else { 1.0 }
+        $neutral = Get-AutoNeutral @{ Patch = $tgt.Patch; Fx = $tgt.Fx } $param $min $max
+        $threshold = 0.02
+        while ($true) {
+            $colVals = @()
+            for ($c = $fromCol; $c -lt $toCol; $c++) {
+                # Row centroid = vertical position. Peak brightness of the column = the Z axis.
+                $sum = 0.0; $wsum = 0.0; $peak = 0.0; $nRows = $script:AutoUi.AutoGrid.Rows
+                for ($r = 0; $r -lt $nRows; $r++) { $v = [double]$script:AutoUi.AutoGrid.Get($c, $r); $sum += $v; $wsum += $v * ($r / [double]($nRows - 1)); if ($v -gt $peak) { $peak = $v } }
+                if ($sum -lt $threshold) { continue }
+                $frac = $wsum / $sum
+                if ($isLog) { $val = $min * [math]::Pow(($max / $min), $frac) } else { $val = $min + ($frac * $range) }
+                if ($zMode -ne 'Off (position only)' -and $zAmt -gt 0) {
+                    $z = [math]::Min(1.0, $peak)
+                    if ($zMode -eq 'Direct value') {
+                        $val = $min + $range * $z
+                    } else {
+                        $strength = [math]::Min(1.0, $z * $zAmt)
+                        $val = $neutral + ($val - $neutral) * $strength
+                    }
+                }
+                $beat = ($c + 0.5) / [double]$script:AutoUi.AutoGrid.Cols * $loop
+                $colVals += [pscustomobject]@{ Beat = [double]$beat; Value = [double]$val }
+            }
+            if ($colVals.Count -gt 0 -or $threshold -le 0.002) { break }
+            # Faint paint can fall under the 0.02 density gate. Retry with a lower floor before giving up.
+            $threshold = 0.002
+            Write-AutoDebug ("apply retry on '{0}' threshold={1}" -f $t.Name, $threshold)
+        }
+        Write-AutoDebug ("apply {0} on '{1}' colVals={2} z={3} depth={4} neutral={5}" -f $param, $t.Name, $colVals.Count, $zMode, $zAmt, $neutral)
+        if ($mapMode -eq 'Smooth curve' -and $colVals.Count -ge 3) {
+            $sm = @()
+            for ($i = 0; $i -lt $colVals.Count; $i++) { $a = $colVals[[math]::Max(0, $i - 1)].Value; $b = $colVals[$i].Value; $cc = $colVals[[math]::Min($colVals.Count - 1, $i + 1)].Value; $sm += [pscustomobject]@{ Beat = $colVals[$i].Beat; Value = ($a + $b + $cc) / 3.0 } }
+            $colVals = $sm
+        } elseif ($mapMode -eq 'Quantize steps') {
+            foreach ($cv in $colVals) { $steps = switch ($param) { 'p:Unison' { 7 } 'p:Bits' { 15 } 'f:Bits' { 15 } default { 16 } }; $cv.Value = $min + ([math]::Round(($cv.Value - $min) / $range * $steps) / $steps) * $range }
+        } elseif ($mapMode -eq 'Linear ramp') {
+            if ($colVals.Count -ge 2) { $v0 = $colVals[0].Value; $v1 = $colVals[$colVals.Count - 1].Value; foreach ($cv in $colVals) { $cv.Value = $v0 + ($cv.Value - $v0) * 0.4 + ($v1 - $v0) * (($cv.Beat - $colVals[0].Beat) / [math]::Max(0.001, ($colVals[$colVals.Count - 1].Beat - $colVals[0].Beat))) * 0.6 } }
+        }
+        $lane.Points.Clear()
+        $added = 0
+        foreach ($cv in $colVals) {
+            $beat = [double]$cv.Beat; $value = [double]$cv.Value
+            $lane.Points.Add([double[]]@([double]$beat, [double]$value))
+            $added++
+        }
+        # convert to sorted, de-duplicated (keep last write wins per beat)
+        $by = @{}
+        foreach ($p in $lane.Points) { $by[[string]$p[0]] = $p }
+        $sorted = @($by.Values | Sort-Object { $_[0] })
+        $lane.Points.Clear()
+        foreach ($p in $sorted) { $lane.Points.Add([double[]]@([double]$p[0], [double]$p[1])) }
+        $script:AutoUi.Dirty = $true; $script:AutoUi.AudioRev++; Suspend-AudioForEdit
+        Write-AutoDebug ("apply done '{0}' added={1}" -f $tgt.Name, $added)
+        if ($added -gt 0) {
+            $bars = if ($script:AutoUi.Proj.BarBeats -gt 0) { $loop / [double]$script:AutoUi.Proj.BarBeats } else { 0 }
+            Set-AutoStatus ("Painted {0} point(s) over {1:0.##} bar(s) into {2} on '{3}'." -f $added, $bars, $param, $tgt.Name)
+        } else {
+            Set-AutoStatus ("Nothing painted into {0}: the automation canvas is empty. Paint on it first, then click Apply to Piano Roll. (peak {1:F3})" -f $param, $script:AutoUi.AutoGrid.Peak())
+        }
+    }
+    $script:AutoUi.AutoDrag = $null
+    $script:AutoUi.AutoPic.Add_MouseDown({ param($snd, $e)
+        $kind = $script:AutoUi.AutoBrush.SelectedIndex; $size = [double]$script:AutoUi.AutoBrushSize.Value
+        $p = Get-AutoCell $e; $script:AutoUi.AutoDrag = $p
+        if ($kind -eq 0) { $script:AutoUi.AutoGrid.Dab($p[0], $p[1], $size, 0.9, $false) }
+        elseif ($kind -eq 1) { $script:AutoUi.AutoGrid.Dab($p[0], $p[1], $size * 1.6, 0.5, $false) }
+        elseif ($kind -eq 2) { $script:AutoUi.AutoGrid.Dab($p[0], $p[1], $size, 0.7, $false) }
+        elseif ($kind -eq 3) { $script:AutoUi.AutoGrid.Line($p[0], $p[1], $p[0], $p[1], $size, 0.9, $false) }
+        elseif ($kind -eq 4) { $script:AutoUi.AutoGrid.Dab($p[0], $p[1], $size * 2, 0.35, $false) }
+        elseif ($kind -eq 5) { $script:AutoUi.AutoGrid.Smear(0.9); $script:AutoUi.AutoGrid.Dab($p[0], $p[1], $size, 0.6, $false) }
+        else { $script:AutoUi.AutoGrid.Smear(0.93); $script:AutoUi.AutoGrid.Dab($p[0], $p[1], $size, 0.8, $false) }
+        Update-AutoView })
+    $script:AutoUi.AutoPic.Add_MouseMove({ param($snd, $e)
+        if (-not $script:AutoUi.AutoDrag) { return }
+        $kind = $script:AutoUi.AutoBrush.SelectedIndex; $size = [double]$script:AutoUi.AutoBrushSize.Value
+        $p = Get-AutoCell $e
+        if ($kind -eq 0) { $script:AutoUi.AutoGrid.Line($script:AutoUi.AutoDrag[0], $script:AutoUi.AutoDrag[1], $p[0], $p[1], $size, 0.9, $false) }
+        elseif ($kind -eq 1) { $script:AutoUi.AutoGrid.Line($script:AutoUi.AutoDrag[0], $script:AutoUi.AutoDrag[1], $p[0], $p[1], $size * 1.6, 0.5, $false) }
+        elseif ($kind -eq 2) { $script:AutoUi.AutoGrid.Line($script:AutoUi.AutoDrag[0], $script:AutoUi.AutoDrag[1], $p[0], $p[1], $size, 0.7, $false) }
+        elseif ($kind -eq 3) { $script:AutoUi.AutoGrid.Line($script:AutoUi.AutoDrag[0], $script:AutoUi.AutoDrag[1], $p[0], $p[1], $size, 0.9, $false) }
+        elseif ($kind -eq 4) { $script:AutoUi.AutoGrid.Line($script:AutoUi.AutoDrag[0], $script:AutoUi.AutoDrag[1], $p[0], $p[1], $size * 2, 0.35, $false) }
+        elseif ($kind -eq 5) { $script:AutoUi.AutoGrid.Smear(0.9); $script:AutoUi.AutoGrid.Line($script:AutoUi.AutoDrag[0], $script:AutoUi.AutoDrag[1], $p[0], $p[1], $size, 0.6, $false) }
+        else { $script:AutoUi.AutoGrid.Smear(0.93); $script:AutoUi.AutoGrid.Line($script:AutoUi.AutoDrag[0], $script:AutoUi.AutoDrag[1], $p[0], $p[1], $size, 0.8, $false) }
+        $script:AutoUi.AutoDrag = $p; Update-AutoView })
+    $script:AutoUi.AutoPic.Add_MouseUp({ $script:AutoUi.AutoDrag = $null; $script:AutoUi.Dirty = $true; $script:AutoUi.AudioRev++; Suspend-AudioForEdit; try { $g = $script:AutoUi.AutoGrid; Add-Content -LiteralPath (Join-Path $env:TEMP 'hb-automation-debug.log') -Value ('  handler alen={0} cols=[{1}] rows=[{2}] hash={3} peak={4}' -f $g.A.Length, $g.Cols, $g.Rows, $g.GetHashCode(), $g.Peak()) } catch { }; Write-AutoDebug 'mouseup'; try { $n = 0; for ($c = 0; $c -lt $script:AutoUi.AutoGrid.Cols; $c++) { $s = 0.0; for ($r = 0; $r -lt $script:AutoUi.AutoGrid.Rows; $r++) { $s += [double]$script:AutoUi.AutoGrid.Get($c, $r) }; if ($s -ge 0.002) { $n++ } }; Set-AutoStatus ("Canvas has {0} painted column(s). Click Apply to Piano Roll to write them." -f $n) } catch { } })
+    $script:AutoUi.AutoClear.Add_Click({ $script:AutoUi.AutoGrid.Clear(); Update-AutoView; Set-AutoStatus 'Automation canvas cleared (painting erased).' })
+    $script:AutoUi.AutoClearLane.Add_Click({ $t = Get-CurTrack; if (-not $t) { Set-AutoStatus 'Select a track first.'; return }; $info = Get-AutoParamInfo; $param = [string]$info.Param; $n = ($t.Auto | Where-Object { $_.Param -eq $param }).Count; $t.Auto.RemoveAll([Predicate[HbStudio.AutoLane]] { param($l) $l.Param -eq $param }) | Out-Null; $script:AutoUi.Dirty = $true; $script:AutoUi.AudioRev++; Suspend-AudioForEdit; Set-AutoStatus ("Removed {0} lane(s) for {1} on '{2}'." -f $n, $param, $t.Name) })
+    $script:AutoUi.AutoReset.Add_Click({ $t = Get-CurTrack; if (-not $t) { Set-AutoStatus 'Select a track first.'; return }; $n = $t.Auto.Count; $t.Auto.Clear(); $script:AutoUi.AutoGrid.Clear(); Update-AutoView; $script:AutoUi.Dirty = $true; $script:AutoUi.AudioRev++; Suspend-AudioForEdit; Set-AutoStatus ("Reset automation on '{0}' ({1} lane(s) removed, canvas cleared)." -f $t.Name, $n) })
+    $script:AutoUi.AutoPaint.Add_Click({ Apply-AutoPainting })
+    $script:AutoUi.AutoApply.Add_Click({ Apply-AutoPainting })
+    foreach ($btn in $script:AutoUi.AutoBrushPalBtns) { $btn.Add_Click({ $script:AutoUi.AutoBrush.SelectedIndex = [int]$btn.Tag }) }
+    $script:AutoUi.AutoModule.Add_SelectedIndexChanged({ Update-AutoParams })
+    $script:AutoUi.AutoTarget.Add_DropDown({ Update-AutoTargets })
+    $script:AutoUi.AutoTarget.Add_SelectedIndexChanged({
+        if ($script:AutoTargetsUpdating) { return }
+        try {
+            $tgt = Get-AutoTarget
+            if ($tgt -and $tgt.Kind -ne 'track' -and ([string]$script:AutoUi.AutoModule.SelectedItem) -like 'Synth*') { $script:AutoUi.AutoModule.SelectedItem = 'Track FX Filter' }
+        } catch { }
+        Update-AutoParams
+    })
+    $script:AutoUi.AutoParam.Add_SelectedIndexChanged({
+        try {
+            $info = Get-AutoParamInfo
+            if (Test-AutoParamWired ([string]$info.Param)) { Set-AutoStatus ("{0} is DSP-wired: painting will change the sound." -f $info.Param) }
+            else { Set-AutoStatus ("{0} writes a lane, but the renderer does not process this parameter yet." -f $info.Param) }
+            Sync-AutoCanvasFromLane
+        } catch { }
+    })
+    Update-AutoTargets
+    Update-AutoParams
+    try { $tt = Get-CurTrack; if ($tt) { $script:AutoUi.AutoTrackName.Text = 'Track: ' + $tt.Name + '  (' + $tt.Synth + ')' } } catch { }
+    Sync-AutoCanvasFromLane
+
+    function Set-MetaStatus([string]$m) { $S.MetaStatus.Text = $m; Status $m }
+    function Update-MetaPad {
+        $w = $S.MetaPad.Width - 2; $h = $S.MetaPad.Height - 2; $bm = New-Object Drawing.Bitmap $w, $h; $g = [Drawing.Graphics]::FromImage($bm); $g.SmoothingMode = 'AntiAlias'
+        $g.Clear([Drawing.Color]::FromArgb(18, 20, 28)); $m = 18
+        $pen = New-Object Drawing.Pen ([Drawing.Color]::FromArgb(90, 150, 160, 190))
+        $pts = New-Object 'System.Collections.Generic.List[Drawing.PointF]'
+        for ($i = 0; $i -le 60; $i++) { $x = 0.0; $y = 0.0; [HbStudio.MetaSynth]::PathPoint($S.MetaSet.Path, $i / 60.0, [int]$S.MetaSet.Seed, [ref]$x, [ref]$y); $pts.Add((New-Object Drawing.PointF ($m + $x * ($w - 2 * $m)), ($m + $y * ($h - 2 * $m)))) }
+        $g.DrawLines($pen, $pts.ToArray())
+        $names = 'A', 'B', 'C', 'D'; $cx = 0, 1, 0, 1; $cy = 0, 0, 1, 1
+        for ($i = 0; $i -lt 4; $i++) {
+            $px = $m + $cx[$i] * ($w - 2 * $m); $py = $m + $cy[$i] * ($h - 2 * $m); $sel = ($i -eq $S.MetaSel)
+            $g.FillEllipse($(if ($sel) { [Drawing.Brushes]::Gold } else { [Drawing.Brushes]::SlateGray }), $px - 9, $py - 9, 18, 18)
+            $g.DrawString($names[$i], $f.Font, [Drawing.Brushes]::Black, $px - 5, $py - 7)
+        }
+        $mx = $m + $S.MetaSet.X * ($w - 2 * $m); $my = $m + $S.MetaSet.Y * ($h - 2 * $m)
+        $g.FillEllipse([Drawing.Brushes]::Cyan, $mx - 6, $my - 6, 12, 12); $g.Dispose()
+        $old = $S.MetaPad.Image; $S.MetaPad.Image = $bm; if ($old) { $old.Dispose() }
+    }
+    function Select-MetaSlot([int]$i) {
+        $S.MetaSel = $i; $S.GridMetaPatch.SelectedObject = $S.MetaSlots[$i]
+        $S.MetaSlotLbl.Text = 'Editing patch ' + ('A', 'B', 'C', 'D')[$i] + ' (' + ('top left', 'top right', 'bottom left', 'bottom right')[$i] + ')'; Update-MetaPad
+    }
+    function Get-MetaPoint { return [HbStudio.MetaSynth]::Bilinear($S.MetaSlots, $S.MetaSet.X, $S.MetaSet.Y) }
+    function Play-MetaPoint {
+        $p = Get-MetaPoint; $smp = [HbStudio.PatchSynth]::Render($p, [int]$S.MetaSet.Pitch, 1.4)
+        [HbStudio.Dsp]::Normalize($smp, 0.89); Play-StudioSamples $smp
+    }
+    function Invoke-MetaAi {
+        $ask = $S.MetaPrompt.Text.Trim(); if (-not $ask) { Set-MetaStatus 'Describe the journey first.'; return }
+        $S.MetaAi.Enabled = $false; $f.Cursor = 'AppStarting'; Set-MetaStatus 'Thinking (a local model may need to load first)...'
+        try {
+            $model = Get-AiModel; $pdoc = [HbStudio.PropIO]::Describe([HbStudio.Patch])
+            $sys = "You are a synthesizer sound designer building a morphing instrument from 4 patches. Patch A is the start, B and C are the middle stages, D is the end. Make the four patches clearly different from each other but related to the description. Reply with ONE JSON object and nothing else (no markdown): {`"patches`":[{A},{B},{C},{D}]}. Each patch uses only these parameter names with numeric values inside their ranges and enum names as strings; set only 6 to 14 parameters per patch and keep the reply short. Example: {`"patches`":[{`"Osc1`":`"sine`",`"Cutoff`":800,`"Attack`":0.4},{`"Osc1`":`"saw`",`"Cutoff`":3000,`"Drive`":0.5},{`"Osc1`":`"square`",`"Detune2`":9},{`"Osc1`":`"noise`",`"Resonance`":0.8}]}`n$pdoc"
+            $res = Invoke-StudioJsonModel $model $sys "Morph wanted: $ask" 3500 ({ param($x) $o = Find-StudioJsonObject $x ''; $a = @($o.patches); if ($a.Count -lt 2) { throw 'The JSON must have a "patches" array of 4 patch objects.' }; $o })
+            $arr = @($res.Value.patches); $cnt = 0
+            for ($i = 0; $i -lt 4; $i++) {
+                $src = $arr[[math]::Min($i, $arr.Count - 1)]; $np = New-Object HbStudio.Patch
+                if ($src -is [System.Management.Automation.PSCustomObject]) { $cnt += Set-StudioObjectFromJson $np $src }
+                $S.MetaSlots[$i] = $np
+            }
+            Select-MetaSlot $S.MetaSel; $S.AiOut.Text = $res.Reply
+            Set-MetaStatus "Set 4 patches ($cnt parameters). Click the pad to hear the morph or render it."
+        } catch { Set-MetaStatus ('AI failed: ' + $_.Exception.Message); Log ('Meta AI failed: ' + $_.Exception.Message) }
+        finally { $S.MetaAi.Enabled = $true; $f.Cursor = 'Default' }
+    }
+    function Move-MetaPad($e) {
+        $m = 18.0; $w = $S.MetaPad.Width - 2.0; $h = $S.MetaPad.Height - 2.0
+        $S.MetaSet.X = [math]::Max(0.0, [math]::Min(1.0, ($e.X - $m) / ($w - 2 * $m))); $S.MetaSet.Y = [math]::Max(0.0, [math]::Min(1.0, ($e.Y - $m) / ($h - 2 * $m)))
+        $S.GridMeta.Refresh(); Update-MetaPad
+    }
+    $S.MetaPad.Add_MouseDown({ param($snd, $e) $S.MetaDrag = $true; Move-MetaPad $e })
+    $S.MetaPad.Add_MouseMove({ param($snd, $e) if ($S.MetaDrag) { Move-MetaPad $e } })
+    $S.MetaPad.Add_MouseUp({ param($snd, $e) $S.MetaDrag = $false; try { Play-MetaPoint } catch { Set-MetaStatus ('Play failed: ' + $_.Exception.Message) } })
+    $S.GridMeta.Add_PropertyValueChanged({ Update-MetaPad })
+    for ($i = 0; $i -lt 4; $i++) { $S.MetaSlotBtns[$i].Tag = $i; $S.MetaSlotBtns[$i].Add_Click({ param($snd, $e) Select-MetaSlot ([int]$snd.Tag) }) }
+    $S.MetaFromTrk.Add_Click({
+        $t = Get-CurTrack; if (-not $t -or $t.Synth -ne 'patch' -or -not $t.Patch) { Set-MetaStatus 'Select a track that uses the patch synth first.'; return }
+        Sync-Project; $S.MetaSlots[$S.MetaSel] = $t.Patch.Clone(); Select-MetaSlot $S.MetaSel; Set-MetaStatus "Copied '$($t.Name)' into the selected slot." })
+    $S.MetaRand.Add_Click({ [HbStudio.PropIO]::Randomize($S.MetaSlots[$S.MetaSel], 1.0, [int](Get-Random -Maximum 1000000)); $S.GridMetaPatch.Refresh() })
+    $S.MetaMut.Add_Click({ [HbStudio.PropIO]::Randomize($S.MetaSlots[$S.MetaSel], 0.25, [int](Get-Random -Maximum 1000000)); $S.GridMetaPatch.Refresh() })
+    $S.MetaAll.Add_Click({ for ($i = 0; $i -lt 4; $i++) { [HbStudio.PropIO]::Randomize($S.MetaSlots[$i], 1.0, [int](Get-Random -Maximum 1000000)) }; $S.GridMetaPatch.Refresh() })
+    $S.MetaAud.Add_Click({ try { Play-MetaPoint } catch { Set-MetaStatus ('Play failed: ' + $_.Exception.Message) } })
+    $S.MetaStopB.Add_Click({ if ($S.Aud) { try { $S.Aud.Stop() } catch { } } })
+    $S.MetaApply.Add_Click({
+        $t = Get-CurTrack; if (-not $t) { Set-MetaStatus 'Select a track first.'; return }
+        Push-Undo; $t.Patch = Get-MetaPoint; $t.Synth = 'patch'; Load-TrackProps; $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Set-MetaStatus "Track '$($t.Name)' now uses the patch at the pad position." })
+    $S.MetaRender.Add_Click({
+        try {
+            $f.Cursor = 'WaitCursor'; Set-MetaStatus 'Rendering...'; $S.MetaRender.Enabled = $false
+            $o = [HbStudio.MetaSynth]::Evolve($S.MetaSlots, $S.MetaSet); $nt = Add-StudioSampleTrack 'Morph' $o ([int]$S.MetaSet.Pitch)
+            Play-StudioSamples $o; Set-MetaStatus "New sampler track '$($nt.Name)' ($([math]::Round($o.Length / 44100.0, 1)) s). Playing it now."
+        } catch { Set-MetaStatus ('Render failed: ' + $_.Exception.Message) } finally { $f.Cursor = 'Default'; $S.MetaRender.Enabled = $true }
+    })
+    $S.MetaAi.Add_Click({ Invoke-MetaAi })
+    Select-MetaSlot 0
+
+    # ---- Mix tab: sidechain and other mix rules, plus an AI mix/master engineer ----------------------------------------------
+    $S.MixList = New-LabList 4 24 360 188; $S.GridMix = New-LabGrid 372 330
+    $tMix.Controls.Add((Lbl 'Mix rules (run top to bottom on the tracks before they are summed and mastered)' 4 4 360))
+    $S.MixAdd = Btn 'Add rule' 4 218 70; $S.MixDup = Btn 'Duplicate' 78 218 76; $S.MixRem = Btn 'Remove' 158 218 66; $S.MixClear = Btn 'Clear all' 228 218 70
+    $S.MixKick = Btn 'Sidechain everything to kick' 4 248 200
+    $S.MixPlay = Btn 'Play mix (rules on)' 210 248 130; $S.MixStopB = Btn 'Stop' 344 248 50
+    $tMix.Controls.Add((Lbl 'Ask the AI mixing and mastering engineer. It can add mix rules (sidechain, EQ, filters, width, saturation, mono bass), adjust the master chain, and set track volumes and pans.' 712 4 650)); $tMix.Controls[$tMix.Controls.Count - 1].Height = 34
+    $S.MixPrompt = Sty (New-Object Windows.Forms.TextBox); $S.MixPrompt.Multiline = $true; $S.MixPrompt.ScrollBars = 'Vertical'; $S.MixPrompt.SetBounds(712, 40, 650, 56)
+    $S.MixPrompt.Text = 'sidechain the bass and pads to the kick, high-pass the pads, keep the sub mono, and make it hit hard but stay dynamic'
+    $S.MixAi = Btn 'AI: mix and master' 712 102 190 28 $true
+    $S.MixReplace = New-Object Windows.Forms.CheckBox; $S.MixReplace.Text = 'Replace existing rules'; $S.MixReplace.SetBounds(910, 106, 170, 22)
+    $S.MixOut = Sty (New-Object Windows.Forms.TextBox); $S.MixOut.Multiline = $true; $S.MixOut.ReadOnly = $true; $S.MixOut.ScrollBars = 'Vertical'; $S.MixOut.SetBounds(712, 136, 650, 120)
+    $S.MixStatus = Lbl '' 712 260 650
+    $tMix.Controls.AddRange(@($S.MixList, $S.GridMix, $S.MixAdd, $S.MixDup, $S.MixRem, $S.MixClear, $S.MixKick, $S.MixPlay, $S.MixStopB, $S.MixPrompt, $S.MixAi, $S.MixReplace, $S.MixOut, $S.MixStatus))
+    function Set-MixStatus([string]$m) { $S.MixStatus.Text = $m; Status $m }
+    function Get-MixRuleText($r) {
+        $tg = if ($r.Kind -eq 'sidechain') { "$($r.Source) -> $($r.Target)  depth $([math]::Round($r.Depth, 2))" } else { "$($r.Target)" }
+        return '{0} {1}: {2}' -f $(if ($r.Enabled) { '[on] ' } else { '[off]' }), $r.Kind, $tg
+    }
+    function Refresh-MixUi {
+        $i = $S.MixList.SelectedIndex; $S.Loading = $true
+        $S.MixList.Items.Clear(); foreach ($r in $S.Proj.Mix) { [void]$S.MixList.Items.Add((Get-MixRuleText $r)) }
+        if ($i -ge 0 -and $i -lt $S.MixList.Items.Count) { $S.MixList.SelectedIndex = $i } elseif ($S.MixList.Items.Count) { $S.MixList.SelectedIndex = 0 }
+        $S.Loading = $false
+        $S.GridMix.SelectedObject = $(if ($S.MixList.SelectedIndex -ge 0) { $S.Proj.Mix[$S.MixList.SelectedIndex] } else { $null })
+    }
+    $S.MixList.Add_SelectedIndexChanged({ if (-not $S.Loading) { $i = $S.MixList.SelectedIndex; $S.GridMix.SelectedObject = $(if ($i -ge 0) { $S.Proj.Mix[$i] } else { $null }) } })
+    $S.GridMix.Add_PropertyValueChanged({ $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Refresh-MixUi })
+    $S.MixAdd.Add_Click({ $S.Proj.Mix.Add((New-Object HbStudio.MixRule)); $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Refresh-MixUi; $S.MixList.SelectedIndex = $S.MixList.Items.Count - 1 })
+    $S.MixDup.Add_Click({ $i = $S.MixList.SelectedIndex; if ($i -ge 0) { $c = New-Object HbStudio.MixRule; [void](Set-StudioObjectFromJson $c ([pscustomobject](ConvertTo-StudioMap $S.Proj.Mix[$i]))); $S.Proj.Mix.Add($c); $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Refresh-MixUi } })
+    $S.MixRem.Add_Click({ $i = $S.MixList.SelectedIndex; if ($i -ge 0) { $S.Proj.Mix.RemoveAt($i); $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Refresh-MixUi } })
+    $S.MixClear.Add_Click({ $S.Proj.Mix.Clear(); $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Refresh-MixUi })
+    $S.MixKick.Add_Click({
+        Sync-Project
+        $src = $S.Proj.Tracks | Where-Object { $_.Name -match 'kick|bd|bass drum' } | Select-Object -First 1
+        if (-not $src) { $src = $S.Proj.Tracks | Where-Object { $_.Synth -eq 'drums' } | Select-Object -First 1 }
+        if (-not $src) { Set-MixStatus 'No kick or drums track found. Add a rule and type the source track name.'; return }
+        $r = New-Object HbStudio.MixRule; $r.Kind = 'sidechain'; $r.Source = $src.Name; $r.Target = '*'; $r.Depth = 0.7
+        $S.Proj.Mix.Add($r); $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Refresh-MixUi; $S.MixList.SelectedIndex = $S.MixList.Items.Count - 1
+        Set-MixStatus "Sidechain from '$($src.Name)' added. Edit Target to choose which tracks duck."
+    })
+    $S.MixPlay.Add_Click({ Invoke-MasterPreview $false })
+    $S.MixStopB.Add_Click({ Stop-Studio; Status 'Stopped.' })
+
+    # One AI call that can change mix rules, the master chain and track levels. Used by the Mix tab and the Master tab.
+    function Invoke-MixAi([string]$Wish, $Btn, [scriptblock]$SetStatus) {
+        $Btn.Enabled = $false; & $SetStatus 'Analysing the mix and asking the model (a local model may need to load first)...'; $f.Cursor = 'AppStarting'
+        try {
+            if (-not $Wish.Trim()) { throw 'Describe what you want first.' }
+            $m = Get-SourceMix; $tg = Get-MasterTarget
+            $an = ([HbStudio.Mastering]::Analyze($m.L, $m.R)).Report()
+            $tr = (@($S.Proj.Tracks | ForEach-Object { '- "{0}" synth={1} volume={2:N2} pan={3:N2} notes={4}{5}' -f $_.Name, $_.Synth, $_.Vol, $_.Pan, $_.Notes.Count, $(if ($_.Mute) { ' (muted)' } else { '' }) }) -join "`n")
+            $cur = if ($S.Proj.Mix.Count) { (@($S.Proj.Mix | ForEach-Object { (ConvertTo-StudioMap $_) | ConvertTo-Json -Compress }) -join "`n") } else { '(none)' }
+            $sys = @"
+You are a mixing and mastering engineer for electronic music. You can change the project in three ways. Reply with ONE JSON object and nothing else (no markdown):
+{"mix":[<rule>,...],"master":{<master settings>},"tracks":[{"name":"<exact track name>","vol":0.8,"pan":0}]}
+All three keys are optional: include only what the request needs. Mix rules run in order on the tracks before they are summed.
+Mix rule parameters:
+$([HbStudio.PropIO]::Describe([HbStudio.MixRule]))
+Rule examples:
+{"Kind":"sidechain","Source":"kick","Target":"bass,pad","Depth":0.7,"AttackMs":3,"ReleaseMs":180}
+{"Kind":"highpass","Target":"pad","FreqHz":200,"Q":0.7}
+{"Kind":"monobass","Target":"*","FreqHz":120}
+{"Kind":"peak","Target":"lead","FreqHz":3000,"Db":-3,"Q":1.2}
+{"Kind":"width","Target":"pad","Width":1.5}
+Master chain parameters (only if the request is about the overall master):
+$([HbStudio.PropIO]::Describe([HbStudio.MasterSettings]))
+Source and Target must use words from the track names listed below (case does not matter). Be conservative unless asked for extremes.
+"@
+            $user = "Tracks:`n$tr`n`nCurrent mix rules:`n$cur`n`nMeasurements of the current mix:`n$an`nLoudness target: $tg LUFS.`nRequest: $Wish"
+            $sys += "`n`n" + (Get-StudioMusicKnowledge)
+            $res = Invoke-StudioJsonModel (Get-AiModel) $sys $user 2500 ({ param($x) $o = Find-StudioJsonObject $x ''; if (-not ($o.mix -or $o.rules -or $o.master -or $o.tracks)) { throw 'The JSON needs a "mix" array, a "master" object or a "tracks" array.' }; $o })
+            $j = $res.Value; $lines = New-Object 'System.Collections.Generic.List[string]'
+            $rules = @($(if ($j.mix) { $j.mix } else { $j.rules })) | Where-Object { $_ }
+            if ($rules.Count -and $S.MixReplace.Checked) { $S.Proj.Mix.Clear() }
+            foreach ($rj in $rules) {
+                $r = New-Object HbStudio.MixRule
+                if ((Set-StudioObjectFromJson $r $rj) -eq 0) { continue }
+                $hit = @($S.Proj.Tracks | Where-Object { [HbStudio.MixEngine]::Matches($_, $r.Target) })
+                if ($r.Kind -eq 'sidechain') {
+                    $sc = @($S.Proj.Tracks | Where-Object { $r.Source -and [HbStudio.MixEngine]::Matches($_, $r.Source) })
+                    if (-not $sc.Count) { $lines.Add("Skipped a sidechain rule: no track matches source '$($r.Source)'."); continue }
+                }
+                if (-not $hit.Count) { $lines.Add("Skipped a $($r.Kind) rule: no track matches '$($r.Target)'."); continue }
+                $S.Proj.Mix.Add($r); $lines.Add('Added rule: ' + (Get-MixRuleText $r))
+            }
+            foreach ($tj in @($j.tracks) | Where-Object { $_ }) {
+                $t = $S.Proj.Tracks | Where-Object { $_.Name -ieq [string]$tj.name } | Select-Object -First 1; if (-not $t) { continue }
+                if ($null -ne $tj.vol) { $t.Vol = [math]::Max(0.0, [math]::Min(1.0, [double]$tj.vol)) }
+                if ($null -ne $tj.pan) { $t.Pan = [math]::Max(-1.0, [math]::Min(1.0, [double]$tj.pan)) }
+                $lines.Add("Track '$($t.Name)': volume $([math]::Round($t.Vol, 2)), pan $([math]::Round($t.Pan, 2))")
+            }
+            $mc = 0
+            if ($j.master -is [System.Management.Automation.PSCustomObject]) {
+                $ms = $S.Proj.Master.Clone(); $mc = Set-StudioObjectFromJson $ms $j.master
+                if ($mc -gt 0) {
+                    $ms.Enabled = $true; $m2 = Get-SourceMix; $got = [HbStudio.Mastering]::FitGain($m2.L, $m2.R, $ms, $tg)
+                    $S.Proj.Master = $ms; $S.GridMaster.SelectedObject = $ms; $S.EMaster.Checked = $true
+                    $lines.Add("Master chain: $mc parameters set, loudness near $([math]::Round($got, 1)) LUFS (target $tg).")
+                }
+            }
+            if (-not $lines.Count) { throw 'The reply contained nothing usable (no valid rules, tracks or master settings).' }
+            $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Load-TrackProps; Refresh-MixUi
+            $txt = "AI MIX/MASTER APPLIED`r`n" + ($lines -join "`r`n") + "`r`n`r`n" + $res.Reply
+            $S.MixOut.Text = $txt; $S.MReport.Text = $txt
+            & $SetStatus 'Applied. Use Play mix or Preview mastered to listen.'
+        } catch { & $SetStatus ('AI mix failed: ' + $_.Exception.Message); Log ('AI mix failed: ' + $_.Exception.Message) }
+        finally { $Btn.Enabled = $true; $f.Cursor = 'Default' }
+    }
+    $S.MixAi.Add_Click({ Invoke-MixAi $S.MixPrompt.Text $S.MixAi { param($m) Set-MixStatus $m } })
+
+    # ---- Knobs tab: rotary controls for any parameter set, in step with the grids ------------------------------------------------
+    $S.KnobTarget = Combo @('Track synth patch', 'Track effects', 'Master chain', 'Selected mix rule', 'Spectral settings', 'Meta morph settings', 'Meta selected patch') 8 6 190; $S.KnobTarget.SelectedIndex = 0
+    $tKnobs.Controls.Add((Lbl 'Drag a knob up/down (Shift = fine), mouse wheel, double-click to reset. Hover for help.' 210 10 640))
+    $S.KnobHost = New-Object Windows.Forms.FlowLayoutPanel; $S.KnobHost.SetBounds(4, 36, 1370, 240); $S.KnobHost.AutoScroll = $true; $S.KnobHost.BackColor = $dk.Panel; $S.KnobHost.ForeColor = $dk.Text
+    $tKnobs.Controls.AddRange(@($S.KnobTarget, $S.KnobHost))
+    function Get-KnobObject {
+        switch ($S.KnobTarget.SelectedIndex) {
+            0 { $t = Get-CurTrack; if (-not $t) { return $null }; return (Get-LabPatch $false) }
+            1 { $t = Get-CurTrack; if ($t) { return $t.Fx } else { return $null } }
+            2 { return $S.Proj.Master }
+            3 { $i = $S.MixList.SelectedIndex; if ($i -ge 0 -and $i -lt $S.Proj.Mix.Count) { return $S.Proj.Mix[$i] } else { return $null } }
+            4 { return $S.SpecSet }
+            5 { return $S.MetaSet }
+            6 { return $S.MetaSlots[$S.MetaSel] }
+        }
+    }
+    function Update-Knobs {
+        $o = Get-KnobObject
+        if (-not $o) { [HbStudio.KnobPanel]::Build($null, $S.KnobHost, $null, $dk.Panel, $dk.Text, $dk.Accent); return }
+        [HbStudio.KnobPanel]::Build($o, $S.KnobHost, [EventHandler]{ $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; foreach ($g in @($S.GridPatch, $S.GridFx, $S.GridMaster, $S.GridMix, $S.GridSpec, $S.GridMeta, $S.GridMetaPatch)) { try { $g.Refresh() } catch { } }; if ($S.KnobTarget.SelectedIndex -eq 4) { Update-SpecView } elseif ($S.KnobTarget.SelectedIndex -ge 5) { Update-MetaPad } }, $dk.Panel, $dk.Text, $dk.Accent)
+    }
+    $S.KnobTarget.Add_SelectedIndexChanged({ Update-Knobs })
+    $tabs.Add_SelectedIndexChanged({ if ($tabs.SelectedTab -eq $tKnobs) { Update-Knobs } })
+
+    # ---- Bus / FX tab: shared FX buses with module racks, faders live on the left panel -------------------------
+    $tBusFx = New-Object Windows.Forms.TabPage; $tBusFx.Text = 'Bus / FX'; $tBusFx.BackColor = $dk.Panel; $tBusFx.ForeColor = $dk.Text; $tabs.TabPages.Add($tBusFx)
+    $S.CurBus = 0; $S.BusTab = $tBusFx
+    $capBuses = Lbl 'Shared FX buses (tracks send into a bus; the bus processes the sum)' 8 6 520 18; $capBuses.ForeColor = $dk.Accent; $tBusFx.Controls.Add($capBuses)
+    $tBusFx.Controls.Add((Lbl 'Edit bus:' 8 34 56 24))
+    $S.BusEditBtns = @()
+    for ($i = 0; $i -lt 4; $i++) { $b = Btn ([char](65 + $i)) (66 + $i * 48) 26 28; $b.Tag = $i; $tBusFx.Controls.Add($b); $S.BusEditBtns += $b }
+    $S.BusEnableChecks = @()
+    $y = 72
+    for ($i = 0; $i -lt 4; $i++) {
+        $n = [char](65 + $i)
+        $ck = New-Object Windows.Forms.CheckBox; $ck.Text = 'Bus ' + $n + ' enabled'; $ck.Checked = $true; $ck.SetBounds(8, $y, 130, 20); $ck.ForeColor = $dk.Text; $ck.Tag = $i; $tBusFx.Controls.Add($ck); $S.BusEnableChecks += $ck
+        $y += 24
+    }
+    $capAssign = Lbl 'Assign tracks to a bus' 8 176 240 18; $capAssign.ForeColor = $dk.Accent; $tBusFx.Controls.Add($capAssign)
+    $S.BusTrackList = New-LabList 8 196 234 78
+    $tBusFx.Controls.Add((Lbl 'Selected track >' 8 280 110 18))
+    $S.BusAssignSel = @()
+    $ax = 8
+    foreach ($a in @(@('None', 0), @('A', 1), @('B', 2), @('C', 3), @('D', 4))) { $b = Btn $a[0] $ax 298 42 24; $b.Tag = $a[1]; $tBusFx.Controls.Add($b); $S.BusAssignSel += $b; $ax += 46 }
+    $tBusFx.Controls.Add((Lbl 'All tracks >' 8 330 90 18))
+    $S.BusAssignAll = @()
+    $ax = 8
+    foreach ($a in @(@('None', 0), @('A', 1), @('B', 2), @('C', 3), @('D', 4))) { $b = Btn $a[0] $ax 348 42 24; $b.Tag = $a[1]; $tBusFx.Controls.Add($b); $S.BusAssignAll += $b; $ax += 46 }
+    $S.BusTrackList.Add_SelectedIndexChanged({ if (-not $S.Loading -and $S.BusTrackList.SelectedIndex -ge 0) { $S.TrackList.SelectedIndex = $S.BusTrackList.SelectedIndex } })
+    foreach ($b in $S.BusAssignSel) { $b.Add_Click({ param($snd, $e) $t = Get-CurTrack; if (-not $t) { return }; $t.Bus = [int]$snd.Tag; $S.Loading = $true; $S.TBus.SelectedIndex = $t.Bus; $S.Loading = $false; $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Refresh-Tracks $S.TrackList.SelectedIndex }) }
+    foreach ($b in $S.BusAssignAll) { $b.Add_Click({ param($snd, $e) $v = [int]$snd.Tag; foreach ($t in $S.Proj.Tracks) { $t.Bus = $v }; $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Refresh-Tracks $S.TrackList.SelectedIndex }) }
+    $S.BusModCaption = Lbl 'Modules - Bus A' 264 6 300 18; $S.BusModCaption.ForeColor = $dk.Accent; $tBusFx.Controls.Add($S.BusModCaption)
+    $tBusFx.Controls.Add((Lbl 'Toggle effect modules on the selected bus' 264 26 360 16))
+    $S.BusModBtns = @()
+    $modDefs2 = @('Filter', 'Drive', 'Crush', 'Ring', 'Stutter', 'Chorus', 'Delay', 'Reverb', 'Phaser', 'Flanger', 'TapeStop', 'TapeDelay', 'Plate', 'Vinyl', 'Comp', 'EQ')
+    $mx = 264; $my = 46
+    foreach ($m in $modDefs2) { $b = Btn $m $mx $my 78 26; $b.Tag = $m; $tBusFx.Controls.Add($b); $S.BusModBtns += $b; $mx += 84; if ($mx -gt 540) { $mx = 264; $my += 32 } }
+    foreach ($b in $S.BusModBtns) { $b.Add_Click({ param($snd, $e) $bus = $S.Proj.Buses[$S.CurBus]; if (-not $bus) { return }; $m = $snd.Tag; Set-FxModule $bus.Fx $m (-not (Get-FxModuleOn $bus.Fx $m)); $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Refresh-StripBus }) }
+    $capPresets = Lbl 'Presets' 264 116 120 18; $capPresets.ForeColor = $dk.Muted; $tBusFx.Controls.Add($capPresets)
+    $S.BusPresetSpace = Btn 'Space' 264 134 72 26; $S.BusPresetLofi = Btn 'Lo-fi' 344 134 64 26; $S.BusPresetDrive = Btn 'Drive' 416 134 64 26; $S.BusPresetDub = Btn 'Dub' 488 134 64 26; $S.BusPresetClear = Btn 'Clear bus' 560 134 84 26
+    $tBusFx.Controls.Add($S.BusPresetSpace); $tBusFx.Controls.Add($S.BusPresetLofi); $tBusFx.Controls.Add($S.BusPresetDrive); $tBusFx.Controls.Add($S.BusPresetDub); $tBusFx.Controls.Add($S.BusPresetClear)
+    $S.BusPresetSpace.Add_Click({ $bus = $S.Proj.Buses[$S.CurBus]; if ($bus) { Set-FxModule $bus.Fx 'Chorus' $true; Set-FxModule $bus.Fx 'Delay' $true; Set-FxModule $bus.Fx 'Reverb' $true; $bus.Fx.Chorus = 0.4; $bus.Fx.DelayMix = 0.35; $bus.Fx.ReverbMix = 0.4; $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Update-BusKnobs; Refresh-StripBus } })
+    $S.BusPresetLofi.Add_Click({ $bus = $S.Proj.Buses[$S.CurBus]; if ($bus) { Set-FxModule $bus.Fx 'Crush' $true; Set-FxModule $bus.Fx 'Drive' $true; $bus.Fx.Bits = 5; $bus.Fx.Downsample = 3; $bus.Fx.Drive = 0.25; $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Update-BusKnobs; Refresh-StripBus } })
+    $S.BusPresetDrive.Add_Click({ $bus = $S.Proj.Buses[$S.CurBus]; if ($bus) { Set-FxModule $bus.Fx 'Drive' $true; $bus.Fx.Drive = 0.6; $bus.Fx.Bits = 8; $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Update-BusKnobs; Refresh-StripBus } })
+    $S.BusPresetDub.Add_Click({ $bus = $S.Proj.Buses[$S.CurBus]; if ($bus) { Set-FxModule $bus.Fx 'Delay' $true; Set-FxModule $bus.Fx 'Reverb' $true; $bus.Fx.DelayMix = 0.4; $bus.Fx.DelayBeats = 0.75; $bus.Fx.DelayFeedback = 0.55; $bus.Fx.ReverbMix = 0.35; $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Update-BusKnobs; Refresh-StripBus } })
+    $S.BusPresetClear.Add_Click({ $bus = $S.Proj.Buses[$S.CurBus]; if ($bus) { $bus.Fx = New-Object HbStudio.Fx; $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Update-BusKnobs; Refresh-StripBus } })
+    $capBusKnobs = Lbl 'Bus knobs (drag up/down, Shift = fine, double-click reset, hover for help)' 660 6 600 18; $capBusKnobs.ForeColor = $dk.Muted; $tBusFx.Controls.Add($capBusKnobs)
+    $S.BusKnobHost = New-Object Windows.Forms.FlowLayoutPanel; $S.BusKnobHost.SetBounds(660, 30, 700, 248); $S.BusKnobHost.AutoScroll = $true; $S.BusKnobHost.BackColor = $dk.Panel; $S.BusKnobHost.ForeColor = $dk.Text; $tBusFx.Controls.Add($S.BusKnobHost)
+    foreach ($b in $S.BusEditBtns) { $b.Add_Click({ param($snd, $e) $S.CurBus = [int]$snd.Tag; Update-BusKnobs; Refresh-StripBus }) }
+    foreach ($ck in $S.BusEnableChecks) { $ck.Add_CheckedChanged({ param($snd, $e) if ($S.Loading) { return }; $i = [int]$snd.Tag; if ($i -lt $S.Proj.Buses.Count) { $b = $S.Proj.Buses[$i]; $b.Enabled = $snd.Checked; $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Refresh-StripBus } }) }
+    $tabs.Add_SelectedIndexChanged({ if ($tabs.SelectedTab -eq $tBusFx) { Update-BusKnobs; Refresh-StripBus } })
+
+    # ---- Drums & melody AI tab: describe a part, get notes, then edit them on the piano roll -----------------------------------------
+    $drumStyles = [ordered]@{
+        'Free (use my description)' = ''
+        'Aphex IDM breakbeat' = 'chopped, rearranged breakbeat with snare ghost notes, off-beat kicks, ratchet rolls and a fill at the end'
+        'Drill-n-bass (170 BPM)' = 'frantic fast breakbeat, rolling snares, double-time hats, sub kick on odd places'
+        'Four-on-the-floor techno' = 'steady kick on every beat, off-beat open hats, clap on 2 and 4, sparse percussion'
+        'Electro / Drexciya' = 'syncopated electro kick pattern, snappy snare on 2 and 4, claps, shuffled hats'
+        'Half-time dub' = 'slow heavy half-time groove, snare on beat 3, deep sparse kick, ghost hats'
+        'UK garage 2-step' = 'two-step kick pattern, skippy hats, snare on 2 and 4 with shuffled ghost notes'
+        'Squarepusher fills' = 'busy jazz-like drum fills, fast ratchets, tom runs and snare rolls'
+        'Ambient sparse' = 'very sparse, quiet, a few soft kicks and rim clicks with long gaps'
+        'Boom bap' = 'classic hip hop kick-snare pattern with swung hats'
+    }
+    $melStyles = [ordered]@{
+        'Free (use my description)' = ''
+        'Aphex SAW II dreamy' = 'slow, drifting, dreamy and consonant, long notes with gentle stepwise motion and an occasional leap'
+        'Aphex acid / Analord' = 'squelchy 303-style 16th-note line with octave jumps, slides (short overlaps) and accents'
+        'Drukqs piano-like' = 'delicate, broken, rubato-feeling piano figure with irregular rhythm and sparse chord tones'
+        'Autechre angular' = 'angular, irregular, odd-length phrases with unexpected intervals and syncopation'
+        'Boards of Canada nostalgic' = 'warm, simple, wistful melody in slow note values with major-ish or modal flavour'
+        'Minimal techno' = 'tiny repeating motif of 2-4 notes with subtle variation'
+        'Uplifting trance' = 'bright, anthemic melody with rising lines and held notes'
+        'Dark ambient' = 'low, slow, brooding, few notes with long durations and tritone/minor-second tension'
+    }
+    $melRoles = [ordered]@{
+        'Lead melody' = @{ Oct = 4; Synth = 'pluck'; Hint = 'a memorable lead melody, mostly single notes' }
+        'Bassline' = @{ Oct = 2; Synth = 'acid'; Hint = 'a bassline, single low notes, rhythmic and locked with the kick' }
+        'Arpeggio' = @{ Oct = 3; Synth = 'pluck'; Hint = 'an arpeggio of the chord tones in steady 16th notes' }
+        'Chords / pad' = @{ Oct = 3; Synth = 'pad'; Hint = 'chords: place 3-4 notes at the same step with the same length' }
+        'Counter-melody' = @{ Oct = 4; Synth = 'sine'; Hint = 'a sparse counter-melody that fills gaps' }
+        'Hook / motif' = @{ Oct = 4; Synth = 'pluck'; Hint = 'a short catchy hook of 4-8 notes' }
+    }
+    $S.DrStyle = Combo @($drumStyles.Keys) 56 6 230; $S.DrStyle.SelectedIndex = 1
+    $S.DrDens = Num 6 1 10 1 0 336 6 44; $S.DrWeird = Num 7 1 10 1 0 440 6 44; $S.DrBars = Num 2 1 8 1 0 534 6 44
+    $S.DrPrompt = Sty (New-Object Windows.Forms.TextBox); $S.DrPrompt.Multiline = $true; $S.DrPrompt.SetBounds(8, 34, 640, 52); $S.DrPrompt.ScrollBars = 'Vertical'
+    $S.DrMode = Combo @('Replace track notes', 'Layer on top') 8 92 150; $S.DrMode.SelectedIndex = 0
+    $S.DrNew = New-Object Windows.Forms.CheckBox; $S.DrNew.Text = 'On a new drum track'; $S.DrNew.SetBounds(168, 93, 150, 22)
+    $S.DrTempo = New-Object Windows.Forms.CheckBox; $S.DrTempo.Text = 'Let AI set tempo/swing'; $S.DrTempo.SetBounds(324, 93, 170, 22)
+    $S.DrGo = Btn 'Program drums' 8 122 150 28 $true
+    $S.DrStatus = New-Object Windows.Forms.Label; $S.DrStatus.SetBounds(168, 124, 480, 30); $S.DrStatus.ForeColor = $dk.Muted
+    $S.DrStatus.Text = 'Describe the beat (e.g. "broken 7/8 jungle with a ghost-note snare"). Edit the result on the piano roll afterwards.'
+    $tWrite.Controls.AddRange(@((Lbl 'DRUMS' 8 10 44), $S.DrStyle, (Lbl 'Density' 290 10 46), $S.DrDens, (Lbl 'Weird' 394 10 42), $S.DrWeird, (Lbl 'Bars' 494 10 34), $S.DrBars, $S.DrPrompt, $S.DrMode, $S.DrNew, $S.DrTempo, $S.DrGo, $S.DrStatus))
+
+    $S.MeRole = Combo @($melRoles.Keys) 756 6 130; $S.MeRole.SelectedIndex = 0
+    $S.MeStyle = Combo @($melStyles.Keys) 892 6 230; $S.MeStyle.SelectedIndex = 0
+    $S.MeOct = Num 4 0 8 1 0 1180 6 44; $S.MeBars = Num 2 1 8 1 0 1290 6 44
+    $S.MePrompt = Sty (New-Object Windows.Forms.TextBox); $S.MePrompt.Multiline = $true; $S.MePrompt.SetBounds(668, 34, 700, 52); $S.MePrompt.ScrollBars = 'Vertical'
+    $S.MeRepeat = New-Object Windows.Forms.CheckBox; $S.MeRepeat.Text = 'Repeat across loop'; $S.MeRepeat.Checked = $true; $S.MeRepeat.SetBounds(910, 93, 150, 22)
+    $S.MeStay = New-Object Windows.Forms.CheckBox; $S.MeStay.Text = 'Stay in key'; $S.MeStay.Checked = $true; $S.MeStay.SetBounds(1062, 93, 92, 22)
+    $script:MeInstFixed = @('(default role sound)', '(AI picks from my instruments)', '+ Design synth with AI', '+ Design evolving morph (AI)', '+ Design spectral voice (AI)')
+    $S.MeInst = Combo $script:MeInstFixed 1158 92 210; $S.MeInst.SelectedIndex = 0; $S.InstBusy = $false
+    $S.DrKit = New-Object Windows.Forms.CheckBox; $S.DrKit.Text = 'Synthesize kit (AI)'; $S.DrKit.SetBounds(500, 93, 148, 22)
+    $S.MeMode = Combo @('Replace track notes', 'Layer on top') 668 92 130; $S.MeMode.SelectedIndex = 0
+    $S.MeNew = New-Object Windows.Forms.CheckBox; $S.MeNew.Text = 'New track'; $S.MeNew.Checked = $true; $S.MeNew.SetBounds(804, 93, 100, 22)
+    $S.MeGo = Btn 'Write melody' 668 122 150 28 $true
+    $S.MeStatus = New-Object Windows.Forms.Label; $S.MeStatus.SetBounds(828, 124, 540, 30); $S.MeStatus.ForeColor = $dk.Muted
+    $S.MeStatus.Text = 'Uses the project key, scale and time signature. Phrase notes are tiled across the loop if Repeat is on.'
+    $tWrite.Controls.AddRange(@((Lbl 'MELODY' 668 10 52), $S.MeRole, $S.MeStyle, (Lbl 'Octave' 1130 10 46), $S.MeOct, (Lbl 'Bars' 1240 10 34), $S.MeBars, $S.MePrompt, $S.MeRepeat, $S.MeStay, $S.MeInst, $S.DrKit, $S.MeMode, $S.MeNew, $S.MeGo, $S.MeStatus))
+    $S.MeRole.Add_SelectedIndexChanged({ $S.MeOct.Value = [decimal]$melRoles[[string]$S.MeRole.SelectedItem].Oct })
+
+    # ---- AI creative direction: a language model interprets the loose description plus the project and plans genre, feel, structure, drums, chords ----
+    $S.BrUse = New-Object Windows.Forms.CheckBox; $S.BrUse.Text = 'Use direction'; $S.BrUse.Checked = $true; $S.BrUse.SetBounds(104, 160, 110, 22)
+    $S.BrPlan = Btn 'Plan direction with AI' 222 156 190 28 $true
+    $S.BrSong = Btn 'Build song from direction' 418 156 190 28
+    $S.BrStatus = New-Object Windows.Forms.Label; $S.BrStatus.SetBounds(616, 162, 752, 18); $S.BrStatus.ForeColor = $dk.Muted
+    $S.BrStatus.Text = 'The AI reads what you typed above plus your project, and plans genre, feel, song structure, drum approach, chords and sounds. Edit the text freely.'
+    $S.Brief = Sty (New-Object Windows.Forms.TextBox); $S.Brief.Multiline = $true; $S.Brief.ScrollBars = 'Vertical'; $S.Brief.SetBounds(8, 188, 1360, 52)
+    $S.BriefData = $null; $S.BriefKey = ''; $S.BriefEdited = $false; $S.BriefSetting = $false
+    $S.Brief.Add_TextChanged({ if (-not $S.BriefSetting) { $S.BriefEdited = $true } })
+    $tWrite.Controls.AddRange(@((Lbl 'AI DIRECTION' 8 162 94), $S.BrUse, $S.BrPlan, $S.BrSong, $S.BrStatus, $S.Brief))
+    # Sound design row: the direction's sound ideas become real synth patches, effects, drum kits and textures
+    $S.SdGo = Btn 'Design sounds for all tracks' 8 244 200 28 $true
+    $S.SdDepth = Num 6 1 10 1 0 294 246 46
+    $S.SdSave = New-Object Windows.Forms.CheckBox; $S.SdSave.Text = 'Save sounds to library'; $S.SdSave.Checked = $false; $S.SdSave.SetBounds(350, 247, 150, 22)
+    $S.SdTex = New-Object Windows.Forms.CheckBox; $S.SdTex.Text = 'Texture layers + risers'; $S.SdTex.Checked = $true; $S.SdTex.SetBounds(504, 247, 150, 22)
+    $S.SdStatus = New-Object Windows.Forms.Label; $S.SdStatus.SetBounds(660, 250, 708, 20); $S.SdStatus.ForeColor = $dk.Muted
+    $S.SdStatus.Text = 'Depth 1 = simple voices, 10 = layered, evolving, heavily processed. Skips tracks that already have a custom sound.'
+    $tWrite.Controls.AddRange(@($S.SdGo, (Lbl 'Depth' 250 250 40), $S.SdDepth, $S.SdSave, $S.SdTex, $S.SdStatus))
+
+    function Get-BriefContext {
+        $p = $S.Proj; $lines = @()
+        foreach ($tr in $p.Tracks) {
+            if ($tr.Notes.Count -eq 0) { $lines += "- $($tr.Name) ($($tr.Synth)): empty"; continue }
+            if ($tr.Synth -eq 'drums') { $lines += "- $($tr.Name) (drums): $($tr.Notes.Count) hits" }
+            else { $mn = ($tr.Notes | Measure-Object Pitch -Minimum).Minimum; $mx = ($tr.Notes | Measure-Object Pitch -Maximum).Maximum; $lines += "- $($tr.Name) ($($tr.Synth)): $($tr.Notes.Count) notes, pitches $mn-$mx" }
+        }
+        return ('Project: {0} BPM, time signature {1}/{2}, {3} bars loop, key {4} {5}.' -f $p.Bpm, $p.BeatsPerBar, $p.BeatUnit, $p.Bars, $S.Key.Text, $p.Scale) + "`nExisting tracks:`n" + ($lines -join "`n")
+    }
+    function Format-Brief($j) {
+        $o = New-Object Collections.Generic.List[string]
+        $head = (@($j.title, $j.genre, $j.mood) | Where-Object { $_ }) -join ' - '; if ($j.tempo) { $head += " ($([int]$j.tempo) BPM)" }
+        if ($head) { $o.Add($head) }
+        if ($j.summary) { $o.Add([string]$j.summary) }
+        if ($j.structure) { $o.Add('STRUCTURE: ' + ((@($j.structure) | ForEach-Object { '{0} {1} bars (energy {2})' -f $_.section, $_.bars, $_.energy }) -join ' > ')) }
+        if ($j.drums) { $o.Add('DRUMS: ' + (@($j.drums.groove, $j.drums.description) | Where-Object { $_ }) -join ' - ') }
+        if ($j.melody) {
+            $m = $j.melody; $bits = @()
+            if ($m.chords) { $bits += 'chords ' + (@($m.chords) -join ' | ') }
+            foreach ($k in 'motif', 'contour', 'rhythm', 'description') { if ($m.$k) { $bits += [string]$m.$k } }
+            $o.Add('MELODY: ' + ($bits -join '; '))
+        }
+        if ($j.harmony) {
+            $h = $j.harmony; $hb = @()
+            if ($h.key) { $hb += ('key ' + [string]$h.key + ' ' + [string]$h.scale) }
+            if ($h.progressions) { foreach ($pp in $h.progressions.PSObject.Properties) { $hb += ($pp.Name + ': ' + (@($pp.Value) -join ' ')) } }
+            foreach ($k in 'voicing', 'comping', 'bass', 'arp') { if ($h.$k) { $hb += ($k + ' ' + [string]$h.$k) } }
+            if ($hb.Count) { $o.Add('HARMONY: ' + ($hb -join '; ')) }
+        }
+        if ($j.sounds) {
+            $sb = @(); foreach ($k in 'lead', 'bass', 'pad', 'drums', 'texture') { if ($j.sounds.$k) { $sb += ($k + ': ' + [string]$j.sounds.$k) } }
+            if ($sb.Count) { $o.Add('SOUNDS: ' + ($sb -join '; ')) }
+        }
+        return ($o -join "`r`n")
+    }
+    # Plans (or re-plans) the brief. Returns $true if a brief is available afterwards.
+    function Invoke-BriefPlan([bool]$Force) {
+        if (-not $S.BrUse.Checked -and -not $Force) { return $false }
+        $drumAsk = $S.DrPrompt.Text.Trim(); $melAsk = $S.MePrompt.Text.Trim()
+        $key = "$drumAsk|$melAsk|$($S.DrStyle.Text)|$($S.MeStyle.Text)|$($S.MeRole.Text)|$($S.Key.Text)|$($S.Scale.Text)|$($S.Bpb.Value)/$($S.Den.Text)|$($S.StyleHint)"
+        if (-not $Force) {
+            if ($S.BriefEdited -and $S.Brief.Text.Trim()) { return $true }
+            if ($S.BriefKey -eq $key -and $S.Brief.Text.Trim()) { return $true }
+        }
+        $S.BrPlan.Enabled = $false; $S.BrStatus.Text = 'Planning direction (a local model may need to load first)...'; $f.Cursor = 'AppStarting'
+        try {
+            Sync-Project; $model = Get-AiModel
+            $ask = @()
+            if ($drumAsk) { $ask += "Drum request: $drumAsk" }; if ($melAsk) { $ask += "Melody request: $melAsk" }
+            if ($S.DrStyle.SelectedIndex -gt 0) { $ask += "Drum style preset: $($S.DrStyle.Text)" }; if ($S.MeStyle.SelectedIndex -gt 0) { $ask += "Melody style preset: $($S.MeStyle.Text)" }
+            if ($S.StyleHint) { $ask += $S.StyleHint }
+            if (-not $ask.Count) { $ask += 'The user gave no description. Pick an inspiring direction in the style of Aphex Twin that fits the project.' }
+            $sys = 'You are a veteran electronic music producer and arranger (Aphex Twin, Autechre, Squarepusher, Boards of Canada, club and dance music). The user describes what they want informally, with typos and vague words. Interpret the intent, infer genre, mood, era, energy and tempo, look at the project context, and write a concrete creative brief with real musical decisions. Reply with ONE JSON object and nothing else, in this shape: {"title":"short working title","genre":"...","mood":"...","tempo":140,"swing":0,"summary":"2-3 sentences describing the musical direction and how it should develop","structure":[{"section":"Intro","bars":8,"energy":2},{"section":"Build","bars":8,"energy":5}],"drums":{"groove":"dance|break|half","syncopated":true,"ghost_snares":true,"hat_rolls":true,"pitched_rolls":true,"density":7,"weirdness":6,"description":"specific kick, snare, hat, percussion and fill ideas"},"melody":{"chords":["Cm","Ab","Bb","G"],"motif":"...","contour":"...","rhythm":"...","description":"..."},"sounds":{"lead":"synthesis of the lead voice: oscillators, filter, envelope, movement","chords":"a playable chord or keys voice that differs from the pad","bass":"...","pad":"...","motif":"the hook voice","counter":"a contrasting counter-melody voice","drums":"kit character: kick, snare and hat synthesis, saturation, space","texture":"an evolving background texture: what it sounds like and how it moves"},"parts":[{"name":"Stab","style":"riff|lyrical|sparse|arp","octave":4,"sound":"synthesis of this extra voice","idea":"what it plays"}],"harmony":{"key":"C","scale":"minor","progressions":{"verse":["i","VI","III","VII"],"chorus":["VI","VII","i","i"],"bridge":["iv","v","VI","VII"],"breakdown":["i","i","VI","VI"]},"voicing":"open|close|spread|power","comping":"auto|sustain|half|offbeat|pulse8|synco|stab","bass":"auto|root|rootfifth|driving8|octave|synco|offbeat|sub|walking|acid16","arp":"auto|up|updown|broken|trance","drums":"dance|break|half"}}. Rules: harmony.key is a note name and harmony.scale is one of minor, major, dorian, phrygian, lydian, mixolydian, harmonic minor, chosen to fit the mood; every progression has exactly 4 chords, one per bar, written as roman numerals relative to the key (uppercase major, lowercase minor, bVI, V7, i7, IVmaj7...) or as chord names; the chorus or drop progression must differ from the verse; choose voicing, comping, bass and arp styles that fit the genre (hard dance: power or close voicing, pulse8 or offbeat comping, driving8 bass; ambient or IDM: open voicing with 7th chords, sustain comping, sub or rootfifth bass). energy is 1 (quiet) to 10 (peak). Give 5 to 8 sections whose bars total 48 to 128. groove must be exactly dance, break or half. chords are one chord per bar for 4 bars, diatonic to the project key and scale. density and weirdness are 1 to 10. The sounds are concrete sound-design ideas a synthesizer can realise (waveforms, detune, filter tone, attack and release, FM, distortion, effects), not genre names; every voice must sound different from the others. parts lists 2 to 3 extra riff or melody voices (names of one or two words such as Stab, Pluck riff, Bell hook, Sub riff) beyond the standard chords, pad, bass, arp, lead, motif and counter. Pitched drums can only be tuned hats or tuned toms. Be specific and musical, never generic. Keep every text field under 200 characters.'
+            $user = (Get-BriefContext) + "`n`n" + ($ask -join "`n")
+            $sys += "`n`n" + (Get-StudioMusicKnowledge)
+            $res = Invoke-StudioJsonModel $model $sys $user 4500 ({ param($x) $j = Find-StudioJsonObject $x ''; if (-not $j.summary -and -not $j.drums -and -not $j.structure) { throw 'The reply held no creative brief.' }; $j }.GetNewClosure())
+            $j = $res.Value; $S.BriefData = $j
+            $S.BriefSetting = $true; $S.Brief.Text = (Format-Brief $j); $S.BriefSetting = $false; $S.BriefEdited = $false; $S.BriefKey = $key
+            if ($j.drums) {
+                if ($j.drums.density) { $S.DrDens.Value = [decimal][math]::Max(1, [math]::Min(10, [int]$j.drums.density)) }
+                if ($j.drums.weirdness) { $S.DrWeird.Value = [decimal][math]::Max(1, [math]::Min(10, [int]$j.drums.weirdness)) }
+            }
+            if ($S.DrTempo.Checked) {
+                if ($j.tempo -and [double]$j.tempo -ge 60 -and [double]$j.tempo -le 300) { $S.Bpm.Value = [decimal][double]$j.tempo }
+                if ($null -ne $j.swing -and [double]$j.swing -ge 0 -and [double]$j.swing -le 100) { $S.KSwing.Value = [double]$j.swing }
+            }
+            $S.BrStatus.Text = 'Direction ready. Edit it if you like; drums, melody and song building follow it.'
+            return $true
+        } catch {
+            $S.BrStatus.Text = 'Could not plan a direction (' + $_.Exception.Message + '). Continuing with just your words.'; Log "Direction failed: $($_.Exception.Message)"
+            return ($S.Brief.Text.Trim().Length -gt 0)
+        } finally { $S.BrPlan.Enabled = $true; $f.Cursor = 'Default' }
+    }
+    function Get-BriefText { if ($S.BrUse.Checked -and $S.Brief.Text.Trim()) { $t = $S.Brief.Text.Trim(); if ($t.Length -gt 1800) { $t = $t.Substring(0, 1800) }; return $t } else { return '' } }
+
+    # Turns the planned structure into Song-tab patterns: each section keeps the tracks and drum layers its energy level calls for
+    function Build-SongFromBrief {
+        Sync-Project
+        $j = $S.BriefData
+        if (-not $j -or -not $j.structure) { if (-not (Invoke-BriefPlan $true)) { return }; $j = $S.BriefData }
+        if (-not $j -or -not $j.structure) { $S.BrStatus.Text = 'The direction has no song structure. Try planning again.'; return }
+        if ($S.Proj.Patterns.Count -gt 0 -and [Windows.Forms.MessageBox]::Show('Replace the existing patterns and arrangement with a song built from the direction?', 'Audio Studio', 'YesNo', 'Question') -ne 'Yes') { return }
+        $p = $S.Proj
+        if (-not ($p.Tracks | Where-Object { $_.Notes.Count -gt 0 })) { $S.BrStatus.Text = 'Write some drums or melody first, then build the song from them.'; return }
+        $riser = $null; $extra = ''
+        if ($S.SdTex.Checked) {
+            try {
+                $S.BrStatus.Text = 'Adding texture layers and risers...'
+                $riser = Get-RiserTrack
+                $tx = if ($j.sounds -and $j.sounds.texture) { [string]$j.sounds.texture } else { '' }
+                if ($tx -and -not ($p.Tracks | Where-Object { $_.Name -like 'Texture*' })) { [void](Add-TextureLayer $tx); $extra = ' with a texture layer and risers' } else { $extra = ' with risers' }
+            } catch { Log "Texture layer failed: $($_.Exception.Message)" }
+        }
+        $energies = @(@($j.structure) | ForEach-Object { [int][math]::Max(1, [math]::Min(10, [double]$_.energy)) })
+        $role = @{}; foreach ($tr in $p.Tracks) {
+            $role[$tr] = if ($tr.Synth -eq 'drums' -or $tr.Name -match '\(kit\)$') { 0 } elseif ($tr.Synth -eq 'pad' -or $tr.Name -like 'Texture*') { 2 } elseif ($tr.Notes.Count -eq 0) { 3 } elseif (($tr.Notes | Measure-Object Pitch -Average).Average -lt 52) { 1 } else { 3 }
+        }
+        $p.Patterns.Clear(); $p.Song.Clear(); $rnd = New-Object Random; $n = 0
+        foreach ($sec in @($j.structure)) {
+            $e = [int][math]::Max(1, [math]::Min(10, [double]$sec.energy)); $sb = [int][math]::Max(1, [double]$sec.bars)
+            $pat = New-Object HbStudio.Pattern; $pat.Name = [string]$sec.section; if (-not $pat.Name) { $pat.Name = 'Section ' + ($n + 1) }; $pat.Bars = $p.Bars
+            foreach ($tr in $p.Tracks) {
+                if ($riser -and $tr -eq $riser) {
+                    $rk = New-Object 'Collections.Generic.List[HbStudio.Note]'; $nextE = if ($n + 1 -lt $energies.Count) { $energies[$n + 1] } else { 0 }
+                    if ($nextE - $e -ge 3 -and $p.Bars -ge 2) { $rk.Add((New-Object HbStudio.Note 48, (($p.Bars - 2) * $p.BarBeats), (2 * $p.BarBeats), 110)) }
+                    $pat.Notes.Add($rk); $pat.Mutes.Add($rk.Count -eq 0); continue
+                }
+                $r = $role[$tr]; $on = (-not $tr.Mute) -and ($tr.Notes.Count -gt 0)
+                if ($on) { switch ($r) { 0 { $on = $e -ge 3 } 1 { $on = $e -ge 5 } 2 { $on = $true } 3 { $on = $e -ge 4 -and $e -ne 5 } } }
+                $keep = New-Object 'Collections.Generic.List[HbStudio.Note]'
+                if ($on) {
+                    foreach ($nt in $tr.Notes) {
+                        $ok = $true
+                        if ($r -eq 0) { # thin the drums at lower energy: texture only (hats, perc) at 3-4, no ghosts at 5
+                            if ($e -le 4 -and $nt.Pitch -in 35, 36, 37, 38, 39, 40) { $ok = $false }
+                            elseif ($e -le 5 -and $nt.Vel -lt 60) { $ok = $false }
+                        }
+                        if ($ok) { $keep.Add($nt.Clone()) }
+                    }
+                    if ($r -eq 0 -and $e -ge 8 -and ($tr.Notes | Where-Object { $_.Pitch -eq 49 }).Count -eq 0) { $keep.Add((New-Object HbStudio.Note 49, 0.0, 0.5, 105)) }
+                    if ($keep.Count -eq 0) { $on = $false }
+                }
+                $pat.Notes.Add($keep); $pat.Mutes.Add(-not $on)
+            }
+            $p.Patterns.Add($pat)
+            if (-not ($pat.Mutes -contains $false)) { for ($k = 0; $k -lt $p.Tracks.Count; $k++) { if ($p.Tracks[$k].Notes.Count -gt 0 -and -not $p.Tracks[$k].Mute) { $pat.Notes[$k].Clear(); foreach ($nt in $p.Tracks[$k].Notes) { $pat.Notes[$k].Add($nt.Clone()) }; $pat.Mutes[$k] = $false; break } } }
+            $reps = [int][math]::Max(1, [math]::Round($sb / [double]$p.Bars)); $p.Song.Add((New-Object HbStudio.SongItem $n, $reps)); $n++
+        }
+        $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Refresh-SongUi
+        $S.BrStatus.Text = "Built $n sections on the Song tab from the direction$extra (energy decides which tracks and drum layers play). Edit, reorder or play them there."
+        $tabs.SelectedIndex = 5
+    }
+    $S.BrPlan.Add_Click({ [void](Invoke-BriefPlan $true) })
+    $S.BrSong.Add_Click({ Build-SongFromBrief })
+
+    # =====================================================================================================================
+    # Sound design and the instrument library: the direction, the melody and drum writers and the agent all create and use real synthesis.
+    # =====================================================================================================================
+    function Select-ComboText($Combo, [string]$Text) {
+        if (-not $Text) { return $false }
+        $tx = $Text.Trim().ToLower()
+        for ($k = 0; $k -lt $Combo.Items.Count; $k++) { if (([string]$Combo.Items[$k]).ToLower() -eq $tx) { $Combo.SelectedIndex = $k; return $true } }
+        for ($k = 0; $k -lt $Combo.Items.Count; $k++) { $it = ([string]$Combo.Items[$k]).ToLower(); if ($it.Contains($tx) -or $tx.Contains($it)) { $Combo.SelectedIndex = $k; return $true } }
+        return $false
+    }
+    function Set-InstStatus([string]$m) { $S.InstStatus.Text = $m; Status $m }
+    function Get-UniqueInstrumentName([string]$Base) {
+        $b = $Base.Trim(); if (-not $b) { $b = 'Instrument' }
+        if ($b.Length -gt 40) { $b = $b.Substring(0, 40).Trim() }
+        $slugs = @(Get-StudioInstruments | ForEach-Object { ConvertTo-StudioSlug ([string]$_.name) })
+        $n = $b; $k = 2
+        while ($slugs -contains (ConvertTo-StudioSlug $n)) { $n = "$b $k"; $k++ }
+        return $n
+    }
+    function ConvertTo-InstRole([string]$MelodyRole) {
+        switch -Regex ($MelodyRole.ToLower()) { 'bass' { return 'bass' } 'pad|chord' { return 'pad' } 'arp' { return 'arpeggio' } 'counter' { return 'counter' } 'hook' { return 'hook' } 'texture' { return 'texture' } 'lead' { return 'lead' } default { return 'any' } }
+    }
+
+    # Spectral voice: the AI paints a layered spectrogram (more shapes at higher depth) that is rendered additively.
+    function New-SpectralVoiceGrid([string]$Ask, [int]$Depth, [string]$Brief, [double]$Seconds) {
+        $sdoc = [HbStudio.PropIO]::Describe([HbStudio.SpectralSettings]); $nmin = 3 + $Depth
+        $sys = "You design sounds by drawing on a spectrogram. The canvas is 0..1 in both axes: x = time (0 start, 1 end), y = pitch (0 lowest, 1 highest, logarithmic). Reply with ONE JSON object and nothing else (no markdown): {`"shapes`":[...],`"settings`":{...optional...}}`n" +
+            "Shape types (numbers 0..1 except hz and count): {`"type`":`"line`",`"x0`":0,`"y0`":0.2,`"x1`":1,`"y1`":0.8,`"width`":0.3,`"amp`":0.9} a pitch sweep; {`"type`":`"curve`",`"points`":[[0,0.3],[0.3,0.7],[1,0.5]],`"width`":0.2,`"amp`":0.9} a moving contour; {`"type`":`"harmonics`",`"hz`":110,`"count`":10,`"rolloff`":0.75,`"x0`":0,`"x1`":1,`"amp`":0.8} a tone with overtones; {`"type`":`"blob`",`"x`":0.5,`"y`":0.5,`"r`":0.2,`"amp`":0.7} a soft patch; {`"type`":`"band`",`"x0`":0.4,`"x1`":0.6,`"y0`":0.6,`"y1`":0.9,`"amp`":0.6} a noise burst.`n" +
+            "Layer them like a sound designer: a harmonic stack for the body, curves or sweeps for movement, noise bands for air or grit, blobs for accents. Use at least $nmin shapes. $(Get-StudioDepthGuide $Depth)`nOptional settings:`n$sdoc"
+        $user = "Sound wanted: $Ask"; if ($Brief) { $user += "`nProducer creative direction:`n$Brief" }
+        $res = Invoke-StudioJsonModel (Get-AiModel) $sys $user 3500 ({ param($x) $o = Find-StudioJsonObject $x ''; if (@($o.shapes).Count -lt 3) { throw 'The JSON must have a "shapes" array with at least 4 shapes.' }; $o })
+        $og = $S.SpecGrid; $os = $S.SpecSet
+        $grid = New-Object HbStudio.SpectralGrid 192, 96; $set = New-Object HbStudio.SpectralSettings; $set.Seconds = $Seconds
+        try {
+            $S.SpecGrid = $grid; $S.SpecSet = $set
+            [void](Add-SpecShapes $res.Value)
+            if ($res.Value.settings -is [pscustomobject]) { [void](Set-StudioObjectFromJson $set $res.Value.settings) }
+        } finally { $S.SpecGrid = $og; $S.SpecSet = $os }
+        return @{ Grid = $grid; Set = $set; Reply = $res.Reply }
+    }
+
+    # Designs one voice from a description (kind: synth, morph or spectral) and optionally saves it to the instrument library.
+    function New-DesignedVoice([string]$Kind, [string]$Ask, [string]$Role, [string]$Brief, [double]$Seconds = 3, [string]$Context = '') {
+        $depth = [int]$S.SdDepth.Value; $model = Get-AiModel
+        $v = @{ Kind = $Kind; Name = $Role; Octave = 4; Saved = $false; Patch = $null; Fx = $null; Slots = $null; Sample = $null; Grid = $null; Set = $null; Root = 60; Gate = $true; Profile = ''; Role = $Role; Ask = $Ask; Dev = $null; Method = '' }
+        switch ($Kind) {
+            'morph' {
+                $d = Invoke-StudioMorphDesign $model $Ask $Brief $depth
+                $v.Slots = $d.Slots; $v.Set = New-Object HbStudio.MetaSettings
+                $v.Patch = [HbStudio.MetaSynth]::Bilinear($d.Slots, [double]$v.Set.X, [double]$v.Set.Y); $v.Fx = New-Object HbStudio.Fx
+                $pr = Get-StudioPatchProfile $v.Patch; $v.Octave = $pr.Octave; $v.Name = ($Role + ' morph')
+                $v.Profile = "a morphing instrument built from four different patches; it plays the blended patch: $($pr.Text). Writing advice: $($pr.Advice)."
+            }
+            'spectral' {
+                $d = New-SpectralVoiceGrid $Ask $depth $Brief $Seconds
+                $v.Grid = $d.Grid; $v.Set = $d.Set; $v.Sample = [HbStudio.Spectral]::Render($d.Grid, $d.Set); $v.Name = ($Role + ' spectral')
+                $pr = Get-StudioSpectralProfile $d.Grid $d.Set 60 $true; $v.Octave = $pr.Octave
+                $v.Profile = "$($pr.Text). Writing advice: $($pr.Advice)."
+            }
+            default {
+                $d = Invoke-StudioVoiceDesign $model $Ask $Role $Brief $depth $Context
+                $v.Patch = $d.Patch; $v.Fx = $d.Fx; $v.Name = $d.Name; $v.Dev = $d.Dev; $v.Method = $d.Method
+                $pr = Get-StudioPatchProfile $d.Patch; $v.Octave = $pr.Octave
+                $v.Profile = "$($pr.Text). Writing advice: $($pr.Advice)."
+            }
+        }
+        if ($S.SdSave.Checked) { try { Save-VoiceToLibrary $v } catch { Log "Could not save the designed sound: $($_.Exception.Message)" } }
+        return $v
+    }
+    function Save-VoiceToLibrary($v) {
+        $name = Get-UniqueInstrumentName ([string]$v.Name); $role = ConvertTo-InstRole ([string]$v.Role)
+        $notes = 'Designed by the AI from: ' + ([string]$v.Ask).Trim()
+        switch ($v.Kind) {
+            'morph' { $i = New-StudioMorphInstrument $name $v.Slots $v.Set $role ([int]$v.Octave) $notes }
+            'spectral' { $i = New-StudioSpectralInstrument $name $v.Grid $v.Set 60 $true $role ([int]$v.Octave) $notes }
+            default { $i = New-StudioPatchInstrument $name $v.Patch $v.Fx $role ([int]$v.Octave) $notes }
+        }
+        [void](Save-StudioInstrument $i); $v.Name = $name; $v.Saved = $true
+        Update-InstrumentLists
+    }
+    function Set-VoiceOnTrack($t, $v) {
+        if ($v.Sample) { $t.Sample = $v.Sample; $t.Synth = 'sample'; $t.SampleRoot = [int]$v.Root; $t.SampleGate = [bool]$v.Gate; $t.Fx = New-Object HbStudio.Fx }
+        else { $t.Patch = $v.Patch; $t.Synth = 'patch'; $t.Sample = $null; $t.Fx = $(if ($v.Fx) { $v.Fx } else { New-Object HbStudio.Fx }) }
+    }
+
+    # Texture bed: an AI-painted spectral layer (and at high depth an evolving four-patch morph) on its own sampler tracks.
+    function Add-TextureLayer([string]$Desc) {
+        $brief = Get-BriefText; $depth = [int]$S.SdDepth.Value
+        $v = New-DesignedVoice 'spectral' $Desc 'texture' $brief 8
+        $nt = Add-StudioSampleTrack 'Texture' $v.Sample 60; $nt.Vol = 0.45
+        if ($depth -ge 7) {
+            $d = Invoke-StudioMorphDesign (Get-AiModel) $Desc $brief $depth
+            $ms = New-Object HbStudio.MetaSettings; $ms.Seconds = 8; $ms.Path = $(if ($depth -ge 9) { 'wander' } else { 'tour' }); $ms.Chord = 'sus2'; $ms.Pitch = 48
+            $smp = [HbStudio.MetaSynth]::Evolve($d.Slots, $ms)
+            $mt = Add-StudioSampleTrack 'Texture morph' $smp 48; $mt.Vol = 0.4
+            if ($S.SdSave.Checked) { try { $mv = @{ Kind = 'morph'; Name = 'texture morph'; Role = 'texture'; Octave = 3; Slots = $d.Slots; Set = $ms; Ask = $Desc }; Save-VoiceToLibrary $mv } catch { } }
+        }
+        return $nt
+    }
+    function Get-RiserTrack {
+        $ex = $S.Proj.Tracks | Where-Object { $_.Name -eq 'Risers' } | Select-Object -First 1
+        if ($ex) { return $ex }
+        $t = Add-StudioPresetTrack $S.Proj 'FX - noise riser'; $t.Name = 'Risers'; $t.Vol = 0.5; Refresh-Tracks
+        return $t
+    }
+
+    # Replaces a programmed drum pattern's built-in drum sounds with a kit synthesised from scratch: one AI-designed sampler voice per drum.
+    function Invoke-DrumKitDesign($Track, [string]$Ask, [string]$Brief) {
+        $depth = [int]$S.SdDepth.Value; $model = Get-AiModel
+        $laneNames = @{ 35 = 'kick'; 36 = 'kick'; 38 = 'snare'; 40 = 'snare'; 39 = 'clap'; 37 = 'rim'; 42 = 'closed hat'; 44 = 'closed hat'; 46 = 'open hat'; 41 = 'tom'; 43 = 'tom'; 45 = 'tom'; 47 = 'tom'; 48 = 'tom'; 50 = 'tom'; 49 = 'crash'; 57 = 'crash'; 51 = 'ride'; 59 = 'ride'; 54 = 'shaker'; 56 = 'shaker'; 58 = 'shaker' }
+        # tuned drums (pitched hats 72+, pitched toms 60-71) share one pitch-shifted sampler voice each instead of one voice per note
+        $groups = @($Track.Notes | Group-Object { if ($_.Pitch -ge 72) { 'H' } elseif ($_.Pitch -ge 60) { 'T' } else { [string]$_.Pitch } } | Sort-Object Count -Descending | Select-Object -First 8)
+        if (-not $groups.Count) { return 'No drum notes to build a kit from.' }
+        $made = New-Object Collections.Generic.List[object]; $failed = @(); $k = 0
+        foreach ($g in $groups) {
+            $k++
+            if ($g.Name -eq 'H') { $pitch = 78; $lane = 'pitched hat'; $tn = 'Pitched Hat (kit)' }
+            elseif ($g.Name -eq 'T') { $pitch = 64; $lane = 'pitched tom'; $tn = 'Pitched Tom (kit)' }
+            else { $pitch = [int]$g.Name; $lane = if ($laneNames.ContainsKey($pitch)) { $laneNames[$pitch] } else { 'tom' }; $tn = (Get-Culture).TextInfo.ToTitleCase($lane) + " $pitch (kit)" }
+            $S.DrStatus.Text = "Synthesizing drum $k of $($groups.Count): $lane..."; [Windows.Forms.Application]::DoEvents()
+            try {
+                $d = Invoke-StudioDrumVoiceDesign $model $lane $pitch $Ask $Brief $depth
+                $nt = New-StudioTrack $tn 'sample'
+                $nt.Sample = $d.Sample; $nt.SampleRoot = $pitch; $nt.SampleGate = $false; $nt.Patch = $d.Patch; $nt.Fx = New-Object HbStudio.Fx; $nt.Vol = 0.85
+                foreach ($n in $g.Group) { $nt.Notes.Add($n.Clone()) }
+                $made.Add($nt)
+            } catch { $failed += $lane; Log "Kit voice '$lane' failed: $($_.Exception.Message)" }
+        }
+        if (-not $made.Count) { return 'The kit could not be synthesized (the AI replies were unusable); the built-in drums are kept.' }
+        $ranges = @($made | ForEach-Object { Get-StudioKitRange $_ })
+        $keep = @($Track.Notes | Where-Object { $p = [int]$_.Pitch; $hit = $false; foreach ($r in $ranges) { if ($p -ge $r.Lo -and $p -le $r.Hi) { $hit = $true; break } }; -not $hit }); $Track.Notes.Clear(); foreach ($n in $keep) { $Track.Notes.Add($n) }
+        foreach ($nt in $made) { $S.Proj.Tracks.Add($nt) }
+        if ($Track.Notes.Count -eq 0 -and $S.Proj.Tracks.Count -gt 1) { [void]$S.Proj.Tracks.Remove($Track) }
+        Refresh-Tracks ($S.Proj.Tracks.Count - 1); $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit
+        $msg = "Synthesized a kit of $($made.Count) AI-designed drum voices (new '(kit)' tracks)."
+        if ($failed.Count) { $msg += " Kept the built-in sound for: $($failed -join ', ')." }
+        return $msg
+    }
+
+    # One button: design synths for every melodic track, a kit for the drums, and texture layers, all from the creative direction.
+    function Get-TrackRoleName($t) {
+        if ($t.Name -match 'bass') { return 'Bassline' }; if ($t.Name -match 'pad|chord') { return 'Chords / pad' }; if ($t.Name -match 'arp') { return 'Arpeggio' }
+        if ($t.Name -match 'counter') { return 'Counter-melody' }; if ($t.Name -match 'hook') { return 'Hook / motif' }; if ($t.Name -match 'lead|melod') { return 'Lead melody' }
+        if ($t.Notes.Count -gt 0 -and ($t.Notes | Measure-Object Pitch -Average).Average -lt 52) { return 'Bassline' }
+        return 'Lead melody'
+    }
+    function Invoke-DesignAllSounds {
+        $S.SdGo.Enabled = $false; $f.Cursor = 'AppStarting'
+        try {
+            Sync-Project; [void](Invoke-BriefPlan $false); $brief = Get-BriefText; $j = $S.BriefData
+            $targets = @($S.Proj.Tracks | Where-Object { $_.Synth -notin 'sample', 'patch' -and $_.Name -ne 'Risers' -and $_.Name -notlike 'Texture*' -and ($_.Notes.Count -gt 0) })
+            $log = New-Object Collections.Generic.List[string]; $k = 0
+            foreach ($t in $targets) {
+                $k++; $S.SdStatus.Text = "Designing sound $k of $($targets.Count): '$($t.Name)'..."; [Windows.Forms.Application]::DoEvents()
+                try {
+                    if ($t.Synth -eq 'drums') {
+                        $ask = if ($j.sounds.drums) { [string]$j.sounds.drums } else { 'punchy electronic drum kit that fits the direction' }
+                        $log.Add((Invoke-DrumKitDesign $t $ask $brief))
+                    } else {
+                        $rn = Get-TrackRoleName $t; $key = (ConvertTo-InstRole $rn)
+                        $ask = if ($j.sounds -and $j.sounds.$key) { [string]$j.sounds.$key } elseif ($j.sounds -and $j.sounds.lead) { [string]$j.sounds.lead } else { "a $rn voice that fits the direction" }
+                        $v = New-DesignedVoice 'synth' $ask $rn $brief 3 (Get-StudioVoiceContextText $S.Proj $S.LastPlan $t.Name)
+                        Set-VoiceOnTrack $t $v; $log.Add("'$($t.Name)': designed '$($v.Name)'" + $(if ($v.Saved) { ' (saved)' } else { '' }))
+                    }
+                } catch { $log.Add("'$($t.Name)' failed: $($_.Exception.Message)") }
+            }
+            if ($S.SdTex.Checked) {
+                try {
+                    $S.SdStatus.Text = 'Painting the texture layer...'; [Windows.Forms.Application]::DoEvents()
+                    $tx = if ($j.sounds -and $j.sounds.texture) { [string]$j.sounds.texture } else { 'a slowly evolving atmospheric texture that matches the direction' }
+                    [void](Add-TextureLayer $tx); [void](Get-RiserTrack); $log.Add('Added a texture layer and a risers track (risers get notes when you build the song).')
+                } catch { $log.Add("Texture layer failed: $($_.Exception.Message)") }
+            }
+            Load-TrackProps; Refresh-Tracks; $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit
+            $S.SdStatus.Text = ($log -join '  ')
+            Log ('Sound design: ' + ($log -join ' | '))
+        } catch { $S.SdStatus.Text = 'Sound design failed: ' + $_.Exception.Message; Log ('Sound design failed: ' + $_.Exception.Message) }
+        finally { $S.SdGo.Enabled = $true; $f.Cursor = 'Default' }
+    }
+    $S.SdGo.Add_Click({ Invoke-DesignAllSounds })
+
+    # ---- Instruments tab -----------------------------------------------------------------------------------------------
+    $tInst.Controls.Add((Lbl 'Saved instruments (patches, morphs, spectral sounds, samples)' 4 4 300))
+    $S.InstList = New-LabList 4 24 262 210
+    $S.InstDel = Btn 'Delete' 4 240 64 26; $S.InstRefresh = Btn 'Refresh' 72 240 64 26; $S.InstFolder = Btn 'Open folder' 140 240 90 26
+    $tInst.Controls.Add((Lbl 'Name' 278 28 44)); $S.InstName = Sty (New-Object Windows.Forms.TextBox); $S.InstName.SetBounds(326, 24, 200, 24)
+    $tInst.Controls.Add((Lbl 'Role' 278 58 44)); $S.InstRole = Combo $script:StudioInstrumentRoles 326 54 140; $S.InstRole.SelectedIndex = 0
+    $tInst.Controls.Add((Lbl 'Octave' 278 88 44)); $S.InstOct = Num 0 0 8 1 0 326 84 60; $tInst.Controls.Add((Lbl '0 = automatic' 392 88 90))
+    $tInst.Controls.Add((Lbl 'Root note' 278 118 48)); $S.InstRoot = Num 60 0 127 1 0 326 114 60; $tInst.Controls.Add((Lbl 'for spectral voices' 392 118 120))
+    $S.InstGate = New-Object Windows.Forms.CheckBox; $S.InstGate.Text = 'Gate sampler voices to note length'; $S.InstGate.Checked = $true; $S.InstGate.SetBounds(278, 142, 250, 22)
+    $tInst.Controls.Add((Lbl 'Your notes for the AI (character, when to use it)' 278 168 260))
+    $S.InstNotes = Sty (New-Object Windows.Forms.TextBox); $S.InstNotes.Multiline = $true; $S.InstNotes.ScrollBars = 'Vertical'; $S.InstNotes.SetBounds(278, 188, 250, 46)
+    $S.InstUpdate = Btn 'Update details' 278 240 120 26 $true
+    $tInst.Controls.Add((Lbl 'Save into the library (uses the name box)' 544 4 300))
+    $S.InstFromTrack = Btn 'Selected track sound' 544 26 200; $S.InstFromMorph = Btn 'Meta synth morph (4 patches)' 544 58 200; $S.InstFromSpec = Btn 'Spectral canvas' 544 90 200
+    $S.InstFx = New-Object Windows.Forms.CheckBox; $S.InstFx.Text = 'Include track effects'; $S.InstFx.Checked = $true; $S.InstFx.SetBounds(544, 122, 200, 22)
+    $tInst.Controls.Add((Lbl 'Use the selected instrument' 544 150 200))
+    $S.InstApply = Btn 'Apply to selected track' 544 172 200; $S.InstNewTrack = Btn 'New track with it' 544 202 200
+    $S.InstAud = Btn 'Audition' 544 236 96 26 $true; $S.InstStop = Btn 'Stop' 648 236 96 26
+    $S.InstLoad = Btn 'Load into editor' 756 26 140; $S.InstWrite = Btn 'Write melody with it' 756 58 140
+    $S.InstHits = Btn 'Import library hits' 756 90 140
+    $S.InstStatus = Lbl '' 756 122 150; $S.InstStatus.Height = 142
+    $S.InstProfile = Sty (New-Object Windows.Forms.TextBox); $S.InstProfile.Multiline = $true; $S.InstProfile.ReadOnly = $true; $S.InstProfile.ScrollBars = 'Vertical'; $S.InstProfile.SetBounds(910, 4, 456, 262)
+    $S.InstProfile.Text = 'Select an instrument to see what the AI knows about it: how it sounds and how it writes for it.'
+    $tInst.Controls.AddRange(@($S.InstList, $S.InstDel, $S.InstRefresh, $S.InstFolder, $S.InstName, $S.InstRole, $S.InstOct, $S.InstRoot, $S.InstGate, $S.InstNotes, $S.InstUpdate, $S.InstFromTrack, $S.InstFromMorph, $S.InstFromSpec, $S.InstFx, $S.InstApply, $S.InstNewTrack, $S.InstAud, $S.InstStop, $S.InstLoad, $S.InstWrite, $S.InstHits, $S.InstStatus, $S.InstProfile))
+
+    function Update-InstrumentLists {
+        $all = @(Get-StudioInstruments); $selI = [string]$S.InstList.SelectedItem; $selM = [string]$S.MeInst.SelectedItem
+        $S.InstBusy = $true
+        try {
+            $S.InstList.Items.Clear(); foreach ($i in $all) { [void]$S.InstList.Items.Add([string]$i.name) }
+            $S.MeInst.Items.Clear(); foreach ($x in $script:MeInstFixed) { [void]$S.MeInst.Items.Add($x) }; foreach ($i in $all) { [void]$S.MeInst.Items.Add([string]$i.name) }
+            if ($S.TInstrument) { $selT = [string]$S.TInstrument.SelectedItem; $S.TInstrument.Items.Clear(); foreach ($sy in $script:StudioSynths) { [void]$S.TInstrument.Items.Add($sy) }; foreach ($kn in [HbStudio.DrumKits]::Names) { if ($kn -ne 'Standard') { [void]$S.TInstrument.Items.Add('Kit: ' + $kn) } }; foreach ($i in $all) { [void]$S.TInstrument.Items.Add('Inst: ' + [string]$i.name) }; if ($selT) { $k = $S.TInstrument.Items.IndexOf($selT); if ($k -ge 0) { $S.TInstrument.SelectedIndex = $k } } }
+            if ($S.TPreset) { $selP = [string]$S.TPreset.SelectedItem; $S.TPreset.Items.Clear(); [void]$S.TPreset.Items.Add('(none)'); foreach ($k in $script:StudioPresets.Keys) { [void]$S.TPreset.Items.Add($k) }; if ($selP) { $k = $S.TPreset.Items.IndexOf($selP); if ($k -ge 0) { $S.TPreset.SelectedIndex = $k } } }
+            if ($S.TSample) { $selS = [string]$S.TSample.SelectedItem; $S.TSample.Items.Clear(); [void]$S.TSample.Items.Add('(none)'); foreach ($i in $all) { if ([string]$i.kind -in 'sample', 'spectral') { [void]$S.TSample.Items.Add([string]$i.name) } }; if ($selS) { $k = $S.TSample.Items.IndexOf($selS); if ($k -ge 0) { $S.TSample.SelectedIndex = $k } } }
+            if ($selI) { $k = $S.InstList.Items.IndexOf($selI); if ($k -ge 0) { $S.InstList.SelectedIndex = $k } }
+            $k = if ($selM) { $S.MeInst.Items.IndexOf($selM) } else { 0 }; $S.MeInst.SelectedIndex = [math]::Max(0, $k)
+        } finally { $S.InstBusy = $false }
+        Show-InstrumentDetails
+    }
+    function Show-InstrumentDetails {
+        $n = [string]$S.InstList.SelectedItem; if (-not $n) { return }
+        $i = Get-StudioInstrument $n; if (-not $i) { return }
+        $S.InstName.Text = [string]$i.name; [void](Select-ComboText $S.InstRole ([string]$i.role))
+        $S.InstOct.Value = [decimal][math]::Max(0, [math]::Min(8, [int]$i.octave)); $S.InstNotes.Text = [string]$i.notes
+        if ($null -ne $i.root) { $S.InstRoot.Value = [decimal][math]::Max(0, [math]::Min(127, [int]$i.root)) }
+        if ($null -ne $i.gate) { $S.InstGate.Checked = [bool]$i.gate }
+        try {
+            $pr = Get-StudioInstrumentProfile $i
+            $S.InstProfile.Text = ("WHAT THE AI KNOWS ABOUT THIS INSTRUMENT`r`n`r`nKind: {0}`r`nBest role: {1}, register around octave {2}`r`n`r`nSounds like: {3}`r`n`r`nHow the AI writes for it: {4}`r`n`r`nYour notes: {5}" -f $i.kind, (Get-StudioInstrumentRole $i), (Get-StudioInstrumentOctave $i), $pr.Text, $pr.Advice, $(if ([string]$i.notes) { $i.notes } else { '(none)' }))
+        } catch { $S.InstProfile.Text = 'Could not analyse this instrument: ' + $_.Exception.Message }
+    }
+    function Get-SelectedInstrument {
+        $n = [string]$S.InstList.SelectedItem; if (-not $n) { Set-InstStatus 'Pick an instrument in the list first.'; return $null }
+        return (Get-StudioInstrument $n)
+    }
+    function Read-InstrumentName([string]$Default) {
+        Add-Type -AssemblyName Microsoft.VisualBasic
+        return ([Microsoft.VisualBasic.Interaction]::InputBox('Name for this instrument (the AI will use this name):', 'Save instrument', $Default)).Trim()
+    }
+    function Save-InstrumentFrom([string]$Source, [string]$Name, [string]$Role, [int]$Oct, [string]$Notes, [bool]$Gate, [int]$Root, [bool]$IncludeFx) {
+        Sync-Project
+        switch ($Source) {
+            'track' {
+                $t = Get-CurTrack; if (-not $t) { throw 'Select a track first.' }
+                if ($t.Synth -eq 'patch' -and $t.Patch) { $i = New-StudioPatchInstrument $Name $t.Patch $(if ($IncludeFx) { $t.Fx } else { $null }) $Role $Oct $Notes }
+                elseif ($t.Synth -eq 'sample' -and $t.Sample) { $i = New-StudioSampleInstrument $Name $t $Role $Oct $Notes }
+                else { throw "Track '$($t.Name)' uses the built-in '$($t.Synth)' synth. Design it in the Sound Lab first (or apply a preset on the Song tab), then save it." }
+            }
+            'morph' { $i = New-StudioMorphInstrument $Name $S.MetaSlots $S.MetaSet $Role $Oct $Notes }
+            'spectral' {
+                if ($S.SpecGrid.Peak() -lt 0.01) { throw 'The spectral canvas is empty. Paint or generate something first.' }
+                $i = New-StudioSpectralInstrument $Name $S.SpecGrid $S.SpecSet $Root $Gate $Role $Oct $Notes
+            }
+        }
+        return (Save-StudioInstrument $i)
+    }
+    # Ask = quick save from another tab (asks for a name, no extra details); otherwise uses the form on the Instruments tab.
+    function Invoke-InstrumentSave([string]$Source, [bool]$Ask) {
+        try {
+            $defaults = @{ track = 'My patch'; morph = 'My morph'; spectral = 'My spectral sound' }
+            if ($Ask) { $name = Read-InstrumentName $defaults[$Source]; $role = 'any'; $oct = 0; $notes = '' }
+            else { $name = $S.InstName.Text.Trim(); if (-not $name) { $name = Read-InstrumentName $defaults[$Source] }; $role = [string]$S.InstRole.SelectedItem; $oct = [int]$S.InstOct.Value; $notes = $S.InstNotes.Text.Trim() }
+            if (-not $name) { return }
+            if (Find-StudioInstrument $name) { if ((Get-StudioInstrument $name) -and [Windows.Forms.MessageBox]::Show("An instrument called '$name' exists. Replace it?", 'Audio Studio', 'YesNo', 'Question') -ne 'Yes') { return } }
+            [void](Save-InstrumentFrom $Source $name $role $oct $notes $S.InstGate.Checked ([int]$S.InstRoot.Value) $S.InstFx.Checked)
+            Update-InstrumentLists; [void](Select-ComboText $S.InstList $name)
+            Set-InstStatus "Saved '$name'. The melody writer, track AI and agent can use it now (Drums & melody > instrument box)."
+        } catch { Set-InstStatus ('Save failed: ' + $_.Exception.Message) }
+    }
+    $S.InstFromTrack.Add_Click({ Invoke-InstrumentSave 'track' $false }); $S.InstFromMorph.Add_Click({ Invoke-InstrumentSave 'morph' $false }); $S.InstFromSpec.Add_Click({ Invoke-InstrumentSave 'spectral' $false })
+    $S.LabInst.Add_Click({ Invoke-InstrumentSave 'track' $true }); $S.SpecInst.Add_Click({ Invoke-InstrumentSave 'spectral' $true }); $S.MetaInst.Add_Click({ Invoke-InstrumentSave 'morph' $true })
+    $S.InstList.Add_SelectedIndexChanged({ if (-not $S.InstBusy) { Show-InstrumentDetails } })
+    $S.InstRefresh.Add_Click({ Update-InstrumentLists })
+    $S.InstHits.Add_Click({
+        try {
+            $S.InstHits.Enabled = $false
+            $r = Import-StudioHitLibraries
+            Update-InstrumentLists
+            Set-InstStatus ("Library hits: {0} added, {1} already there, {2} failed." -f $r.Added, $r.Kept, $r.Failed)
+        } catch { Set-InstStatus ('Import failed: ' + $_.Exception.Message) }
+        finally { $S.InstHits.Enabled = $true }
+    })
+    $S.InstFolder.Add_Click({ Start-Process (Get-StudioInstrumentDir) })
+    $S.InstDel.Add_Click({
+        $i = Get-SelectedInstrument; if (-not $i) { return }
+        if ([Windows.Forms.MessageBox]::Show("Delete instrument '$($i.name)'?", 'Audio Studio', 'YesNo', 'Question') -ne 'Yes') { return }
+        Remove-StudioInstrument $i; Update-InstrumentLists; Set-InstStatus "Deleted '$($i.name)'." })
+    $S.InstUpdate.Add_Click({
+        try {
+            $i = Get-SelectedInstrument; if (-not $i) { return }
+            $new = $S.InstName.Text.Trim(); if (-not $new) { return }
+            $old = $i._file
+            $i.name = $new; $i.role = [string]$S.InstRole.SelectedItem; $i.octave = [int]$S.InstOct.Value; $i.notes = $S.InstNotes.Text.Trim()
+            if ($null -ne $i.root) { $i.root = [int]$S.InstRoot.Value }; if ($null -ne $i.gate) { $i.gate = $S.InstGate.Checked }
+            $path = Save-StudioInstrument $i
+            if ($old -and ($old -ne $path) -and (Test-Path -LiteralPath $old)) { Remove-Item -LiteralPath $old -Force }
+            Update-InstrumentLists; [void](Select-ComboText $S.InstList $new); Set-InstStatus "Updated '$new'."
+        } catch { Set-InstStatus ('Update failed: ' + $_.Exception.Message) } })
+    $S.InstApply.Add_Click({
+        try {
+            $i = Get-SelectedInstrument; if (-not $i) { return }
+            $t = Get-CurTrack; if (-not $t) { Set-InstStatus 'Select a track first.'; return }
+            $f.Cursor = 'WaitCursor'; Set-InstStatus 'Applying (spectral voices are rendered first)...'
+            Set-StudioTrackFromInstrument $t $i; Load-TrackProps; $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Set-InstStatus "Track '$($t.Name)' now sounds like '$($i.name)'."
+        } catch { Set-InstStatus ('Failed: ' + $_.Exception.Message) } finally { $f.Cursor = 'Default' } })
+    $S.InstNewTrack.Add_Click({
+        try {
+            $i = Get-SelectedInstrument; if (-not $i) { return }
+            $f.Cursor = 'WaitCursor'; $nt = New-StudioTrack ([string]$i.name) 'patch'; Set-StudioTrackFromInstrument $nt $i
+            $root = if ($nt.Synth -eq 'sample') { $nt.SampleRoot } else { ((Get-StudioInstrumentOctave $i) + 1) * 12 }
+            $nt.Notes.Add((New-Object HbStudio.Note $root, 0, 1, 100))
+            $S.Proj.Tracks.Add($nt); Refresh-Tracks ($S.Proj.Tracks.Count - 1); $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Set-InstStatus "New track '$($nt.Name)'."
+        } catch { Set-InstStatus ('Failed: ' + $_.Exception.Message) } finally { $f.Cursor = 'Default' } })
+    $S.InstAud.Add_Click({
+        try {
+            $i = Get-SelectedInstrument; if (-not $i) { return }
+            $f.Cursor = 'WaitCursor'; $tmp = New-Object HbStudio.Track; Set-StudioTrackFromInstrument $tmp $i
+            $pitch = if ($tmp.Synth -eq 'sample') { $tmp.SampleRoot } else { ((Get-StudioInstrumentOctave $i) + 1) * 12 }
+            Play-StudioSamples ([HbStudio.Dsp]::RenderSample($tmp, $pitch, 2.5, $true)); Set-InstStatus "Playing '$($i.name)' on $(ConvertTo-StudioNoteName $pitch)."
+        } catch { Set-InstStatus ('Failed: ' + $_.Exception.Message) } finally { $f.Cursor = 'Default' } })
+    $S.InstStop.Add_Click({ if ($S.Aud) { try { $S.Aud.Stop() } catch { } } })
+    $S.InstLoad.Add_Click({
+        try {
+            $i = Get-SelectedInstrument; if (-not $i) { return }
+            switch ([string]$i.kind) {
+                'morph' {
+                    $src = @($i.slots); for ($k = 0; $k -lt 4; $k++) { $p = New-Object HbStudio.Patch; [void](Set-StudioObjectFromJson $p $src[[math]::Min($k, $src.Count - 1)]); $S.MetaSlots[$k] = $p }
+                    if ($i.meta) { [void](Set-StudioObjectFromJson $S.MetaSet $i.meta) }
+                    Select-MetaSlot $S.MetaSel; $S.GridMeta.Refresh(); $tabs.SelectedIndex = 8; Set-InstStatus "Loaded '$($i.name)' into the Meta synth tab."
+                }
+                'spectral' {
+                    $S.SpecGrid = ConvertFrom-StudioGridData $i.grid; if ($i.spectral) { [void](Set-StudioObjectFromJson $S.SpecSet $i.spectral) }
+                    $S.GridSpec.Refresh(); Update-SpecView; $tabs.SelectedIndex = 7; Set-InstStatus "Loaded '$($i.name)' into the Spectral tab."
+                }
+                'patch' {
+                    $t = Get-CurTrack; if (-not $t) { return }
+                    Set-StudioTrackFromInstrument $t $i; Load-TrackProps; $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; $tabs.SelectedIndex = 4; Set-InstStatus "Loaded '$($i.name)' into the Sound Lab for '$($t.Name)'."
+                }
+                default { Set-InstStatus 'Sampled instruments can be applied to a track but have no editor.' }
+            }
+        } catch { Set-InstStatus ('Failed: ' + $_.Exception.Message) } })
+    $S.InstWrite.Add_Click({
+        $i = Get-SelectedInstrument; if (-not $i) { return }
+        if (Select-ComboText $S.MeInst ([string]$i.name)) { $tabs.SelectedIndex = 11; Set-InstStatus "Instrument '$($i.name)' selected on the Drums & melody tab. Describe the melody and press Write melody." }
+    })
+    $S.MeInst.Add_SelectedIndexChanged({
+        if ($S.InstBusy -or $S.MeInst.SelectedIndex -lt $script:MeInstFixed.Count) { return }
+        $i = Get-StudioInstrument ([string]$S.MeInst.SelectedItem); if (-not $i) { return }
+        $mn = $script:StudioRoleToMelody[(Get-StudioInstrumentRole $i)]; if ($mn) { [void](Select-ComboText $S.MeRole $mn) }
+        $S.MeOct.Value = [decimal][math]::Max(0, [math]::Min(8, (Get-StudioInstrumentOctave $i)))
+    })
+    $S.InstBusy = $false; Update-InstrumentLists
+
+    # ---- Studio agent tab: reads the manual, the project and the instrument library, plans steps and runs them with the studio's own tools ----
+    $script:StudioAgentActions = @'
+You are the studio agent. Turn the user's goal into a short plan of steps that the studio runs with its own tools.
+Reply with ONE JSON object and nothing else (no markdown): {"plan":"one sentence","steps":[{"do":"...", ...}]}. At most 8 steps, in the order they must run. Use exact track and instrument names from the context.
+Steps you can use:
+{"do":"produce_song","request":"the whole song described","style":"optional style name","complexity":8,"use_song_model":true}  BUILD A COMPLETE SONG at the highest composition quality: render a reference with the audio gen models (ACE-Step / Stable Audio) and split stems, then rebuild tempo, time signature, key, chords and structure from the audio, write the melody, riffs and drums over the detected chords from the prompt, design a distinct synthesised sound for every part and the drum kit, lay the whole song out phrase by phrase on the piano roll with section markers, mix, quality listening pass and master. When the goal asks for a song, track or tune this must be the only step. It replaces the project (after backing it up). Set use_song_model:false to skip the audio gen models (faster).
+{"do":"plan_direction","request":"..."}  AI creative direction (genre, mood, structure, chords, sound ideas) that later steps follow. Use it first for a whole-track goal.
+{"do":"write_melody","request":"...","role":"Lead melody|Bassline|Arpeggio|Chords / pad|Counter-melody|Hook / motif","style":"optional","bars":2,"instrument":"<saved name> | auto | design synth | design morph | design spectral | none"}  writes notes on a NEW track; "auto" lets the writer pick from the saved instruments, "design ..." synthesises a fresh sound first and writes notes for it. Do not add_track before it.
+{"do":"write_drums","request":"...","bars":2,"density":1-10,"weirdness":1-10,"kit":true|false}  programs drums on a new track; kit:true synthesises every drum as its own AI-designed voice.
+{"do":"compose","request":"..."}  AI writes notes (in beats) into the selected track.
+{"do":"design_sound","kind":"synth|morph|spectral","description":"...","role":"lead|bass|arpeggio|pad|counter|hook|texture","new_track":true}  synthesise a new voice with the sound-design AI (applies to the selected track, or a new track).
+{"do":"refine_patch","description":"darker and more aggressive"}  tweak the selected track's synth patch.
+{"do":"design_fx","description":"..."}  design the selected track's effects chain.
+{"do":"design_sample","description":"..."}  one-shot sample (hit, riser, bass note) on a new sampler track.
+{"do":"design_kit","description":"..."}  turn the selected drum track into a synthesised kit.
+{"do":"texture","description":"..."}  add an evolving spectral (and morph) texture bed on new tracks.
+{"do":"use_instrument","instrument":"<saved name>","track":"<optional track name>"}  give a track the sound of a saved instrument.
+{"do":"add_track","name":"...","synth":"acid|saw|square|tri|sine|pad|fm|pluck|noise","instrument":"<optional saved name>"}
+{"do":"save_instrument","name":"...","role":"lead|bass|arpeggio|pad|counter|hook|texture|percussion|any","notes":"..."}  save the selected track's patch or sample to the library.
+{"do":"select_track","track":"<name>"}
+{"do":"edit","tool":"<edit tool id>","times":1,"amount":0.06,"chance":30,"rolls":3}  an edit tool on the selected track.
+{"do":"generate","id":"euc|walk|poly","hits":5,"steps":16,"rotate":0,"note":36}  replaces the selected track's notes.
+{"do":"mix","request":"sidechain the bass to the kick, darker and wider"}  mix rules, track levels and the master chain.
+{"do":"set_project","bpm":140,"swing":10,"key":"C","scale":"minor"}
+{"do":"build_song"}  turn the direction's structure into song patterns, with risers and texture layers if enabled.
+{"do":"compose_song","request":"optional description","style":"optional style name","use_song_model":false}  the full composer: direction with harmony per section, melody, drums (and a synthesised kit if enabled), chords, bass, arps, designed sounds, one pattern per section with its own chords and energy, mix rules and auto master. Use it for whole-song goals instead of many small steps.
+{"do":"arrange_song"}  harmony plan + arrangement from the existing direction and tracks (chords, bass, arp, drums per section).
+{"do":"write_chords","progression":"i VI III VII","voicing":"open|close|spread|power|shell","comping":"sustain|half|offbeat|pulse8|synco|stab","new_track":true}  voiced chords from roman numerals or chord names. Omit progression to reuse the chord lab text.
+{"do":"write_bass","progression":"Cm | Ab | Bb | G","bass":"root|rootfifth|driving8|octave|synco|offbeat|sub|walking|acid16"}  a bass line that follows the chords.
+{"do":"write_arp","progression":"...","arp":"up|updown|broken|trance"}  an arpeggio over the chords.
+{"do":"harmonize_melody"}  make the selected track's notes fit the chord progression in the chord lab.
+{"do":"song_model","request":"...","duration":60,"stems":false,"rebuild":true}  render a reference with the song models (ACE-Step / Stable Audio), then analyse it and rebuild the song as editable parts: tempo, time signature, key, chords from the harmonic stems, song structure (section markers), and editable melody, drums and bass note tracks with synth patches matched to each stem's timbre. With stems and rebuild (both true by default when you want editable parts).
+{"do":"master"}  mix rules, level balance and an auto master tuned to the whole song.
+{"do":"set_style","style":"<style name>"}  apply a style template (Techno, House, Trance, Drum and bass, IDM, Ambient, Synthwave, Lo-fi hip hop, Dubstep, Electro, Boards of Canada, Cinematic, or the user's saved styles) before composing.
+{"do":"analyze_mix"}  render the song and measure loudness per section, tonal balance, stereo width and peaks.
+{"do":"producer_pass"}  measure the mix, fix what is wrong (levels, EQ cuts, width, energy curve per section) and measure again.
+{"do":"quality_pass","complexity":7}  listen to the whole song and every sound, score melody, beats and harmony, compare with the style (or a song-model render), repair weird, noisy, harsh or off-pitch voices, fix the mix and rebuild the arrangement at higher complexity when it is too simple. Complete songs are written as one timeline on the piano roll with section markers.
+{"do":"check_sounds"}  render every voice, detect noisy, harsh, off-pitch, slow or clipping sounds and repair them.
+{"do":"develop_sounds","amount":1}  make the synth voices evolve through the song: patch parameters (filter, FM index, wavetable morph, sync, drive, unison, damping) are automated per section from the voice's own character and each section's energy, so intros are restrained, builds open up, drops are fullest and breakdowns are stripped.
+Rules: prefer the user's saved instruments when one fits the goal. Use design_sound or design kit when the goal asks for new or special sounds. Spectral and morph voices suit textures and pads; synth suits everything. Keep steps few and purposeful.
+'@
+    $tAgent.Controls.Add((Lbl 'Tell the agent what you want. It reads the manual, your project and your instruments, plans steps and runs them with the studio tools.' 8 4 640))
+    $S.AgentGoal = Sty (New-Object Windows.Forms.TextBox); $S.AgentGoal.Multiline = $true; $S.AgentGoal.ScrollBars = 'Vertical'; $S.AgentGoal.SetBounds(8, 28, 640, 100)
+    $S.AgentGoal.Text = 'Make an eerie 150 BPM IDM track: a synthesized broken drum kit, a glassy FM arpeggio using one of my instruments, and a dark evolving texture.'
+    $S.AgentGo = Btn 'Run agent' 8 136 130 30 $true
+    $S.AgentAsk = New-Object Windows.Forms.CheckBox; $S.AgentAsk.Text = 'Show the plan and ask first'; $S.AgentAsk.Checked = $true; $S.AgentAsk.SetBounds(146, 141, 210, 22)
+    $S.AgentKnow = Btn 'Show what the AI knows' 362 136 180 30
+    $S.AgentStatus = Lbl '' 8 204 640; $S.AgentStatus.Height = 56
+    $S.AgentMode = Combo @('Auto: build a full song for song goals, plan AI steps for edits', 'Always build a complete song (replaces the project)', 'Always plan AI steps') 8 168 480; $S.AgentMode.SelectedIndex = 0; $S.AgentSheet = ''
+    $S.AgentOut = Sty (New-Object Windows.Forms.TextBox); $S.AgentOut.Multiline = $true; $S.AgentOut.ReadOnly = $true; $S.AgentOut.ScrollBars = 'Vertical'; $S.AgentOut.SetBounds(660, 4, 706, 262)
+    $tAgent.Controls.AddRange(@($S.AgentGoal, $S.AgentGo, $S.AgentAsk, $S.AgentKnow, $S.AgentMode, $S.AgentStatus, $S.AgentOut))
+
+    function Get-AgentContext {
+        Sync-Project; $p = $S.Proj; $cur = Get-CurTrack; $lines = @()
+        foreach ($tr in $p.Tracks) {
+            $snd = Get-StudioTrackSoundText $tr; if ($snd.Length -gt 240) { $snd = $snd.Substring(0, 240) + '...' }
+            $lines += ('- "{0}"{1}: {2} notes. {3}' -f $tr.Name, $(if ($tr -eq $cur) { ' (selected)' } else { '' }), $tr.Notes.Count, $snd)
+        }
+        $cat = Get-StudioInstrumentCatalogText '' 20; if (-not $cat) { $cat = '(none saved yet)' }
+        $brief = Get-BriefText
+        $ctx = ('Project: {0} BPM, time signature {1}/{2}, {3} bars, key {4} {5}, swing {6}%.' -f $p.Bpm, $p.BeatsPerBar, $p.BeatUnit, $p.Bars, $S.Key.Text, $p.Scale, [int]($p.Swing * 100)) + "`nTracks:`n" + ($lines -join "`n") + "`n`nSaved instruments:`n$cat"
+        if ($brief) { $ctx += "`n`nCreative direction in use:`n$brief" }
+        return $ctx
+    }
+    function Get-TrackIndexByName([string]$n) {
+        if (-not $n) { return -1 }; $k = 0
+        foreach ($t in $S.Proj.Tracks) { if ($t.Name -ieq $n.Trim()) { return $k }; $k++ }
+        $k = 0; foreach ($t in $S.Proj.Tracks) { if ($t.Name.ToLower().Contains($n.Trim().ToLower())) { return $k }; $k++ }
+        return -1
+    }
+    function Use-AgentTrack([string]$n) {
+        if (-not $n) { return }; $k = Get-TrackIndexByName $n
+        if ($k -lt 0) { throw "No track called '$n'." }; $S.TrackList.SelectedIndex = $k
+    }
+    $script:AgentEditTools = @('up1', 'dn1', 'up12', 'dn12', 'quant', 'scale', 'rev', 'dbl', 'half', 'legato', 'stacc', 'velup', 'veldn', 'velrnd', 'accent', 'inv', 'nudge', 'nudgeb', 'thin', 'octl', 'clear', 'hum', 'mut', 'chop', 'ratch')
+    function Invoke-AgentStep($st) {
+        $do = [string]$st.do
+        switch ($do) {
+            'plan_direction' {
+                $rq = [string]$st.request; if ($rq) { $S.DrPrompt.Text = $rq; $S.MePrompt.Text = $rq }
+                if (-not (Invoke-BriefPlan $true)) { throw 'Could not plan a direction.' }; return 'direction planned (see the Drums & melody tab).'
+            }
+            'write_melody' {
+                if ($st.request) { $S.MePrompt.Text = [string]$st.request }
+                if ($st.role) { [void](Select-ComboText $S.MeRole ([string]$st.role)) }
+                $S.MeStyle.SelectedIndex = 0; if ($st.style) { if (-not (Select-ComboText $S.MeStyle ([string]$st.style))) { $S.MePrompt.Text += ' Style: ' + [string]$st.style } }
+                if ($st.bars) { $S.MeBars.Value = [decimal][math]::Max(1, [math]::Min(8, [int]$st.bars)) }
+                $inst = ([string]$st.instrument).ToLower().Trim()
+                $idx = if ($inst -match '^auto') { 1 } elseif ($inst -match 'design.*morph') { 3 } elseif ($inst -match 'design.*spectral') { 4 } elseif ($inst -match 'design') { 2 } elseif ($inst -match '^(none)?$') { 0 } else { -1 }
+                if ($idx -ge 0) { $S.MeInst.SelectedIndex = $idx } elseif (-not (Select-ComboText $S.MeInst ([string]$st.instrument))) { $S.MeInst.SelectedIndex = 1 }
+                $S.MeNew.Checked = $true; $S.MeMode.SelectedIndex = 0
+                Invoke-WriteAi 'melody'; $r = $S.MeStatus.Text; if ($r -like 'Failed*') { throw $r }; return $r
+            }
+            'write_drums' {
+                if ($st.request) { $S.DrPrompt.Text = [string]$st.request }
+                if ($st.style) { if (-not (Select-ComboText $S.DrStyle ([string]$st.style))) { $S.DrStyle.SelectedIndex = 0; $S.DrPrompt.Text += ' Style: ' + [string]$st.style } }
+                if ($st.bars) { $S.DrBars.Value = [decimal][math]::Max(1, [math]::Min(8, [int]$st.bars)) }
+                if ($st.density) { $S.DrDens.Value = [decimal][math]::Max(1, [math]::Min(10, [int]$st.density)) }
+                if ($st.weirdness) { $S.DrWeird.Value = [decimal][math]::Max(1, [math]::Min(10, [int]$st.weirdness)) }
+                if ($null -ne $st.kit) { $S.DrKit.Checked = [bool]$st.kit }
+                $S.DrNew.Checked = $true; $S.DrMode.SelectedIndex = 0
+                Invoke-WriteAi 'drums'; $r = $S.DrStatus.Text; if ($r -like 'Failed*') { throw $r }; return $r
+            }
+            'compose' { $S.AiPrompt.Text = [string]$st.request; Invoke-AiAction 'compose'; $r = $S.AiStatus.Text; if ($r -like 'AI failed*') { throw $r }; return $r }
+            'design_sound' {
+                $kind = ([string]$st.kind).ToLower(); if ($kind -notin 'synth', 'morph', 'spectral') { $kind = 'synth' }
+                $role = if ($st.role) { [string]$st.role } else { 'lead' }
+                $v = New-DesignedVoice $kind ([string]$st.description) $role (Get-BriefText) 3 (Get-StudioVoiceContextText $S.Proj $S.LastPlan '')
+                $t = Get-CurTrack
+                if ($st.new_track -or -not $t -or $t.Synth -eq 'drums') {
+                    $t = New-StudioTrack $v.Name 'patch'; $S.Proj.Tracks.Add($t)
+                    $t.Notes.Add((New-Object HbStudio.Note ((([int]$v.Octave) + 1) * 12), 0, 1, 100)); Refresh-Tracks ($S.Proj.Tracks.Count - 1)
+                }
+                Set-VoiceOnTrack $t $v; Load-TrackProps; $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit
+                return "designed $kind sound '$($v.Name)' on '$($t.Name)'" + $(if ($v.Saved) { ' (saved to the library)' } else { '' }) + '.'
+            }
+            'refine_patch' { $S.LabPrompt.Text = [string]$st.description; Invoke-LabAi 'refinesynth'; return $S.LabStatus.Text }
+            'design_fx' { $S.LabPrompt.Text = [string]$st.description; Invoke-LabAi 'fx'; return $S.LabStatus.Text }
+            'design_sample' { $S.LabPrompt.Text = [string]$st.description; Invoke-LabAi 'sample'; return $S.LabStatus.Text }
+            'design_kit' {
+                $t = Get-CurTrack; if (-not $t -or $t.Synth -ne 'drums') { $t = $S.Proj.Tracks | Where-Object { $_.Synth -eq 'drums' -and $_.Notes.Count } | Select-Object -First 1 }
+                if (-not $t) { throw 'There is no drum track with notes to build a kit from.' }
+                return (Invoke-DrumKitDesign $t ([string]$st.description) (Get-BriefText))
+            }
+            'texture' { $nt = Add-TextureLayer ([string]$st.description); return "added texture track(s) starting with '$($nt.Name)'." }
+            'use_instrument' {
+                Use-AgentTrack ([string]$st.track); $i = Find-StudioInstrument ([string]$st.instrument); if (-not $i) { throw "No saved instrument called '$($st.instrument)'." }
+                $t = Get-CurTrack; Set-StudioTrackFromInstrument $t $i; Load-TrackProps; $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; return "'$($t.Name)' now uses '$($i.name)'."
+            }
+            'add_track' {
+                $sy = [string]$st.synth; if ($sy -notin $script:StudioSynths) { $sy = 'pluck' }
+                $nt = New-StudioTrack $(if ($st.name) { [string]$st.name } else { 'Track' }) $sy
+                if ($st.instrument) { $i = Find-StudioInstrument ([string]$st.instrument); if ($i) { Set-StudioTrackFromInstrument $nt $i } }
+                $S.Proj.Tracks.Add($nt); Refresh-Tracks ($S.Proj.Tracks.Count - 1); $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; return "added track '$($nt.Name)'."
+            }
+            'save_instrument' {
+                $nm = Get-UniqueInstrumentName $(if ($st.name) { [string]$st.name } else { 'Agent instrument' })
+                $rl = if ($st.role) { [string]$st.role } else { 'any' }
+                [void](Save-InstrumentFrom 'track' $nm $rl 0 ([string]$st.notes) $true 60 $true); Update-InstrumentLists; return "saved instrument '$nm'."
+            }
+            'select_track' { Use-AgentTrack ([string]$st.track); return "selected '$((Get-CurTrack).Name)'." }
+            'edit' {
+                $id = ([string]$st.tool).ToLower(); if ($id -notin $script:AgentEditTools) { throw "Unknown edit tool '$id'." }
+                if ($st.amount) { $S.Amt.Value = [decimal][math]::Max(0, [math]::Min(2, [double]$st.amount)) }
+                if ($st.chance) { $S.Chance.Value = [decimal][math]::Max(1, [math]::Min(100, [double]$st.chance)) }
+                if ($st.rolls) { $S.Rolls.Value = [decimal][math]::Max(2, [math]::Min(12, [double]$st.rolls)) }
+                $n = if ($st.times) { [int][math]::Max(1, [math]::Min(4, [double]$st.times)) } else { 1 }
+                for ($k = 0; $k -lt $n; $k++) { Invoke-StudioTool $id }; return "applied '$id' x$n."
+            }
+            'generate' {
+                $id = ([string]$st.id).ToLower(); if ($id -notin 'euc', 'walk', 'poly') { throw "Unknown generator '$id'." }
+                if ($st.hits) { $S.EucK.Value = [decimal][math]::Max(1, [math]::Min(64, [int]$st.hits)) }; if ($st.steps) { $S.EucN.Value = [decimal][math]::Max(2, [math]::Min(64, [int]$st.steps)) }
+                if ($null -ne $st.rotate) { $S.EucR.Value = [decimal][math]::Max(0, [math]::Min(63, [int]$st.rotate)) }; if ($st.note) { $S.EucP.Value = [decimal][math]::Max(0, [math]::Min(127, [int]$st.note)) }
+                Invoke-StudioGenerator $id; return "generated '$id'."
+            }
+            'mix' { $script:AgentLast = ''; Invoke-MixAi ([string]$st.request) $S.MixAi { param($m) $script:AgentLast = $m }; return $script:AgentLast }
+            'set_project' {
+                if ($st.bpm) { $S.Bpm.Value = [decimal][math]::Max(20, [math]::Min(400, [double]$st.bpm)) }
+                if ($null -ne $st.swing) { $S.KSwing.Value = [math]::Max(0, [math]::Min(100, [double]$st.swing)) }
+                if ($st.key) { [void](Select-ComboText $S.Key ([string]$st.key)) }; if ($st.scale) { [void](Select-ComboText $S.Scale ([string]$st.scale)) }
+                Sync-Project; return 'project settings updated.'
+            }
+            'build_song' { Build-SongFromBrief; return $S.BrStatus.Text }
+            'compose_song' {
+                if ($st.style) { $all = Get-StudioStyles; foreach ($k in $all.Keys) { if (([string]$k).ToLower().Contains(([string]$st.style).ToLower())) { Set-ComposeStyle $k $all[$k]; break } } }
+                if ($st.request) { $S.MePrompt.Text = [string]$st.request; $S.DrPrompt.Text = [string]$st.request }
+                if ($null -ne $st.use_song_model) { $S.CpUseModel.Checked = [bool]$st.use_song_model }
+                Invoke-ComposeSong $true; $r = $S.CpStatus.Text; if ($r -like 'Compose failed*') { throw $r }; return $r
+            }
+            'arrange_song' { Invoke-ComposeSong $false; $r = $S.CpStatus.Text; if ($r -like 'Compose failed*') { throw $r }; return $r }
+            'produce_song' { return (Invoke-ProduceSong $st) }
+            { $_ -in 'write_chords', 'write_bass', 'write_arp' } {
+                if ($st.progression) { $S.ProgText.Text = $(if ($st.progression -is [array]) { (@($st.progression) -join ' | ') } else { [string]$st.progression }) }
+                foreach ($pair in @(@($S.ChVoicing, $st.voicing), @($S.ChComp, $st.comping), @($S.ChBass, $st.bass), @($S.ChArp, $st.arp))) { if ($pair[1]) { [void](Select-ComboText $pair[0] ([string]$pair[1])) } }
+                $nt = if ($null -ne $st.new_track) { [bool]$st.new_track } else { $true }
+                return ('wrote ' + (Write-ChordPart $do.Substring(6) $nt))
+            }
+            'harmonize_melody' {
+                $t = Get-CurTrack; if (-not $t -or $t.Synth -eq 'drums' -or -not $t.Notes.Count) { throw 'Select a melodic track with notes first.' }
+                $bars = @(Get-ChordBars); Push-Undo; Set-TrackNotes (Convert-StudioMelodyToChords $t.Notes $bars ([double]$S.Proj.BarBeats) $S.Roll.Mask); return "harmonized '$($t.Name)'."
+            }
+            'song_model' {
+                if ($st.request) { $S.MePrompt.Text = [string]$st.request }
+                if ($st.duration) { $S.CpDur.Value = [decimal][math]::Max(10, [math]::Min(300, [double]$st.duration)) }
+                $rebuild = if ($null -ne $st.rebuild) { [bool]$st.rebuild } else { $true }
+                $wav = Invoke-SongModelGenerate; $r = Import-SongModelAudio $wav ([bool]$st.stems) $true $rebuild; return $r.Log
+            }
+            'master' { return (Invoke-MixMaster $true) }
+            'set_style' {
+                $all = Get-StudioStyles; $nm = ([string]$st.style).Trim().ToLower(); $key = $null
+                foreach ($k in $all.Keys) { if (([string]$k).ToLower() -eq $nm) { $key = $k; break } }
+                if (-not $key) { foreach ($k in $all.Keys) { $kl = ([string]$k).ToLower(); if ($kl.Contains($nm) -or $nm.Contains($kl.Split('(')[0].Trim().TrimStart('*').Trim())) { $key = $k; break } } }
+                if (-not $key) { throw "No style called '$($st.style)'." }
+                Set-ComposeStyle $key $all[$key]; [void](Select-ComboText $S.PrStyle ([string]$key)); return "style '$key' applied."
+            }
+            'analyze_mix' { Sync-Project; $rep = Get-StudioMixReport $S.Proj $S.LastPlan; $S.LastReport = $rep; Show-MixReport $rep; $iss = @(Get-StudioMixIssues $rep | ForEach-Object { $_.Text }); return $(if ($iss.Count) { 'problems: ' + ($iss -join '; ') } else { 'no problems found' }) }
+            'producer_pass' { Sync-Project; $res = Invoke-StudioProducerPass $S.Proj $S.LastPlan 3 $null; $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Refresh-MixUi; Show-MixReport $res.After; return ($res.Log -join ' / ') }
+            'quality_pass' {
+                Sync-Project; $p = $S.Proj; $plan = $S.LastPlan; $o = if ($S.CompOpts) { $S.CompOpts } else { @{} }; $o.Complexity = $(if ($st.complexity) { [int][math]::Max(1, [math]::Min(10, [int]$st.complexity)) } else { [int]$S.PrCx.Value })
+                $reb = $null; if ($S.CompOpts -and $S.CompSource -and $plan) { $o.Source = $S.CompSource; $dvOn = [bool]$S.PrDevelop.Checked; $dvMap = $(if ($S.VoiceDev) { $S.VoiceDev } else { @{} }); $reb = { [void](Build-StudioArrangement $p $plan $o); [void](Convert-StudioArrangementToTimeline $p $plan); if ($dvOn) { [void](Add-StudioVoiceDevelopment $p $plan $dvMap) } }.GetNewClosure() }
+                $q = Invoke-StudioQualityPass $p $plan $o (Get-QualityReference $false) $reb $null 3; $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; if ($p.Markers.Count) { Show-TimelineOnRoll }; Refresh-Tracks; Refresh-MixUi
+                $S.PrReport.Text = ($q.Report -replace "(?<!\r)\n", "`r`n"); return ('quality {0:0}/100: ' -f $q.Score) + ($q.Log -join ' / ')
+            }
+            'check_sounds' { Sync-Project; $qa = Invoke-StudioVoiceQA $S.Proj $null; $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Refresh-Tracks; return $(if ($qa.Log.Count) { $qa.Log -join ' / ' } else { 'every sound is clean' }) }
+            'develop_sounds' {
+                Sync-Project; if ($S.Proj.Markers.Count -lt 2) { throw 'Write a whole song on the timeline first (compose or produce a song).' }
+                $dv = Add-StudioVoiceDevelopment $S.Proj $S.LastPlan $(if ($S.VoiceDev) { $S.VoiceDev } else { @{} }) $(if ($st.amount) { [double][math]::Max(0.2, [math]::Min(2, [double]$st.amount)) } else { 1.0 }); $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit
+                return $(if ($dv.Count) { $dv -join ' / ' } else { 'no synth voice had parameters worth developing' })
+            }
+            default { throw "Unknown step '$do'." }
+        }
+    }
+    # Does the goal ask for a whole song (rather than one small edit)?
+    function Test-WholeSongGoal([string]$Goal) {
+        $l = $Goal.ToLower()
+        $small = ($l -match '\b(selected|current|this|that|the)\s+(track|bass|lead|drums?|pad|synth|patch|sound|kick|snare|hats?|melody|notes?|chords?|arp)\b') -and ($l -notmatch '\b(full|whole|complete|entire)\b')
+        if ($small -and $l -notmatch '\b(song|tune|banger|anthem|composition)\b') { return $false }
+        if ($l -match '\b(full|whole|complete|entire)\b.*\b(song|track|tune|piece|arrangement|production)\b') { return $true }
+        if ($l -match '\b(make|create|compose|write|produce|generate|build|craft|give me|do|design)\b.*\b(song|track|tune|banger|anthem|instrumental|piece|beat|jam|composition|album)\b') { return $true }
+        if ($l -match '\b(song|tune|banger|anthem|instrumental)\b' -and $l.Length -gt 25) { return $true }
+        return $false
+    }
+    function Find-StudioStyleInText([string]$Text) {
+        $l = $Text.ToLower(); $all = Get-StudioStyles
+        $map = [ordered]@{ 'drum and bass|drum n bass|dnb|d&b|jungle' = 'drum and bass'; 'boards of canada' = 'boards of canada'; 'idm|aphex|autechre|squarepusher' = 'idm'; 'techno' = 'techno'; 'house' = 'house'; 'trance' = 'trance'; 'ambient|drone|soundscape' = 'ambient'; 'synthwave|retrowave|outrun|80s' = 'synthwave'; 'lo-?fi' = 'lo-fi'; 'dubstep|wobble' = 'dubstep'; 'electro\b' = 'electro'; 'cinematic|film score|trailer|epic' = 'cinematic' }
+        foreach ($rx in $map.Keys) { if ($l -match $rx) { foreach ($k in $all.Keys) { if (([string]$k).ToLower().Contains($map[$rx])) { return [string]$k } } } }
+        return $null
+    }
+    # Clears the project for a brand new song (after saving a backup you can open from the Open button).
+    function Reset-ProjectForSong {
+        $p = $S.Proj; $note = ''
+        if ($p.Tracks | Where-Object { $_.Notes.Count -gt 0 }) {
+            try {
+                $dir = Join-Path (Get-StudioDir) 'projects'; New-Item -ItemType Directory -Force -Path $dir | Out-Null
+                $fn = Join-Path $dir ('before-agent-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.hbstudio.json')
+                $data = Get-StudioProjectData $p; ($data | ConvertTo-Json -Depth 8) | Set-Content -LiteralPath $fn -Encoding UTF8; $note = "previous project saved to $fn"
+            } catch { $note = 'could not back up the previous project' }
+        }
+        Stop-Studio
+        $p.Tracks.Clear(); $p.Tracks.Add((New-StudioTrack 'Drums' 'drums')); $p.Patterns.Clear(); $p.Song.Clear(); $p.Markers.Clear(); $p.Mix.Clear(); $p.Bars = 4
+        $S.Undo.Clear(); $S.CompSource = $null; $S.CompOpts = $null; $S.RefFeatures = $null; $S.LastPlan = $null
+        $S.Loading = $true; $S.Bars.Value = 4; $S.Loading = $false; $S.BarsShown = 4
+        Refresh-Tracks 0; Sync-Project
+        return $note
+    }
+    # The agent's whole-song pipeline: direction, harmony, riffs and melodies, a designed sound for every part, the full arrangement on the piano roll, mix, quality listen and master.
+    function Invoke-ProduceSong($st) {
+        $goal = if ($st.request) { [string]$st.request } else { $S.AgentGoal.Text.Trim() }
+        if (-not $goal) { throw 'Describe the song first.' }
+        $note = Reset-ProjectForSong
+        $S.MePrompt.Text = $goal; $S.DrPrompt.Text = $goal
+        $styleKey = $null; if ($st.style) { $styleKey = Find-StudioStyleInText ([string]$st.style); if (-not $styleKey) { foreach ($k in (Get-StudioStyles).Keys) { if (([string]$k).ToLower().Contains(([string]$st.style).ToLower())) { $styleKey = [string]$k; break } } } }
+        if (-not $styleKey) { $styleKey = Find-StudioStyleInText $goal }
+        if ($styleKey) { $all = Get-StudioStyles; Set-ComposeStyle $styleKey $all[$styleKey]; [void](Select-ComboText $S.PrStyle $styleKey); $S.MePrompt.Text = $goal; $S.DrPrompt.Text = $goal }
+        foreach ($cb in @($S.CpMelody, $S.DrKit, $S.CpSounds, $S.CpMix, $S.CpMaster, $S.CpRegen, $S.CpAdapt, $S.PrMotif, $S.PrCounter, $S.PrTrans, $S.PrAuto, $S.PrQuality, $S.SdTex, $S.SdSave, $S.PrColor, $S.PrMod)) { $cb.Checked = $true }
+        $S.CpUseModel.Checked = if ($null -ne $st.use_song_model) { [bool]$st.use_song_model } else { $true }
+        $S.PrRef.Checked = $S.CpUseModel.Checked
+        $S.CpStems.Checked = $true
+        $S.PrCx.Value = [decimal]$(if ($st.complexity) { [math]::Max(1, [math]::Min(10, [int]$st.complexity)) } else { 8 })
+        Invoke-ComposeSong $true
+        $r = $S.CpStatus.Text; if ($r -like 'Compose failed*') { throw $r }
+        $p = $S.Proj; $sheet = Get-StudioSongSheet $p $S.LastPlan
+        $S.AgentSheet = $sheet
+        return ((@($(if ($styleKey) { "style '$styleKey'" }), $note) | Where-Object { $_ }) -join '; ') + "`r`n" + $r + "`r`n`r`n" + $sheet
+    }
+    function Invoke-StudioAgent {
+        $goal = $S.AgentGoal.Text.Trim(); if (-not $goal) { $S.AgentStatus.Text = 'Tell the agent what you want first.'; return }
+        $S.AgentGo.Enabled = $false; $f.Cursor = 'AppStarting'; $S.AgentStatus.Text = 'Reading the project and planning (a local model may need to load first)...'
+        try {
+            $mode = [int]$S.AgentMode.SelectedIndex
+            $whole = ($mode -eq 1) -or ($mode -eq 0 -and (Test-WholeSongGoal $goal))
+            if ($whole) {
+                $cx = if ($goal -match '\b(simple|minimal|basic|sparse)\b') { 5 } elseif ($goal -match '\b(complex|intricate|busy|elaborate|idm|glitch)\b') { 9 } else { 8 }
+                $steps = @([pscustomobject]@{ do = 'produce_song'; request = $goal; complexity = $cx })
+                $plan = "PLAN: build a complete song from your description, using the audio gen models for a reference. The agent will:`r`n" + ((@(
+                    '1. render a reference song with ACE-Step / Stable Audio and split it into stems',
+                    '2. rebuild tempo, time signature, key, chords and structure from the audio',
+                    '3. write the creative direction, then the melody, riffs and drums over the detected chords',
+                    '4. synthesise a distinct sound for every part: chords, pad, bass, arp, lead, hook, counter-melody, extra riff voices, texture, and a drum kit',
+                    '5. arrange every section phrase by phrase (bass, chords, arps, riffs, tuned hat and tom rolls, fills, filter sweeps, risers)',
+                    '6. lay the whole song out on the piano roll with section markers',
+                    '7. mix it (sidechain, EQ, width, levels), listen to the result, repair weird sounds and rebuild what is too simple',
+                    '8. master it, then list every section, track and sound') -join "`r`n"))
+                $S.AgentOut.Text = $plan
+            } else {
+                $ctx = Get-AgentContext
+                $res = Invoke-StudioJsonModel (Get-AiModel) ($script:StudioToolManual + "`n`n" + (Get-StudioMusicKnowledge) + "`n`n" + $script:StudioAgentActions) ($ctx + "`n`nGoal: $goal") 3000 ({ param($x) $o = Find-StudioJsonObject $x ''; if (@($o.steps).Count -lt 1) { throw 'The JSON needs a "steps" array.' }; $o })
+                $steps = @($res.Value.steps | Select-Object -First 8)
+                $plan = 'PLAN: ' + [string]$res.Value.plan + "`r`n" + ((1..$steps.Count | ForEach-Object { "$_. " + ($steps[$_ - 1] | ConvertTo-Json -Compress) }) -join "`r`n")
+                $S.AgentOut.Text = $plan
+            }
+            if ($S.AgentAsk.Checked) {
+                $warn = if ($whole) { "`r`n`r`nThis replaces the current project (a backup is saved first) and can take a while because every sound is designed by the AI." } else { '' }
+                if ([Windows.Forms.MessageBox]::Show("Run this plan?`r`n`r`n$plan$warn", 'Studio agent', 'YesNo', 'Question') -ne 'Yes') { $S.AgentStatus.Text = 'Plan not run. Edit your goal or untick the question box to run directly.'; return }
+            }
+            $log = New-Object Collections.Generic.List[string]; $log.Add($plan); $log.Add('')
+            $k = 0
+            foreach ($st in $steps) {
+                $k++; $S.AgentStatus.Text = "Step $k of $($steps.Count): $($st.do)..."; [Windows.Forms.Application]::DoEvents()
+                try { $r = Invoke-AgentStep $st; $log.Add("$k. $($st.do): $r") } catch { $log.Add("$k. $($st.do) FAILED: $($_.Exception.Message)") }
+                $S.AgentOut.Text = ($log -join "`r`n"); $S.AgentOut.SelectionStart = 0; $S.AgentOut.ScrollToCaret()
+            }
+            Refresh-Tracks; $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; $S.AgentStatus.Text = "Finished $($steps.Count) step(s). Details on the right; Ctrl+Z undoes note edits."
+            Log ('Agent: ' + $goal)
+        } catch { $S.AgentStatus.Text = 'Agent failed: ' + $_.Exception.Message; Log ('Agent failed: ' + $_.Exception.Message) }
+        finally { $S.AgentGo.Enabled = $true; $f.Cursor = 'Default' }
+    }
+    $S.AgentGo.Add_Click({ Invoke-StudioAgent })
+    $S.AgentKnow.Add_Click({
+        try { $S.AgentOut.Text = ((Get-AgentContext) + "`r`n`r`n" + (Get-StudioToolManual $true) + "`r`n`r`n" + (Get-StudioMusicKnowledge) + "`r`n`r`n" + $script:StudioAgentActions) -replace "(?<!\r)\n", "`r`n"; $S.AgentStatus.Text = 'This is everything the agent reads before planning (project, instruments, manual, parameter lists, available steps).' }
+        catch { $S.AgentStatus.Text = 'Failed: ' + $_.Exception.Message } })
+
+    # ---- Composer tab: chord lab, full-song composer and the song-model bridge ---------------------------------------------------------
+    $S.ChordHint = ''; $S.CpCancel = $false
+    $tComp.Controls.Add((Lbl 'CHORD LAB' 8 4 90)); $tComp.Controls.Add((Lbl 'Roman numerals (relative to the key) or chord names. "|" separates bars; two chords in one bar share it.' 100 4 560))
+    $S.ProgText = Sty (New-Object Windows.Forms.TextBox); $S.ProgText.SetBounds(8, 26, 650, 24); $S.ProgText.Text = 'i VI III VII'
+    $S.ChVoicing = Combo @('open', 'close', 'spread', 'power', 'shell') 60 56 90; $S.ChVoicing.SelectedIndex = 0
+    $S.ChComp = Combo @('sustain', 'half', 'offbeat', 'pulse8', 'synco', 'stab') 214 56 90; $S.ChComp.SelectedIndex = 0
+    $S.ChBass = Combo @('rootfifth', 'root', 'driving8', 'octave', 'synco', 'offbeat', 'sub', 'walking', 'acid16', 'pump') 350 56 94; $S.ChBass.SelectedIndex = 0
+    $S.ChArp = Combo @('updown', 'up', 'down', 'broken', 'trance') 484 56 80; $S.ChArp.SelectedIndex = 0
+    $S.ChOct = Num 4 1 6 1 0 602 56 54
+    $tComp.Controls.AddRange(@($S.ProgText, (Lbl 'Voicing' 8 60 50), $S.ChVoicing, (Lbl 'Comping' 160 60 52), $S.ChComp, (Lbl 'Bass' 314 60 34), $S.ChBass, (Lbl 'Arp' 454 60 28), $S.ChArp, (Lbl 'Oct' 572 60 28), $S.ChOct))
+    $S.ChWriteChords = Btn 'Write chords' 8 88 150 28 $true; $S.ChWriteBass = Btn 'Write bass' 164 88 90; $S.ChWriteArp = Btn 'Write arpeggio' 260 88 100; $S.ChAll = Btn 'Chords + bass + arp' 366 88 150
+    $S.ChAi = Btn 'AI progression' 8 122 130 28 $true; $S.ChAsk = Sty (New-Object Windows.Forms.TextBox); $S.ChAsk.SetBounds(146, 124, 512, 24); $S.ChAsk.Text = 'dark, driving, slightly unsettled'
+    $S.ChDetect = Btn 'Detect chords from track' 8 154 170; $S.ChHarm = Btn 'Harmonize melody' 184 154 140
+    $S.ChNew = New-Object Windows.Forms.CheckBox; $S.ChNew.Text = 'On a new track'; $S.ChNew.Checked = $true; $S.ChNew.SetBounds(332, 157, 130, 22)
+    $S.ChInfo = Lbl 'Reads as:' 8 186 650; $S.ChInfo.Height = 56; $S.CpStatus = Lbl 'Describe the music on the Drums & melody tab, then press Compose full song.' 8 246 650
+    $tComp.Controls.AddRange(@($S.ChWriteChords, $S.ChWriteBass, $S.ChWriteArp, $S.ChAll, $S.ChAi, $S.ChAsk, $S.ChDetect, $S.ChHarm, $S.ChNew, $S.ChInfo, $S.CpStatus))
+
+    $tComp.Controls.Add((Lbl 'COMPOSE A FULL SONG' 676 4 200)); $tComp.Controls.Add((Lbl 'Uses the description and direction on the Drums & melody tab: harmony per section, melody, drums, chords, bass, arps, sounds, arrangement, mix and master.' 676 22 690))
+    $S.CpMelody = New-Object Windows.Forms.CheckBox; $S.CpMelody.Text = 'Write the melody (AI, over the chords)'; $S.CpMelody.Checked = $true; $S.CpMelody.SetBounds(676, 44, 330, 22)
+    $S.CpRegen = New-Object Windows.Forms.CheckBox; $S.CpRegen.Text = 'New drum pattern for every section'; $S.CpRegen.Checked = $true; $S.CpRegen.SetBounds(1020, 44, 340, 22)
+    $S.CpSounds = New-Object Windows.Forms.CheckBox; $S.CpSounds.Text = 'Design the chord, bass and arp sounds (AI)'; $S.CpSounds.Checked = $true; $S.CpSounds.SetBounds(676, 68, 330, 22)
+    $S.CpMix = New-Object Windows.Forms.CheckBox; $S.CpMix.Text = 'Mix rules and level balance'; $S.CpMix.Checked = $true; $S.CpMix.SetBounds(1020, 68, 340, 22)
+    $S.CpMaster = New-Object Windows.Forms.CheckBox; $S.CpMaster.Text = 'Auto master the whole song'; $S.CpMaster.Checked = $true; $S.CpMaster.SetBounds(676, 92, 330, 22)
+    $S.CpAdapt = New-Object Windows.Forms.CheckBox; $S.CpAdapt.Text = 'Fit the melody to each section''s chords'; $S.CpAdapt.Checked = $true; $S.CpAdapt.SetBounds(1020, 92, 340, 22)
+    $S.CpUseModel = New-Object Windows.Forms.CheckBox; $S.CpUseModel.Text = 'Let the song model compose first, then rebuild its key, tempo and chords as editable tracks'; $S.CpUseModel.SetBounds(676, 116, 690, 22)
+    $S.CpGo = Btn 'Compose full song' 676 142 200 30 $true; $S.CpArrange = Btn 'Arrange from the direction' 882 142 200 30; $S.CpMixBtn = Btn 'Mix + master' 1088 142 130 30
+    $tComp.Controls.Add((Lbl 'SONG MODEL' 676 182 90)); $S.CpModel = Combo @('ACE-Step song (full song, lyrics)', 'Stable Audio (instrumental music)') 770 178 250 $true; $S.CpModel.SelectedIndex = 0
+    $S.CpDur = Num 60 10 300 10 0 1030 178 60; $tComp.Controls.Add((Lbl 'sec' 1094 182 30))
+    $S.CpGen = Btn 'Generate with song model' 676 206 210; $S.CpAnalyze = Btn 'Analyze audio file...' 892 206 170; $S.CpCancelBtn = Btn 'Cancel' 1068 206 70
+    $S.CpStems = New-Object Windows.Forms.CheckBox; $S.CpStems.Text = 'Split into stems'; $S.CpStems.Checked = $true; $S.CpStems.SetBounds(676, 238, 130, 22)
+    $S.CpHarm = New-Object Windows.Forms.CheckBox; $S.CpHarm.Text = 'Detected chords to chord + bass tracks'; $S.CpHarm.Checked = $true; $S.CpHarm.SetBounds(812, 238, 300, 22)
+    $S.CpRebuild = New-Object Windows.Forms.CheckBox; $S.CpRebuild.Text = 'Rebuild melody, drums and bass as editable tracks from the stems'; $S.CpRebuild.Checked = $true; $S.CpRebuild.SetBounds(676, 262, 690, 22)
+    # Rebuilding editable parts needs the stems; keep the two checkboxes in step.
+    $S.CpRebuild.Add_CheckedChanged({ if ($S.CpRebuild.Checked) { $S.CpStems.Checked = $true } })
+    $S.CpStems.Add_CheckedChanged({ if (-not $S.CpStems.Checked) { $S.CpRebuild.Checked = $false } })
+    $tComp.Controls.Add((Lbl 'Lyrics (blank = instrumental)' 1146 160 216)); $S.CpLyrics = Sty (New-Object Windows.Forms.TextBox); $S.CpLyrics.Multiline = $true; $S.CpLyrics.ScrollBars = 'Vertical'; $S.CpLyrics.SetBounds(1146, 180, 216, 84)
+    $tComp.Controls.AddRange(@($S.CpMelody, $S.CpRegen, $S.CpSounds, $S.CpMix, $S.CpMaster, $S.CpAdapt, $S.CpUseModel, $S.CpGo, $S.CpArrange, $S.CpMixBtn, $S.CpModel, $S.CpDur, $S.CpGen, $S.CpAnalyze, $S.CpCancelBtn, $S.CpStems, $S.CpHarm, $S.CpRebuild, $S.CpLyrics))
+
+    function CpSet([string]$m) { $S.CpStatus.Text = $m; Status $m; [Windows.Forms.Application]::DoEvents() }
+    function Get-ChordBars {
+        Sync-Project; $p = $S.Proj
+        $bars = @(ConvertFrom-StudioProgression $S.ProgText.Text $p.Key $p.Scale)
+        if (-not $bars.Count) { throw 'No chords could be read. Try: i VI III VII   or   Cm | Ab | Bb | G' }
+        $fit = @(); for ($b = 0; $b -lt $p.Bars; $b++) { $fit += , $bars[$b % $bars.Count] }
+        return $fit
+    }
+    function Get-ChordReg { $lo = [int]$S.ChOct.Value * 12 + 4; return @($lo, ($lo + 24)) }
+    function Update-ChordInfo {
+        try {
+            $bars = @(Get-ChordBars); $prev = $null; $lines = @(); $reg = Get-ChordReg
+            foreach ($b in $bars) {
+                $c0 = @($b.Chords)[0]; $v = Get-StudioChordVoicing $c0 $reg[0] $reg[1] $prev ([string]$S.ChVoicing.SelectedItem); $prev = $v
+                $lines += ('{0}: {1}' -f ((@($b.Chords) | ForEach-Object { $_.Name }) -join ' '), (($v | ForEach-Object { ConvertTo-StudioNoteName $_ }) -join ' '))
+            }
+            $S.ChInfo.Text = 'Reads as (in ' + $S.Key.Text + ' ' + $S.Proj.Scale + '):  ' + ($lines -join '  |  ')
+        } catch { $S.ChInfo.Text = $_.Exception.Message }
+    }
+    function Write-ChordPart([string]$Part, [bool]$NewTrack) {
+        $bars = @(Get-ChordBars); $bb = [double]$S.Proj.BarBeats; $seed = [int](Get-Random -Maximum 100000); $reg = Get-ChordReg
+        switch ($Part) {
+            'bass' { $notes = New-StudioBassNotes $bars $bb ([string]$S.ChBass.SelectedItem) 36 $S.Roll.Mask $seed; $name = 'Bass'; $synth = 'acid'; $pre = 'Bass - reese' }
+            'arp' { $notes = New-StudioArpNotes $bars $bb ([string]$S.ChArp.SelectedItem) 1 ($reg[0] + 8) ($reg[0] + 36) $seed; $name = 'Arp'; $synth = 'pluck'; $pre = 'Lead - FM glass bell' }
+            default { $notes = New-StudioChordNotes $bars $bb ([string]$S.ChComp.SelectedItem) ([string]$S.ChVoicing.SelectedItem) $reg[0] $reg[1] $seed; $name = 'Chords'; $synth = 'pad'; $pre = 'Pad - supersaw drift' }
+        }
+        $before = $S.Proj.Tracks.Count
+        $t = Apply-WrittenNotes $notes $false $NewTrack $false $name $synth
+        if ($S.Proj.Tracks.Count -gt $before) { [void](Add-StudioPresetTrack $S.Proj $pre ($S.Proj.Tracks.Count - 1)); $S.Proj.Tracks[$S.Proj.Tracks.Count - 1].Name = $name; Load-TrackProps; Refresh-Tracks }
+        return ("{0}: {1} notes" -f $name, $notes.Count)
+    }
+    $S.ProgText.Add_TextChanged({ Update-ChordInfo })
+    $S.ChVoicing.Add_SelectedIndexChanged({ Update-ChordInfo }); $S.ChOct.Add_ValueChanged({ Update-ChordInfo })
+    $S.ChWriteChords.Add_Click({ try { CpSet ('Wrote ' + (Write-ChordPart 'chords' $S.ChNew.Checked) + '. Ctrl+Z undoes.') } catch { CpSet ('Failed: ' + $_.Exception.Message) } })
+    $S.ChWriteBass.Add_Click({ try { CpSet ('Wrote ' + (Write-ChordPart 'bass' $S.ChNew.Checked) + '. Ctrl+Z undoes.') } catch { CpSet ('Failed: ' + $_.Exception.Message) } })
+    $S.ChWriteArp.Add_Click({ try { CpSet ('Wrote ' + (Write-ChordPart 'arp' $S.ChNew.Checked) + '. Ctrl+Z undoes.') } catch { CpSet ('Failed: ' + $_.Exception.Message) } })
+    $S.ChAll.Add_Click({ try { $r = @(); foreach ($pt in 'chords', 'bass', 'arp') { $r += (Write-ChordPart $pt $true) }; CpSet ('Wrote ' + ($r -join ', ') + ' on new tracks.') } catch { CpSet ('Failed: ' + $_.Exception.Message) } })
+    $S.ChHarm.Add_Click({
+        try {
+            $t = Get-CurTrack; if (-not $t -or $t.Synth -eq 'drums' -or -not $t.Notes.Count) { throw 'Select a melodic track with notes first.' }
+            $bars = @(Get-ChordBars); Push-Undo; Set-TrackNotes (Convert-StudioMelodyToChords $t.Notes $bars ([double]$S.Proj.BarBeats) $S.Roll.Mask)
+            CpSet "Harmonized '$($t.Name)' to the chords (strong beats now land on chord tones). Ctrl+Z undoes."
+        } catch { CpSet ('Failed: ' + $_.Exception.Message) } })
+    $S.ChDetect.Add_Click({
+        try {
+            $t = Get-CurTrack; if (-not $t -or -not $t.Notes.Count) { throw 'Select a track with notes first.' }
+            Sync-Project; $names = Get-StudioChordsFromNotes $t.Notes ([double]$S.Proj.BarBeats) ([int]$S.Proj.Bars)
+            $S.ProgText.Text = ($names -join ' | '); CpSet "Chords read from '$($t.Name)': $($names -join ' | ')"
+        } catch { CpSet ('Failed: ' + $_.Exception.Message) } })
+    $S.ChAi.Add_Click({
+        try {
+            $S.ChAi.Enabled = $false; $f.Cursor = 'AppStarting'; CpSet 'Asking the composer (a local model may need to load first)...'
+            Sync-Project; $ask = $S.ChAsk.Text.Trim(); if (-not $ask) { $ask = $S.MePrompt.Text.Trim() }; if (-not $ask) { $ask = 'a strong, memorable progression' }
+            $r = Invoke-StudioProgressionDesign (Get-AiModel) $ask ([int]$S.Proj.Key) ([string]$S.Proj.Scale) ([int]$S.Proj.Bars) (Get-BriefText)
+            $S.ProgText.Text = $r.Text
+            foreach ($pair in @(@($S.ChVoicing, $r.Voicing), @($S.ChComp, $r.Comp), @($S.ChBass, $r.Bass), @($S.ChArp, $r.Arp))) { [void](Select-ComboText $pair[0] ([string]$pair[1])) }
+            CpSet ('Progression: ' + $r.Text + $(if ($r.Why) { ' - ' + $r.Why } else { '' }))
+        } catch { CpSet ('Failed: ' + $_.Exception.Message) } finally { $S.ChAi.Enabled = $true; $f.Cursor = 'Default' } })
+
+    # Rules and balance, then the mastering chain tuned to the whole song.
+    function Invoke-MixMaster([bool]$Master, [bool]$Balance = $true) {
+        Sync-Project; $p = $S.Proj; $msg = @()
+        if ($p.Mix.Count -eq 0) { $r = @(Add-StudioMixRules $p); if ($r.Count) { $msg += ('mix rules: ' + ($r -join ', ')) } }
+        if ($Balance) { Set-StudioTrackBalance $p; $msg += 'levels and pans balanced' }
+        if ($Master) {
+            CpSet 'Rendering the song to master it...'
+            $S.MSource.SelectedIndex = $(if ($p.Song.Count) { 1 } else { 0 }); $m = Get-SourceMix; $tg = Get-MasterTarget
+            $ms = [HbStudio.Mastering]::Auto($m.L, $m.R, $tg); $ms.Enabled = $true; $p.Master = $ms; $S.GridMaster.SelectedObject = $ms; $S.EMaster.Checked = $true
+            $msg += ('mastering chain set for ' + $tg + ' LUFS')
+        }
+        Refresh-MixUi; Load-TrackProps; $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit
+        return ($msg -join '; ')
+    }
+    $S.CpMixBtn.Add_Click({ try { $f.Cursor = 'WaitCursor'; CpSet ('Done: ' + (Invoke-MixMaster $S.CpMaster.Checked) + '.') } catch { CpSet ('Mix failed: ' + $_.Exception.Message) } finally { $f.Cursor = 'Default' } })
+
+    # ---- song-model bridge: render with ACE-Step / Stable Audio, then understand the result ---------------------------------------
+    function Get-SongModelCaption {
+        $j = $S.BriefData; $parts = @()
+        $free = (@($S.MePrompt.Text.Trim(), $S.DrPrompt.Text.Trim()) | Where-Object { $_ }) -join '. '; if ($free) { $parts += $free }
+        if ($j) {
+            foreach ($k in 'genre', 'mood') { if ($j.$k) { $parts += [string]$j.$k } }; if ($j.summary) { $parts += [string]$j.summary }
+            if ($j.sounds) { foreach ($k in 'lead', 'bass', 'pad', 'drums') { if ($j.sounds.$k) { $parts += ($k + ': ' + [string]$j.sounds.$k) } } }
+        }
+        $txt = ($parts -join '. '); if ($txt.Length -gt 600) { $txt = $txt.Substring(0, 600) }
+        return $txt
+    }
+    function Get-SongModelLyrics {
+        $l = $S.CpLyrics.Text.Trim(); if ($l) { return $l }
+        $tags = @(); if ($S.BriefData -and $S.BriefData.structure) { foreach ($sec in @($S.BriefData.structure)) { $tags += ('[' + [string]$sec.section + ' - instrumental]') } }
+        if (-not $tags.Count) { $tags = @('[Intro - instrumental]', '[Verse - instrumental]', '[Chorus - instrumental]', '[Outro - instrumental]') }
+        return ($tags -join "`n`n")
+    }
+    function Invoke-SongModelGenerate {
+        foreach ($n in 'Start-AudioJob', 'Update-AudioGen', 'Test-AudioModelInstalled', 'Get-AudioModelDef') { if (-not (Get-Command $n -ErrorAction SilentlyContinue)) { throw 'The song models are only available when the Studio is opened from Humble Baker (they are the Audio tab models).' } }
+        $kind = if ($S.CpModel.SelectedIndex -eq 0) { 'song' } else { 'music' }
+        $m = Get-AudioModelDef $kind
+        if (-not $m -or -not (Test-AudioModelInstalled $m)) { throw "The $kind model is not downloaded yet. Download it on the Audio tab first." }
+        Sync-Project; [void](Invoke-BriefPlan $false)
+        $caption = Get-SongModelCaption; if (-not $caption) { throw 'Describe the music first (Drums & melody tab).' }
+        $dur = [int]$S.CpDur.Value; $range = $script:AudioDurRange[$kind]; if ($range) { $dur = [int][math]::Min($range[2], [math]::Max($range[1], $dur)) }
+        $over = if ($kind -eq 'song') { @{ Bpm = [int]$S.Proj.Bpm; Key = [string]$S.Key.Text; Mode = $(if ($S.Proj.Scale -in 'major', 'minor') { [string]$S.Proj.Scale } else { '' }) } } else { @{} }
+        $text = if ($kind -eq 'song') { $caption } else { "$caption, $([int]$S.Proj.Bpm) BPM, key $($S.Key.Text) $($S.Proj.Scale), instrumental" }
+        $P = @{ Kind = $kind; Text = $text; Lyrics = $(if ($kind -eq 'song') { Get-SongModelLyrics } else { '' }); Voice = ''; Duration = $dur; Seed = -1; FreeGpu = [bool]$script:Cfg.audio.freeGpu; Over = $over; Tool = $true }
+        $S.CpCancel = $false; Start-AudioJob $P
+        $g = $script:AudGen; $t0 = Get-Date; $deadline = $t0.AddMinutes([math]::Max(20, [int]($dur / 5) + 20))
+        while ($g.Proc -and (Get-Date) -lt $deadline) {
+            Start-Sleep -Milliseconds 300; [Windows.Forms.Application]::DoEvents()
+            if ($S.CpCancel) { Stop-AudioGen; throw 'Cancelled.' }
+            Update-AudioGen; CpSet ('The song model is composing and rendering... {0} s' -f [int]((Get-Date) - $t0).TotalSeconds)
+        }
+        if ($g.Proc) { Stop-AudioGen; throw 'The song model timed out.' }
+        if (-not $g.Done) { throw "The song model failed. $($g.Err)" }
+        return [string]$g.Done
+    }
+    # Best repeating chord cycle (2, 4 or 8 bars) in a run of per-bar chords.
+    function Get-ChordCycle($Names) {
+        $n = @($Names); if ($n.Count -lt 4) { return $n }
+        $best = [math]::Min(4, $n.Count); $bestMiss = 0.35
+        foreach ($per in 4, 8, 2) {
+            if ($n.Count -lt $per * 2) { continue }
+            $miss = 0; for ($i = $per; $i -lt $n.Count; $i++) { if ($n[$i] -ne $n[$i % $per]) { $miss++ } }
+            $r = $miss / [double]($n.Count - $per); if ($r -lt $bestMiss - 0.001) { $bestMiss = $r; $best = $per }
+        }
+        return @($n[0..([math]::Min($best, $n.Count) - 1)])
+    }
+    # Imports audio from a song model: tempo, key, chords per bar, optional stems, and the audio itself as a sampler track.
+    function Import-SongModelAudio([string]$Wav, [bool]$Stems, [bool]$Harm, [bool]$Rebuild = $false) {
+        $log = @(); Sync-Project
+        $tp = $null; if (Get-Command Get-StemTempo -ErrorAction SilentlyContinue) { try { $tp = Get-StemTempo $Wav } catch { } }
+        if ($tp -and $tp.Bpm -ge 40 -and $tp.Bpm -le 240) { $S.Bpm.Value = [decimal][math]::Round([double]$tp.Bpm, 1); Sync-Project; $log += ('tempo ' + [math]::Round([double]$tp.Bpm, 1) + ' BPM (' + $tp.Source + ')') }
+        CpSet 'Reading the audio...'; $smp = [HbStudio.Dsp]::ReadWav($Wav); $secs = $smp.Length / 44100.0
+        # Time signature: honour the generation hint when there is one, otherwise infer from the kick/bass accent pattern.
+        $sig = 4; if ($tp -and $tp.Sig -and [int]$tp.Sig -ge 2 -and [int]$tp.Sig -le 12 -and [int]$tp.Sig -ne 4) { $sig = [int]$tp.Sig }
+        if ($sig -eq 4) { $sig = [HbStudio.Transcriber]::DetectTimeSig($smp, [double]$S.Proj.Bpm) }
+        $den = if ($sig -in 6, 12) { 8 } else { 4 }
+        if ($S.Bpb -and $S.Den) { $S.Bpb.Value = [decimal]$sig; [void](Select-ComboText $S.Den ([string]$den)); Sync-Project; $log += ('time signature {0}/{1}' -f $sig, $den) }
+        $muteRef = $Harm -or $Rebuild
+        $nt = Add-StudioSampleTrack 'Song model' $smp 60; $nt.Vol = 0.8; if ($muteRef) { $nt.Mute = $true }
+        $log += ('audio imported as sampler track (' + [math]::Round($secs, 1) + ' s' + $(if ($muteRef) { ', muted: unmute to compare' } else { '' }) + ')')
+
+        # Split the stems first so chord and key detection can use the clean harmonic parts instead of the full mix.
+        $stemByBase = @{}
+        if ($Stems) {
+            if ((Get-Command Test-StemReady -ErrorAction SilentlyContinue) -and (Test-StemReady)) {
+                CpSet 'Splitting the song into stems (this takes a while)...'
+                try {
+                    $sd = Join-Path (Get-StudioDir) ('stems-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+                    $files = Invoke-StemSplit $Wav $sd { $script:S.CpCancel }
+                    foreach ($fi in $files) { $sm = [HbStudio.Dsp]::ReadWav($fi.FullName); $st = Add-StudioSampleTrack ('Stem ' + $fi.BaseName) $sm 60; $st.Vol = 0.8; $stemByBase[[string]$fi.BaseName] = $st }
+                    $log += ('stems: ' + (($files | ForEach-Object { $_.BaseName }) -join ', '))
+                } catch { $log += ('stems failed: ' + $_.Exception.Message) }
+            } else { $log += 'stems skipped (the splitter model is not downloaded; use Export stems on the Audio tab)' }
+        }
+
+        # Harmonic reference for key and chord detection: the harmonic stems summed, drums and vocals excluded so the chroma is clean.
+        $harm = $smp; $harmSrc = 'full mix'
+        $hb = @('guitar', 'piano', 'other', 'bass'); $hlist = New-Object 'System.Collections.Generic.List[float[]]'
+        foreach ($b in $hb) { if ($stemByBase.ContainsKey($b)) { $hlist.Add($stemByBase[$b].Sample) } }
+        if ($hlist.Count -gt 0) { $harm = [HbStudio.Transcriber]::Sum($hlist); $harmSrc = 'harmonic stems (' + (($hb | Where-Object { $stemByBase.ContainsKey($_) }) -join '+') + ')' }
+
+        $conf = 0.0; $key = [HbStudio.Harmony]::DetectKey($harm, [ref]$conf); $log += "key $key (from $harmSrc)"
+        $kp = $key -split ' '; $pc = ConvertTo-StudioPc $kp[0]
+        if ($pc -ge 0) { $S.Key.SelectedIndex = $pc; [void](Select-ComboText $S.Scale $kp[1]); Sync-Project }
+        $barSec = 60.0 / $S.Proj.Bpm * $S.Proj.BeatsPerBar * 4.0 / $S.Proj.BeatUnit
+        $nbars = [int][math]::Min(64, [math]::Floor($secs / $barSec)); $cycle = @()
+        if ($nbars -ge 2) {
+            CpSet 'Listening for the chords...'
+            try {
+                $names = @([HbStudio.Harmony]::ChordsPerBar($harm, [double]$S.Proj.Bpm, [int]$S.Proj.BeatsPerBar, [int]$S.Proj.BeatUnit, $nbars, 0.0))
+                $cycle = @(Get-ChordCycle $names | Where-Object { $_ }); $S.DetectedChords = $names
+                if ($cycle.Count -eq 0) {
+                    $isMajor = [bool]($key -match '\bmajor\b')
+                    $cycle = @(if ($isMajor) { 'I', 'V', 'vi', 'IV' } else { 'i', 'VI', 'III', 'VII' })
+                    $log += 'no chords detected in the audio; used a default progression in the detected key'
+                } else { $log += ('chords ' + ($cycle -join ' | ') + " (from $harmSrc)") }
+                $S.ProgText.Text = ($cycle -join ' | ')
+            } catch { $cycle = @('i', 'VI', 'III', 'VII'); $S.ProgText.Text = ($cycle -join ' | '); $log += ('chord detection failed (' + $_.Exception.Message + '); used a default progression') }
+            if ($Harm) {
+                try {
+                    foreach ($pt in 'chords', 'bass') { [void](Write-ChordPart $pt $true) }
+                    $log += 'chord and bass tracks written from the detected progression'
+                    $ch = Get-StudioTrackByName $S.Proj 'Chords'; if ($ch -and $ch.Synth -eq 'patch') { $ch.Patch = [HbStudio.Transcriber]::PatchForStem($harm) }
+                    $bt = Get-StudioTrackByName $S.Proj 'Bass'; if ($bt -and $bt.Synth -eq 'patch') { $bsrc = $(if ($stemByBase.ContainsKey('bass')) { $stemByBase['bass'].Sample } else { $harm }); $bt.Patch = [HbStudio.Transcriber]::PatchForStem($bsrc) }
+                } catch { $log += ('chord/bass tracks skipped: ' + $_.Exception.Message) }
+            }
+        }
+        # Song structure: segment the energy curve into named sections and mark them on the timeline.
+        try {
+            $sections = @([HbStudio.Transcriber]::Sections($smp, [double]$S.Proj.Bpm, [int]$S.Proj.BeatsPerBar, [int]$S.Proj.BeatUnit))
+            if ($sections.Count -ge 2) {
+                $S.Proj.Markers.Clear(); $struct = @()
+                foreach ($sc in $sections) { $S.Proj.Markers.Add((New-Object HbStudio.Marker ([double]$sc.Beat), ([string]$sc.Name), ([int]$sc.Energy))); $struct += , [pscustomobject]@{ section = [string]$sc.Name; bars = [int]$sc.Bars; energy = [int]$sc.Energy } }
+                $totalBars = 0; foreach ($sc in $sections) { $totalBars += [int]$sc.Bars }
+                if ($totalBars -gt [int]$S.Proj.Bars) { $S.Proj.Bars = [int]$totalBars }
+                if ($null -eq $S.BriefData) { $S.BriefData = [pscustomobject]@{} }
+                $S.BriefData | Add-Member -NotePropertyName structure -NotePropertyValue $struct -Force
+                $log += ('structure: ' + (($sections | ForEach-Object { '{0} x{1}' -f $_.Name, $_.Bars }) -join ' > '))
+            }
+        } catch { $log += ('structure detection skipped: ' + $_.Exception.Message) }
+        if ($Rebuild) {
+            CpSet 'Rebuilding melody, drums and bass as editable tracks from the stems...'
+            $keyPc = [int]$S.Proj.Key; $scaleNm = [string]$S.Proj.Scale; $bpm = [double]$S.Proj.Bpm
+            $made = @()
+            $mel = $null; foreach ($b in 'vocals', 'guitar', 'piano', 'other') { if ($stemByBase.ContainsKey($b)) { $mel = $stemByBase[$b]; break } }
+            if ($mel) {
+                $notes = @([HbStudio.Transcriber]::Monophonic($mel.Sample, $bpm, $keyPc, $scaleNm, 80, 1200))
+                if ($notes.Count -gt 3) {
+                    $t = New-StudioTrack 'Melody (song model)' 'patch'; $t.Vol = 0.8; $t.Patch = [HbStudio.Transcriber]::PatchForStem($mel.Sample); $S.Proj.Tracks.Add($t)
+                    foreach ($n in $notes) { $t.Notes.Add($n) }; $made += 'melody'
+                }
+            }
+            if ($stemByBase.ContainsKey('bass')) {
+                $notes = @([HbStudio.Transcriber]::Monophonic($stemByBase['bass'].Sample, $bpm, $keyPc, $scaleNm, 35, 300))
+                if ($notes.Count -gt 3) {
+                    $t = New-StudioTrack 'Bass (song model)' 'patch'; $t.Vol = 0.85; $t.Patch = [HbStudio.Transcriber]::PatchForStem($stemByBase['bass'].Sample); $S.Proj.Tracks.Add($t)
+                    foreach ($n in $notes) { $t.Notes.Add($n) }; $made += 'bass'
+                }
+            }
+            if ($stemByBase.ContainsKey('drums')) {
+                $notes = @([HbStudio.Transcriber]::Drums($stemByBase['drums'].Sample, $bpm))
+                if ($notes.Count -gt 6) {
+                    $t = New-StudioTrack 'Drums (song model)' 'drums'; $t.Vol = 0.9; $S.Proj.Tracks.Add($t)
+                    foreach ($n in $notes) { $t.Notes.Add($n) }; $made += 'drums'
+                }
+            }
+            if ($made.Count) {
+                foreach ($b in @('vocals', 'bass', 'drums', 'guitar', 'piano', 'other')) { if ($stemByBase.ContainsKey($b)) { $stemByBase[$b].Mute = $true } }
+                $log += ('rebuilt as editable tracks: ' + ($made -join ', ') + ' (the raw stems are kept, muted, to compare)')
+            } elseif ($stemByBase.Count) { $log += 'rebuild produced no usable notes (kept the stems as audio)' }
+            else { $log += 'rebuild needs the stems (splitting was skipped or failed); tick Split into stems and check the splitter model is downloaded' }
+        }
+        Refresh-Tracks; $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit
+        if ($S.Proj.Markers.Count -gt 0) { Show-TimelineOnRoll }
+        return @{ Log = ($log -join '; '); Cycle = $cycle; Key = $key }
+    }
+    $S.CpGen.Add_Click({
+        try {
+            $S.CpGen.Enabled = $false; $f.Cursor = 'AppStarting'
+            $wav = Invoke-SongModelGenerate; $r = Import-SongModelAudio $wav $S.CpStems.Checked $S.CpHarm.Checked $S.CpRebuild.Checked
+            CpSet ('Song model done: ' + $r.Log)
+        } catch { CpSet ('Song model: ' + $_.Exception.Message) } finally { $S.CpGen.Enabled = $true; $f.Cursor = 'Default' } })
+    $S.CpAnalyze.Add_Click({
+        try {
+            $d = New-Object Windows.Forms.OpenFileDialog; $d.Filter = 'WAV audio|*.wav'; if ($d.ShowDialog() -ne 'OK') { return }
+            $f.Cursor = 'WaitCursor'; $r = Import-SongModelAudio $d.FileName $S.CpStems.Checked $S.CpHarm.Checked $S.CpRebuild.Checked; CpSet ('Analyzed: ' + $r.Log)
+        } catch { CpSet ('Analyze failed: ' + $_.Exception.Message) } finally { $f.Cursor = 'Default' } })
+    $S.CpCancelBtn.Add_Click({ $S.CpCancel = $true; if (Get-Command Stop-AudioGen -ErrorAction SilentlyContinue) { try { if ($script:AudGen.Proc) { Stop-AudioGen } } catch { } } })
+
+    # ---- the whole song as one timeline on the piano roll -----------------------------------------------------------------------------
+    function Show-TimelineOnRoll {
+        $p = $S.Proj; $S.Loading = $true; $S.Bars.Value = [decimal][math]::Max([double]$S.Bars.Minimum, [math]::Min([double]$S.Bars.Maximum, [double]$p.Bars)); $S.Loading = $false; $S.BarsShown = [int]$S.Bars.Value
+        $w = [math]::Max(300.0, [double]$S.Roll.Width - 90.0); $S.Roll.Zoom = [math]::Max(3.0, [math]::Min(80.0, $w / [math]::Max(1.0, [double]$p.LoopBeats)))
+        $S.Roll.Proj = $p; $S.Roll.UpdateScroll(); $S.Roll.Invalidate()
+    }
+    # Goes back from a finished timeline to the short loop the arranger started from, so the song can be arranged again.
+    function Restore-LoopBase {
+        $p = $S.Proj; $src = $S.CompSource
+        if ($src -is [hashtable] -and $src.ContainsKey('__bars')) {
+            $p.Bars = [int]$src['__bars']
+            foreach ($t in @($p.Tracks)) { $t.Notes.Clear(); $t.Auto.Clear(); if ($src.ContainsKey($t.Name)) { foreach ($n in $src[$t.Name]) { $t.Notes.Add($n.Clone()) } } }
+        } else {
+            $p.Bars = 8; $lb = 8 * [double]$p.BarBeats
+            foreach ($t in @($p.Tracks)) { $t.Auto.Clear(); foreach ($n in @($t.Notes | Where-Object { $_.Start -ge $lb })) { [void]$t.Notes.Remove($n) } }
+        }
+        $p.Markers.Clear(); $p.Patterns.Clear(); $p.Song.Clear(); $S.CompSource = $null
+        $S.Loading = $true; $S.Bars.Value = [decimal][math]::Max([double]$S.Bars.Minimum, [math]::Min([double]$S.Bars.Maximum, [double]$p.Bars)); $S.Loading = $false
+    }
+    function Get-QualityReference([bool]$Generate = $false) {
+        $S.RefNote = ''
+        if ($Generate -and -not $S.RefFeatures) {
+            try { CpSet 'Asking the song model for a reference to compare with...'; $S.RefFeatures = Get-StudioReferenceFromAudio ([HbStudio.Dsp]::ReadWav((Invoke-SongModelGenerate))) 'a song-model render' }
+            catch { $S.RefNote = 'no song-model reference (' + $_.Exception.Message + '), compared with typical values for the style' }
+        }
+        if ($S.RefFeatures) { return $S.RefFeatures }
+        return (Get-StudioStyleReference $S.StyleObj ([double]$S.Proj.Bpm) ([int]$S.DrDens.Value))
+    }
+
+    # ---- the full composer: direction -> harmony plan -> parts -> arrangement -> sounds -> mix and master ---------------------------------
+    function Invoke-ComposeSong([bool]$WriteParts) {
+        foreach ($b in $S.CpGo, $S.CpArrange, $S.CpMixBtn) { $b.Enabled = $false }; $f.Cursor = 'AppStarting'; $S.ChordHint = ''
+        try {
+            Sync-Project; $p = $S.Proj; $log = @()
+            if ($p.Markers.Count -gt 0 -and $p.Patterns.Count -eq 0) { Restore-LoopBase; Sync-Project }
+            if ($WriteParts) { $S.RefFeatures = $null }
+            if (-not $S.MePrompt.Text.Trim() -and -not $S.DrPrompt.Text.Trim() -and -not $S.Brief.Text.Trim()) { throw 'Describe the music first (the melody or drum description on the Drums & melody tab).' }
+            if ($WriteParts -or -not $S.BriefData) { CpSet 'Planning the direction and harmony...'; if (-not (Invoke-BriefPlan $true)) { throw 'Could not plan a direction.' } }
+            $j = $S.BriefData; if (-not $j -or -not $j.structure) { throw 'The direction has no song structure. Try again or plan the direction on the Drums & melody tab.' }
+            if ($WriteParts -and $S.CpUseModel.Checked) {
+                CpSet 'Asking the song model to compose...'
+                $wav = Invoke-SongModelGenerate; $im = Import-SongModelAudio $wav $S.CpStems.Checked $false $false; $log += $im.Log
+                # The song model and its stems are reference audio (for tempo/key/chords). Mute them so they don't
+                # clash with the editable parts the composer writes next.
+                foreach ($ref in @($S.Proj.Tracks | Where-Object { $_.Name -eq 'Song model' -or $_.Name -like 'Stem *' })) { $ref.Mute = $true }
+                try { $S.RefFeatures = Get-StudioReferenceFromAudio ([HbStudio.Dsp]::ReadWav($wav)) 'the song model render' } catch { }
+                if ($im.Cycle.Count) {
+                    if (-not $j.harmony) { Add-Member -InputObject $j -NotePropertyName harmony -NotePropertyValue ([pscustomobject]@{}) -Force }
+                    $prog = [pscustomobject]@{ verse = @($im.Cycle) }; Add-Member -InputObject $j.harmony -NotePropertyName progressions -NotePropertyValue $prog -Force
+                }
+            } elseif ($j.harmony.key) {
+                $pc = ConvertTo-StudioPc ([string]$j.harmony.key); if ($pc -ge 0) { $S.Key.SelectedIndex = $pc }
+                if ($j.harmony.scale) { [void](Select-ComboText $S.Scale ([string]$j.harmony.scale)) }
+            }
+            Sync-Project; $p = $S.Proj
+            if ($S.StyleObj) { Merge-StudioStyleIntoBrief $j $S.StyleObj }
+            $planOpts = @{ Color = $(if ($S.PrColor.Checked) { [int]$S.PrColorAmt.Value } else { 0 }); Modulate = $(if ($S.PrMod.Checked) { [int]$S.PrModShift.Value } else { 0 }) }
+            $plan = New-StudioHarmonyPlan $j.structure $j.harmony ([int]$p.Key) ([string]$p.Scale) ([int]$p.Bars) ([int](Get-Random -Maximum 100000)) $planOpts; $S.LastPlan = $plan
+            $verse = $plan.Sections | Where-Object { $_.Type -eq 'verse' } | Select-Object -First 1; if (-not $verse) { $verse = $plan.Sections[0] }
+            $log += ('harmony in ' + $S.Key.Text + ' ' + $p.Scale + ': verse ' + (Get-StudioProgressionText $verse.Bars))
+            $S.ProgText.Text = (Get-StudioProgressionText $verse.Bars)
+            if ($WriteParts) {
+                if ($S.CpMelody.Checked) {
+                    CpSet 'Writing the melody over the chords...'
+                    $S.ChordHint = (Get-StudioProgressionText $verse.Bars); $S.MeNew.Checked = $true; $S.MeMode.SelectedIndex = 0
+                    Invoke-WriteAi 'melody'; $S.ChordHint = ''; $log += $S.MeStatus.Text
+                }
+                if ($S.DrKit.Checked) { CpSet 'Programming drums and synthesizing the kit...'; $S.DrNew.Checked = $true; Invoke-WriteAi 'drums'; $log += $S.DrStatus.Text }
+            }
+            if ($S.SdTex.Checked) {
+                try {
+                    if (-not ($p.Tracks | Where-Object { $_.Name -like 'Texture*' })) {
+                        CpSet 'Painting the texture layer...'
+                        $tx = if ($j.sounds.texture) { [string]$j.sounds.texture } else { 'a slowly evolving atmospheric texture that matches the direction' }
+                        [void](Add-TextureLayer $tx)
+                    }
+                    [void](Get-RiserTrack)
+                } catch { $log += ('texture layer failed: ' + $_.Exception.Message) }
+            }
+            CpSet 'Arranging the sections (chords, bass, arps, drums, melody)...'
+            $dr = $j.drums; $src = @{}; $S.CompSource = $src; $cxv = [int]$S.PrCx.Value
+            $extras = @{}; $xi = 0
+            foreach ($pt in @($j.parts | Select-Object -First 3)) {
+                $xn = ([string]$pt.name -replace '[^\w \-]', '').Trim(); if ($xn.Length -gt 18) { $xn = $xn.Substring(0, 18).Trim() }
+                if (-not $xn -or $xn -in 'Drums', 'Chords', 'Pad', 'Bass', 'Arp', 'Motif', 'Counter', 'Texture', 'Risers', 'Lead melody' -or $extras.ContainsKey($xn) -or $xn -match '\(kit\)') { continue }
+                $xs = ([string]$pt.style).ToLower(); if ($xs -notin 'riff', 'lyrical', 'sparse') { $xs = 'riff' }
+                $oc = 4; if ($pt.octave) { $oc = [int][math]::Max(2, [math]::Min(7, [int]$pt.octave)) }
+                $extras[$xn] = @{ Style = $xs; Center = [int][math]::Max(52, [math]::Min(88, ($oc + 1) * 12 + 4)); Min = (5 + $xi); Max = 10; Sound = [string]$pt.sound }; $xi++
+            }
+            if (-not $extras.Count -and $cxv -ge 6) { $extras['Hook'] = @{ Style = 'lyrical'; Center = 76; Min = 7; Max = 10; Sound = '' }; $extras['Stab'] = @{ Style = 'riff'; Center = 64; Min = 5; Max = 10; Sound = '' } }
+            $opts = @{ Seed = [int](Get-Random -Maximum 100000); Tracks = @('Chords', 'Pad', 'Bass', 'Arp'); RegenDrums = $S.CpRegen.Checked; DrumStyle = $(if ($dr.description) { [string]$dr.description } else { '' }); Weird = $(if ($dr.weirdness) { [int]$dr.weirdness } else { 4 }); Adapt = $S.CpAdapt.Checked
+                Motif = $S.PrMotif.Checked; Counter = $S.PrCounter.Checked; Trans = $S.PrTrans.Checked; Auto = $(if ($S.PrAuto.Checked) { [int]$S.PrAutoAmt.Value } else { 0 }); MotifStyle = $S.MotifStyle; Complexity = $cxv; Source = $src; Extras = $extras }
+            $log += (Build-StudioArrangement $p $plan $opts)
+            if ($S.CpSounds.Checked) {
+                $brief = Get-BriefText; $snd = $j.sounds; $depth = [int]$S.SdDepth.Value
+                $get = { param($k, $fb) if ($snd -and $snd.$k) { [string]$snd.$k } else { $fb } }
+                $jobs = @(
+                    @{ Track = 'Chords'; Role = 'Chords / pad'; Kind = 'synth'; Ask = (& $get 'chords' 'a playable rhythmic chord instrument (keys, pluck or stab) that is clearly different from the pad') }
+                    @{ Track = 'Pad'; Role = 'Chords / pad'; Kind = $(if ($depth -ge 7) { 'morph' } else { 'synth' }); Ask = (& $get 'pad' 'a slow evolving pad') }
+                    @{ Track = 'Bass'; Role = 'Bassline'; Kind = 'synth'; Ask = (& $get 'bass' 'a heavy bass voice that fits the direction') }
+                    @{ Track = 'Arp'; Role = 'Arpeggio'; Kind = 'synth'; Ask = (& $get 'lead' 'a bright plucky arpeggio voice') }
+                    @{ Track = 'Lead melody'; Role = 'Lead melody'; Kind = 'synth'; Ask = (& $get 'lead' 'an expressive lead voice') }
+                    @{ Track = 'Motif'; Role = 'Hook / motif'; Kind = 'synth'; Ask = (& $get 'motif' 'a memorable hook voice with a distinct timbre') }
+                    @{ Track = 'Counter'; Role = 'Counter-melody'; Kind = $(if ($depth -ge 8) { 'morph' } else { 'synth' }); Ask = (& $get 'counter' 'a soft contrasting counter-melody voice') }
+                )
+                foreach ($xn in $extras.Keys) { $jobs += @{ Track = $xn; Role = 'Hook / motif'; Kind = 'synth'; Ask = $(if ($extras[$xn].Sound) { $extras[$xn].Sound } else { "an extra riff voice called $xn that sits apart from the other voices" }) } }
+                $jobs = @($jobs | Where-Object { Get-StudioTrackByName $p $_.Track }); $made = @(); $methods = @(); $devMap = @{}; $k = 0
+                foreach ($jb in $jobs) {
+                    $k++; $t = Get-StudioTrackByName $p $jb.Track; CpSet "Designing the $($jb.Track) sound ($k of $($jobs.Count))..."
+                    try {
+                        $ctx = Get-StudioVoiceContextText $p $plan $jb.Track $methods
+                        $v = New-DesignedVoice $jb.Kind $jb.Ask $jb.Role $brief 3 $ctx; Set-VoiceOnTrack $t $v; $made += $v.Name; if ($v.Method) { $methods += $v.Method }
+                        if ($v.Dev) { $devMap[$t.Name] = $v.Dev }
+                        $log += "$($jb.Track) sound: '$($v.Name)'" + $(if ($v.Method) { " ($($v.Method))" } else { '' })
+                    } catch { $log += "$($jb.Track) sound kept as the preset ($($_.Exception.Message))" }
+                }
+                $S.VoiceDev = $devMap
+                CpSet 'Listening to every sound and repairing weird ones...'
+                try { $qa0 = Invoke-StudioVoiceQA $p { param($m) CpSet $m }; foreach ($l in $qa0.Log) { $log += "voice: $l" } } catch { $log += ('sound check skipped: ' + $_.Exception.Message) }
+            }
+            CpSet 'Writing the whole arrangement onto the piano roll...'
+            $bars = Convert-StudioArrangementToTimeline $p $plan; $log += ("$bars bars written to the piano roll with " + $p.Markers.Count + ' section markers')
+            if ($S.PrDevelop.Checked) { try { $dv = Add-StudioVoiceDevelopment $p $plan $(if ($S.VoiceDev) { $S.VoiceDev } else { @{} }); if ($dv.Count) { $log += ('sound development: ' + ($dv -join '; ')) } } catch { $log += ('sound development skipped: ' + $_.Exception.Message) } }
+            if ($S.CpMix.Checked) { $log += (Invoke-MixMaster $false $true) }
+            $qopts = $opts; $S.CompOpts = $opts; $dvOn = [bool]$S.PrDevelop.Checked; $dvMap = $(if ($S.VoiceDev) { $S.VoiceDev } else { @{} })
+            $reb = { [void](Build-StudioArrangement $p $plan $qopts); [void](Convert-StudioArrangementToTimeline $p $plan); if ($dvOn) { [void](Add-StudioVoiceDevelopment $p $plan $dvMap) } }.GetNewClosure()
+            if ($S.PrQuality.Checked) {
+                $ref = Get-QualityReference $S.PrRef.Checked; if ($S.RefNote) { $log += $S.RefNote }
+                $q = Invoke-StudioQualityPass $p $plan $qopts $ref $reb { param($m) CpSet $m } 3
+                $S.LastQuality = $q; $S.PrReport.Text = ($q.Report -replace "(?<!\r)\n", "`r`n"); $log += ('quality ' + [int]$q.Score + '/100 (' + ($q.Log -join ' / ') + ')')
+            } elseif ($S.PrAfter.Checked) {
+                CpSet 'Producer pass: measuring the song and fixing the mix...'
+                $pp = Invoke-StudioProducerPass $p $plan 3 { param($m) CpSet $m }; $log += ('producer: ' + ($pp.Log -join ' / '))
+            }
+            if ($S.CpMix.Checked -and $S.CpMaster.Checked) { $log += (Invoke-MixMaster $true $false) }
+            Show-TimelineOnRoll; Refresh-Tracks; Refresh-SongUi; $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; $tabs.SelectedIndex = 5
+            CpSet ('Composed. ' + ($log -join ' | ')); Log ('Compose: ' + ($log -join ' | '))
+        } catch { CpSet ('Compose failed: ' + $_.Exception.Message); Log ('Compose failed: ' + $_.Exception.Message) }
+        finally { foreach ($b in $S.CpGo, $S.CpArrange, $S.CpMixBtn) { $b.Enabled = $true }; $f.Cursor = 'Default' }
+    }
+    $S.CpGo.Add_Click({ Invoke-ComposeSong $true }); $S.CpArrange.Add_Click({ Invoke-ComposeSong $false })
+    Update-ChordInfo
+
+    # ---- Producer tab: style templates, advanced composition options and the mix critic ---------------------------------------------------
+    $S.StyleObj = $null; $S.StyleHint = ''; $S.LastPlan = $null; $S.LastReport = $null; $S.MotifStyle = ''
+    $tProd.Controls.Add((Lbl 'STYLE TEMPLATE (tempo, mode, progressions, groove, structure, sounds)' 8 4 430))
+    $S.PrStyle = Combo @('(none - follow my description)') 8 24 300 $true; $S.PrStyle.SelectedIndex = 0
+    $S.PrStyleInfo = Lbl '' 8 54 430; $S.PrStyleInfo.Height = 70
+    $S.PrApply = Btn 'Apply style' 8 128 100 28 $true; $S.PrSaveStyle = Btn 'Save project as style...' 114 128 170; $S.PrDelStyle = Btn 'Delete style' 290 128 90
+    $S.PrStatus = Lbl 'Pick a style, then Compose full song (Composer tab). Saved styles appear here with a * in front.' 8 164 430; $S.PrStatus.Height = 100
+    $tProd.Controls.AddRange(@($S.PrStyle, $S.PrStyleInfo, $S.PrApply, $S.PrSaveStyle, $S.PrDelStyle, $S.PrStatus))
+    $tProd.Controls.Add((Lbl 'ADVANCED COMPOSITION' 450 4 300))
+    $S.PrColor = New-Object Windows.Forms.CheckBox; $S.PrColor.Text = 'Harmonic colour: 7ths, 9ths, secondary dominants, turnarounds'; $S.PrColor.Checked = $true; $S.PrColor.SetBounds(450, 26, 370, 22); $S.PrColorAmt = Num 5 1 10 1 0 826 24 46
+    $S.PrMod = New-Object Windows.Forms.CheckBox; $S.PrMod.Text = 'Key change for the last chorus or drop (semitones up)'; $S.PrMod.Checked = $true; $S.PrMod.SetBounds(450, 52, 370, 22); $S.PrModShift = Num 2 1 7 1 0 826 50 46
+    $S.PrMotif = New-Object Windows.Forms.CheckBox; $S.PrMotif.Text = 'Motif lead melody (rule-based phrases, works without AI)'; $S.PrMotif.Checked = $true; $S.PrMotif.SetBounds(450, 78, 400, 22)
+    $S.PrCounter = New-Object Windows.Forms.CheckBox; $S.PrCounter.Text = 'Counter-melody under the lead'; $S.PrCounter.Checked = $true; $S.PrCounter.SetBounds(450, 104, 400, 22)
+    $S.PrTrans = New-Object Windows.Forms.CheckBox; $S.PrTrans.Text = 'Transitions: drum fills, pre-drop gaps, risers'; $S.PrTrans.Checked = $true; $S.PrTrans.SetBounds(450, 130, 400, 22)
+    $S.PrAuto = New-Object Windows.Forms.CheckBox; $S.PrAuto.Text = 'Automation: filter sweeps, breakdown filtering, fades'; $S.PrAuto.Checked = $true; $S.PrAuto.SetBounds(450, 156, 370, 22); $S.PrAutoAmt = Num 7 1 10 1 0 826 154 46
+    $S.PrAfter = New-Object Windows.Forms.CheckBox; $S.PrAfter.Text = 'Producer pass after composing (measure, fix, re-measure)'; $S.PrAfter.Checked = $true; $S.PrAfter.SetBounds(450, 182, 420, 22)
+    $S.CompSource = $null; $S.RefFeatures = $null; $S.LastQuality = $null; $S.VoiceDev = @{}
+    $S.PrDevelop = New-Object Windows.Forms.CheckBox; $S.PrDevelop.Text = 'Sounds develop with the song (synth parameters follow the sections)'; $S.PrDevelop.Checked = $true; $S.PrDevelop.SetBounds(8, 270, 430, 22)
+    $tProd.Controls.Add($S.PrDevelop)
+    $S.PrCxLbl = Lbl 'Complexity of melody, beats and harmony (1 simple - 10 elaborate)' 450 212 370; $S.PrCx = Num 7 1 10 1 0 826 208 46
+    $S.PrQuality = New-Object Windows.Forms.CheckBox; $S.PrQuality.Text = 'Quality pass after composing (listen, compare, fix)'; $S.PrQuality.Checked = $true; $S.PrQuality.SetBounds(450, 234, 430, 22)
+    $S.PrRef = New-Object Windows.Forms.CheckBox; $S.PrRef.Text = 'Compare with a song-model render (slow, needs a model)'; $S.PrRef.Checked = $false; $S.PrRef.SetBounds(450, 258, 430, 22)
+    $tProd.Controls.AddRange(@($S.PrColor, $S.PrColorAmt, $S.PrMod, $S.PrModShift, $S.PrMotif, $S.PrCounter, $S.PrTrans, $S.PrAuto, $S.PrAutoAmt, $S.PrAfter, $S.PrCxLbl, $S.PrCx, $S.PrQuality, $S.PrRef))
+    $tProd.Controls.Add((Lbl 'PRODUCER (renders the song, measures every section, fixes the mix)' 886 4 480))
+    $S.PrAnalyze = Btn 'Analyze mix' 886 24 110; $S.PrFix = Btn 'Producer pass (fix)' 1002 24 160 28 $true; $S.PrAskAi = Btn 'Ask AI producer' 1168 24 130
+    $S.PrQualityBtn = Btn 'Quality pass (listen, compare, improve)' 886 54 280 28 $true; $S.PrVoices = Btn 'Check sounds' 1172 54 126
+    $S.PrReport = Sty (New-Object Windows.Forms.TextBox); $S.PrReport.Multiline = $true; $S.PrReport.ReadOnly = $true; $S.PrReport.ScrollBars = 'Vertical'; $S.PrReport.SetBounds(886, 88, 480, 190); $S.PrReport.Font = New-Object Drawing.Font('Consolas', 9)
+    $S.PrReport.Text = 'Analyze mix renders the song and shows loudness per section against the planned energy, the tonal balance, stereo width and peaks. Producer pass fixes what it finds (levels, EQ cuts, width, energy curve) and measures again. Quality pass also listens for weird or off-pitch sounds, scores the melody, beats and harmony, compares the song with a reference and rebuilds the arrangement at a higher complexity when it is too simple.'
+    $tProd.Controls.AddRange(@($S.PrAnalyze, $S.PrFix, $S.PrAskAi, $S.PrQualityBtn, $S.PrVoices, $S.PrReport))
+
+    function Update-StyleList {
+        $sel = [string]$S.PrStyle.SelectedItem; $S.PrStyle.Items.Clear(); [void]$S.PrStyle.Items.Add('(none - follow my description)')
+        foreach ($k in (Get-StudioStyles).Keys) { [void]$S.PrStyle.Items.Add([string]$k) }
+        $i = if ($sel) { $S.PrStyle.Items.IndexOf($sel) } else { 0 }; $S.PrStyle.SelectedIndex = [math]::Max(0, $i)
+    }
+    function Get-SelectedStyle { $n = [string]$S.PrStyle.SelectedItem; $all = Get-StudioStyles; if ($n -and $all.Contains($n)) { return $all[$n] }; return $null }
+    function Show-StyleInfo {
+        $st = Get-SelectedStyle
+        if (-not $st) { $S.PrStyleInfo.Text = 'No template: the AI plans everything from your description.'; return }
+        $S.PrStyleInfo.Text = ($st.Desc + "`r`n" + ('{0} BPM, {1}; groove {2}; comping {3}, bass {4}, arp {5}; {6} sections.' -f $st.Bpm, $st.Scale, $st.Feel, $st.Comp, $st.Bass, $st.Arp, @($st.Structure).Count))
+    }
+    function Set-ComposeStyle($Name, $St) {
+        $S.StyleObj = $St; $S.StyleHint = (Get-StudioStyleText $St)
+        $S.Bpm.Value = [decimal][math]::Max(20.0, [math]::Min(400.0, [double]$St.Bpm)); [void](Select-ComboText $S.Scale ([string]$St.Scale))
+        [void](Select-ComboText $S.ChVoicing ([string]$St.Voicing)); [void](Select-ComboText $S.ChComp ([string]$St.Comp)); [void](Select-ComboText $S.ChBass ([string]$St.Bass)); [void](Select-ComboText $S.ChArp ([string]$St.Arp))
+        $S.DrDens.Value = [decimal][math]::Max(1, [math]::Min(10, [int]$St.Dens)); $S.DrWeird.Value = [decimal][math]::Max(1, [math]::Min(10, [int]$St.Weird))
+        $S.PrColor.Checked = ([int]$St.Color -gt 0); $S.PrColorAmt.Value = [decimal][math]::Max(1, [math]::Min(10, [int]$St.Color)); $S.PrAuto.Checked = ([int]$St.Auto -gt 0); $S.PrAutoAmt.Value = [decimal][math]::Max(1, [math]::Min(10, [int]$St.Auto))
+        $S.MotifStyle = [string]$St.Motif; $S.MTarget.SelectedIndex = [math]::Max(0, [math]::Min(3, [int]$St.Master))
+        if (-not $S.MePrompt.Text.Trim()) { $S.MePrompt.Text = [string]$St.Desc }
+        Sync-Project; Update-ChordInfo
+    }
+    $S.PrStyle.Add_SelectedIndexChanged({ Show-StyleInfo })
+    $S.PrApply.Add_Click({
+        $st = Get-SelectedStyle
+        if (-not $st) { $S.StyleObj = $null; $S.StyleHint = ''; $S.PrStatus.Text = 'Style cleared: the AI follows only your description.'; return }
+        try { Set-ComposeStyle ([string]$S.PrStyle.SelectedItem) $st; $S.PrStatus.Text = "Style '$($S.PrStyle.SelectedItem)' applied: tempo, mode, groove, comping, bass, arp, density, colour, automation and loudness target are set, and the AI direction will follow its structure and progressions. Now press Compose full song on the Composer tab." }
+        catch { $S.PrStatus.Text = 'Could not apply the style: ' + $_.Exception.Message } })
+    $S.PrSaveStyle.Add_Click({
+        try {
+            $pl = $S.LastPlan; if (-not $pl) { throw 'Compose or arrange a song first, so there is a structure and harmony to save.' }
+            $name = Read-StudioInput 'Name for this style:' 'Save style' 'My style'; if (-not $name) { return }
+            $structure = @(); $progs = @{}
+            foreach ($sec in $pl.Sections) {
+                $structure += , @([string]$sec.Name, [int]$sec.Length, [int]$sec.Energy)
+                if (-not $progs.ContainsKey($sec.Type)) { $progs[$sec.Type] = ((@($sec.Bars) | ForEach-Object { (@($_.Chords) | ForEach-Object { ConvertTo-StudioRoman $_ $pl.KeyPc $pl.Scale }) -join ' ' }) -join ' | ') }
+            }
+            $snd = @{}; if ($S.BriefData -and $S.BriefData.sounds) { foreach ($k in 'lead', 'bass', 'pad', 'drums', 'texture') { if ($S.BriefData.sounds.$k) { $snd[$k] = [string]$S.BriefData.sounds.$k } } }
+            $st = @{ Bpm = [int][math]::Round($S.Proj.Bpm); Scale = [string]$S.Proj.Scale; Feel = [string]$pl.DrumFeel; Dens = [int]$S.DrDens.Value; Weird = [int]$S.DrWeird.Value
+                Comp = [string]$S.ChComp.SelectedItem; Bass = [string]$S.ChBass.SelectedItem; Arp = [string]$S.ChArp.SelectedItem; Voicing = [string]$S.ChVoicing.SelectedItem
+                Motif = $(if ($S.MotifStyle) { $S.MotifStyle } else { 'lyrical' }); Color = $(if ($S.PrColor.Checked) { [int]$S.PrColorAmt.Value } else { 0 }); Auto = $(if ($S.PrAuto.Checked) { [int]$S.PrAutoAmt.Value } else { 0 }); Master = [int]$S.MTarget.SelectedIndex
+                Structure = $structure; Progs = $progs; Sounds = $snd; Desc = $(if ($S.MePrompt.Text.Trim()) { $S.MePrompt.Text.Trim() } else { $name }) }
+            [void](Save-StudioStyle $name $st); Update-StyleList; [void](Select-ComboText $S.PrStyle ('* ' + $name)); $S.PrStatus.Text = "Saved style '$name'. It will shape future compositions (tempo, mode, chords, groove, structure, sounds)."
+        } catch { $S.PrStatus.Text = 'Save failed: ' + $_.Exception.Message } })
+    $S.PrDelStyle.Add_Click({
+        $st = Get-SelectedStyle; if (-not $st -or -not $st.UserFile) { $S.PrStatus.Text = 'Only your own saved styles (marked *) can be deleted.'; return }
+        if ([Windows.Forms.MessageBox]::Show("Delete style '$($S.PrStyle.SelectedItem)'?", 'Audio Studio', 'YesNo', 'Question') -eq 'Yes') { Remove-Item -LiteralPath $st.UserFile -Force; Update-StyleList; $S.PrStatus.Text = 'Style deleted.' } })
+
+    function PrSet([string]$m) { $S.PrStatus.Text = $m; Status $m; [Windows.Forms.Application]::DoEvents() }
+    function Show-MixReport($Rep) { $S.PrReport.Text = ((Format-StudioMixReport $Rep) -replace "(?<!\r)\n", "`r`n") }
+    $S.PrAnalyze.Add_Click({
+        try {
+            $f.Cursor = 'WaitCursor'; Sync-Project; if (-not ($S.Proj.Tracks | Where-Object { $_.Notes.Count })) { throw 'There is nothing to analyze yet.' }
+            PrSet 'Rendering and measuring...'; $rep = Get-StudioMixReport $S.Proj $S.LastPlan; $S.LastReport = $rep; Show-MixReport $rep; PrSet 'Analysis done.'
+        } catch { PrSet ('Analyze failed: ' + $_.Exception.Message) } finally { $f.Cursor = 'Default' } })
+    $S.PrQualityBtn.Add_Click({
+        try {
+            $f.Cursor = 'WaitCursor'; Sync-Project; $p = $S.Proj; if (-not ($p.Tracks | Where-Object { $_.Notes.Count })) { throw 'There is nothing to listen to yet.' }
+            $plan = $S.LastPlan; $o = if ($S.CompOpts) { $S.CompOpts } else { @{} }; $o.Complexity = [int]$S.PrCx.Value
+            $reb = $null; if ($S.CompOpts -and $S.CompSource -and $plan) { $o.Source = $S.CompSource; $dvOn = [bool]$S.PrDevelop.Checked; $dvMap = $(if ($S.VoiceDev) { $S.VoiceDev } else { @{} }); $reb = { [void](Build-StudioArrangement $p $plan $o); [void](Convert-StudioArrangementToTimeline $p $plan); if ($dvOn) { [void](Add-StudioVoiceDevelopment $p $plan $dvMap) } }.GetNewClosure() }
+            $ref = Get-QualityReference $S.PrRef.Checked; $q = Invoke-StudioQualityPass $p $plan $o $ref $reb { param($m) PrSet $m } 3
+            $S.LastQuality = $q; $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; if ($p.Markers.Count) { Show-TimelineOnRoll }; Refresh-Tracks; Refresh-MixUi; Load-TrackProps
+            $S.PrReport.Text = (('QUALITY PASS' + "`n" + ($q.Log -join "`n") + "`n`n" + $q.Report + $(if ($S.RefNote) { "`n" + $S.RefNote } else { '' })) -replace "(?<!\r)\n", "`r`n"); PrSet ('Quality pass finished: score {0:0}/100.' -f $q.Score)
+        } catch { PrSet ('Quality pass failed: ' + $_.Exception.Message) } finally { $f.Cursor = 'Default' } })
+    $S.PrVoices.Add_Click({
+        try {
+            $f.Cursor = 'WaitCursor'; Sync-Project; $qa = Invoke-StudioVoiceQA $S.Proj { param($m) PrSet $m }
+            $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Refresh-Tracks; Load-TrackProps
+            $S.PrReport.Text = (('SOUND CHECK' + "`n" + $(if ($qa.Log.Count) { $qa.Log -join "`n" } else { 'Every sound rendered cleanly: in tune, not noisy or harsh, quick enough to play, no clipping.' })) -replace "(?<!\r)\n", "`r`n"); PrSet 'Sound check finished.'
+        } catch { PrSet ('Sound check failed: ' + $_.Exception.Message) } finally { $f.Cursor = 'Default' } })
+    $S.PrFix.Add_Click({
+        try {
+            $f.Cursor = 'WaitCursor'; Sync-Project; $res = Invoke-StudioProducerPass $S.Proj $S.LastPlan 3 { param($m) PrSet $m }
+            $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Refresh-MixUi; Load-TrackProps
+            $S.PrReport.Text = ('PRODUCER PASS' + "`r`n" + ($res.Log -join "`r`n") + "`r`n`r`nAFTER`r`n" + ((Format-StudioMixReport $res.After) -replace "(?<!\r)\n", "`r`n")); PrSet 'Producer pass finished.'
+        } catch { PrSet ('Producer pass failed: ' + $_.Exception.Message) } finally { $f.Cursor = 'Default' } })
+    $S.PrAskAi.Add_Click({
+        try {
+            $f.Cursor = 'WaitCursor'; Sync-Project; PrSet 'Measuring...'; $rep = Get-StudioMixReport $S.Proj $S.LastPlan; Show-MixReport $rep
+            $iss = @(Get-StudioMixIssues $rep | ForEach-Object { $_.Text }); $wish = 'Act as the producer. Measurements of the current mix (before mastering): ' + $rep.Overall.Report() + $(if ($iss.Count) { ' Problems: ' + ($iss -join '; ') + '.' } else { ' No obvious problems.' }) + ' Improve the balance and clarity with a few precise mix rules or level changes.'
+            Invoke-MixAi $wish $S.PrAskAi { param($m) PrSet $m }
+        } catch { PrSet ('Failed: ' + $_.Exception.Message) } finally { $f.Cursor = 'Default' } })
+    Update-StyleList; Show-StyleInfo
+
+    # Puts generated notes on the right track (new track if asked or if the current one is the wrong kind), undoable
+    function Apply-WrittenNotes($Notes, [bool]$Drums, [bool]$NewTrack, [bool]$Layer, [string]$Name, [string]$Synth) {
+        $t = Get-CurTrack
+        if ($NewTrack -or -not $t -or (($t.Synth -eq 'drums') -ne $Drums)) {
+            $S.Proj.Tracks.Add((New-StudioTrack $Name $Synth)); Refresh-Tracks ($S.Proj.Tracks.Count - 1); $t = Get-CurTrack; $Layer = $false
+        }
+        Push-Undo
+        if (-not $Layer) { $t.Notes.Clear() }
+        foreach ($n in $Notes) { $t.Notes.Add($n) }
+        $S.Roll.Sel.Clear(); $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit
+        if ($Drums) { $S.Roll.ScrollToPitch(40) } else { $S.Roll.ScrollToPitch([int](($Notes | Measure-Object Pitch -Average).Average)) }
+        $S.Roll.Invalidate(); Refresh-Tracks
+        return $t
+    }
+    function Invoke-WriteAi([string]$Kind) {
+        $isDrum = ($Kind -eq 'drums'); $btn = if ($isDrum) { $S.DrGo } else { $S.MeGo }; $lbl = if ($isDrum) { $S.DrStatus } else { $S.MeStatus }
+        $btn.Enabled = $false; $lbl.Text = 'Writing (a local model may need to load first)...'; $f.Cursor = 'AppStarting'
+        try {
+            Sync-Project; $p = $S.Proj; $loop = $p.LoopBeats; $model = Get-AiModel
+            $spb = [int][math]::Round($p.BarBeats * 4)
+            $sig = "$($p.BeatsPerBar)/$($p.BeatUnit)"
+            if ($isDrum) {
+                $wb = [int]$S.DrBars.Value; $stylehint = [string]$drumStyles[[string]$S.DrStyle.SelectedItem]
+                $ask = $S.DrPrompt.Text.Trim(); if (-not $ask -and -not $stylehint) { $ask = 'an interesting Aphex Twin style beat' }
+                $lbl.Text = 'Interpreting your description...'; [void](Invoke-BriefPlan $false); $brief = Get-BriefText
+                $hint = if ($S.BrUse.Checked -and $S.BriefData) { $S.BriefData.drums } else { $null }
+                $sys = 'You are an expert drum programmer for electronic music (Aphex Twin, Squarepusher, Autechre, club music). Follow the user''s request closely and write a rich, busy, professional pattern. Reply with ONE compact JSON object and nothing else: {"lanes":[{"drum":"kick","steps":"..."}, ...]}. Each steps string has exactly one character per 16th-note step. Characters: "." rest, "x" hit, "X" accent, "o" quiet ghost note, "2" "3" "4" a ratchet (roll) of that many rapid hits inside that one step. Drum names: kick, snare, clap, rim, hat, openhat, tomlo, tomhi, crash, ride, perc (a shaker or tick, never a tonal bleep), pitchhat and pitchtom. The only pitched drums are tuned hats and tuned toms: write them as lanes named pitchhat or pitchtom, where every run of consecutive hits is automatically given its own melodic contour in the key (leaps, arches, arpeggios, pedal notes), so write varied short runs with changing rhythm, ratchets ("2" "3" "4") and gaps instead of long even rolls. Never use the same roll twice in a row. Use at least 6 lanes, every lane must have several hits in every bar (hats and percussion should be dense), snares need ghost notes, the kick must be syncopated or driving as asked, and the last bar must be a fill. Example of one 16-step bar of a groove (do not copy it, write something new that fits the request): {"lanes":[{"drum":"kick","steps":"X..x..x...x.x..."},{"drum":"snare","steps":"....X..o.o..X.2o"},{"drum":"hat","steps":"xoxoxoxoxoxoxox3"},{"drum":"openhat","steps":"..x...x...x...x."},{"drum":"perc","steps":".o..o...o..o...."},{"drum":"clap","steps":"....x.......x..."}]}. No markdown, no commentary.'
+                $user = "Request (follow this closely): $ask`nTime signature $sig at $($p.Bpm) BPM, swing $([int]($p.Swing * 100))%. One bar is exactly $spb steps (16th notes). Write $wb bars, so every steps string must be exactly $($spb * $wb) characters long.`nDensity (1 sparse - 10 busy): $([int]$S.DrDens.Value). Weirdness (1 plain - 10 glitchy, off-grid): $([int]$S.DrWeird.Value).`n$(if ($stylehint) { 'Style flavour: ' + $stylehint })`n$(if ($brief) { 'Producer creative direction (follow its drum section and overall feel):`n' + $brief })"
+                if ($S.DrTempo.Checked) { $user += "`nYou may also add top-level numbers `"tempo`" (BPM) and `"swing`" (0-60) to the JSON." }
+                $total = $spb * $wb; $loopRef = $loop
+                $groove = New-StudioGroove $S.DrPrompt.Text.Trim() $stylehint ([int]$S.DrDens.Value) ([int]$S.DrWeird.Value) $spb $wb $hint
+                $res = $null; $aiLanes = @(); $how = 'AI + rule-based groove'
+                try {
+                    $res = Invoke-StudioJsonModel $model $sys $user 3500 ({ param($x) ConvertFrom-StudioDrumJson $x $spb $loopRef $true }.GetNewClosure())
+                    $aiLanes = $res.Value
+                } catch { $how = 'rule-based groove (the AI reply was unusable: ' + $_.Exception.Message + ')' }
+                $merged = Merge-StudioDrumLanes $aiLanes $groove $spb $wb $true
+                $notes = ConvertFrom-StudioDrumLanes $merged $spb $loop 2 $S.Roll.Mask
+                if ($S.DrTempo.Checked -and $res) {
+                    try { $j = (Repair-StudioJson $res.Reply) | ConvertFrom-Json
+                        if ($j.tempo -and [double]$j.tempo -ge 60 -and [double]$j.tempo -le 300) { $S.Bpm.Value = [decimal][double]$j.tempo }
+                        if ($null -ne $j.swing -and [double]$j.swing -ge 0 -and [double]$j.swing -le 100) { $S.KSwing.Value = [double]$j.swing } } catch { }
+                }
+                $t = Apply-WrittenNotes $notes $true $S.DrNew.Checked ($S.DrMode.SelectedIndex -eq 1) 'Drums AI' 'drums'
+                $lbl.Text = "Programmed $($notes.Count) hits ($($merged.Count) lanes, $how) on '$($t.Name)'. Edit on the piano roll; Ctrl+Z undoes."
+                if ($S.DrKit.Checked) {
+                    $lbl.Text = 'Programmed the pattern. Synthesizing the drum kit (one AI-designed voice per drum)...'
+                    $kitMsg = Invoke-DrumKitDesign $t ($S.DrPrompt.Text.Trim() + ' ' + $stylehint) $brief
+                    $lbl.Text = "Programmed $($notes.Count) hits ($($merged.Count) lanes, $how). $kitMsg"
+                }
+            } else {
+                $role = [string]$S.MeRole.SelectedItem; $rd = $melRoles[$role]; $wb = [int]$S.MeBars.Value; $oct = [int]$S.MeOct.Value
+                $stylehint = [string]$melStyles[[string]$S.MeStyle.SelectedItem]
+                $ask = $S.MePrompt.Text.Trim(); if (-not $ask -and -not $stylehint) { $ask = 'something beautiful and strange in the style of Aphex Twin' }
+                $lbl.Text = 'Interpreting your description...'; [void](Invoke-BriefPlan $false); $brief = Get-BriefText
+                $chords = if ($S.ChordHint) { [string]$S.ChordHint } elseif ($S.BrUse.Checked -and $S.BriefData -and $S.BriefData.melody.chords) { (@($S.BriefData.melody.chords) -join ' | ') } else { '' }
+                $mask = $S.Roll.Mask; $names = @('C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B')
+                $allowed = (0..11 | Where-Object { $mask[$_] } | ForEach-Object { $names[$_] }) -join ' '
+                $instIdx = $S.MeInst.SelectedIndex; $instSel = [string]$S.MeInst.SelectedItem; $inst = $null; $instText = ''; $auto = $false; $voice = $null
+                $fixedN = $script:MeInstFixed.Count
+                if ($instIdx -eq 1) {
+                    $cat = Get-StudioInstrumentCatalogText $role 14
+                    if ($cat) { $auto = $true; $instText = "`nMy instrument library (choose the one that best fits the request and role, and write the notes for how it sounds):`n$cat" }
+                } elseif ($instIdx -ge $fixedN) {
+                    $inst = Get-StudioInstrument $instSel
+                    if ($inst) { $instText = "`nInstrument the part will be played on: " + (Format-StudioInstrumentLine $inst) }
+                } elseif ($instIdx -ge 2) {
+                    $lbl.Text = 'Designing the sound (synthesis) before writing the notes...'
+                    $dkind = @('synth', 'morph', 'spectral')[$instIdx - 2]
+                    $voice = New-DesignedVoice $dkind "$ask. $stylehint" $role $brief
+                    $oct = [int]$voice.Octave
+                    $instText = "`nThe part will be played by this freshly synthesized sound: $($voice.Profile)"
+                }
+                if (-not $instText -and -not $S.MeNew.Checked) { $cts = Get-CurTrack; if ($cts -and $cts.Synth -ne 'drums') { $instText = "`nThe part will be played by this sound: $(Get-StudioTrackSoundText $cts)" } }
+                $lbl.Text = 'Writing (a local model may need to load first)...'
+                $lo = ($oct + 1) * 12
+                $sys = 'You are a melody writer for electronic music (Aphex Twin, Boards of Canada, Autechre). Reply with ONE compact JSON object and nothing else: {"notes":[{"step":0,"pitch":"C3","len":2,"vel":100}]}. "step" is the start position in 16th-note steps from the beginning of the phrase and "len" the length in 16th steps; both may be fractional. "pitch" is a note name with octave such as "A#2". vel is 1-127. Notes must stay inside the phrase length. No markdown, no commentary.'
+                $user = "Time signature $sig at $($p.Bpm) BPM. One bar is exactly $spb steps (16th notes). Write a phrase of $wb bars = $($spb * $wb) steps (valid steps are 0 to $($spb * $wb - 1)).`nKey: $($S.Key.Text) $($p.Scale). Use only these pitch classes: $allowed. Main register around octave $oct.`nRole: $role - $($rd.Hint).`nStyle: $stylehint`nRequest: $ask$(if ($chords) { "`nChord progression (one chord per bar, cycling): $chords. Make the melody fit these chords." })$(if ($brief) { "`nProducer creative direction (follow its melody section and overall feel):`n$brief" })"
+                $user += $instText
+                $sys += ' Write melodies that outline the chord tones on strong beats with passing tones between them, a clear contour, repetition with variation, and phrase endings that resolve.'
+                if ($instText) { $sys += ' The part is written for a specific instrument or sound described by the user: follow its writing advice (note lengths, register, polyphony, rhythm).' }
+                if ($auto) { $sys = $sys.Replace('{"notes":[', '{"instrument":"exact name from the library or none","notes":[') }
+                $rep = $S.MeRepeat.Checked; $stay = $S.MeStay.Checked; $loopRef = $loop
+                $res = Invoke-StudioJsonModel $model $sys $user 3500 ({ param($x) ConvertFrom-StudioMelodyJson $x $spb $wb $loopRef $rep $mask $stay $lo }.GetNewClosure())
+                $notes = $res.Value
+                if ($auto) { try { $oj = (Repair-StudioJson $res.Reply) | ConvertFrom-Json; $inst = Find-StudioInstrument ([string]$oj.instrument) } catch { } }
+                $before = $S.Proj.Tracks.Count
+                $t = Apply-WrittenNotes $notes $false $S.MeNew.Checked ($S.MeMode.SelectedIndex -eq 1) ($role) $rd.Synth
+                $soundMsg = ''
+                if (($inst -or $voice) -and $S.Proj.Tracks.Count -gt $before) {
+                    $lbl.Text = 'Applying the sound to the new track...'
+                    if ($voice) { Set-VoiceOnTrack $t $voice; $t.Name = $voice.Name; $soundMsg = " Sound: designed '$($voice.Name)' ($($voice.Kind)$(if ($voice.Saved) { ', saved to the library' }))." }
+                    else { Set-StudioTrackFromInstrument $t $inst; $t.Name = [string]$inst.name; $soundMsg = " Sound: instrument '$($inst.name)'." }
+                    Load-TrackProps; Refresh-Tracks; $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit
+                } elseif ($inst -or $voice) { $soundMsg = ' The sound was not applied because the notes went onto an existing track; tick New track to give it the instrument.' }
+                $lbl.Text = "Wrote $($notes.Count) notes on '$($t.Name)'.$soundMsg Edit on the piano roll; Ctrl+Z undoes."
+            }
+            Log "$Kind AI: $($lbl.Text)"
+        } catch { $lbl.Text = 'Failed: ' + $_.Exception.Message; Log "$Kind AI failed: $($_.Exception.Message)" }
+        finally { $btn.Enabled = $true; $f.Cursor = 'Default' }
+    }
+    $S.DrGo.Add_Click({ Invoke-WriteAi 'drums' }); $S.MeGo.Add_Click({ Invoke-WriteAi 'melody' })
+
+    # ---- wiring --------------------------------------------------------------------------------------------------------------
+    $S.GridPatch.Add_PropertyValueChanged({ $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit }); $S.GridFx.Add_PropertyValueChanged({ $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit })
+    $S.LabSynth.Add_Click({ Invoke-LabAi 'synth' }); $S.LabRSynth.Add_Click({ Invoke-LabAi 'refinesynth' })
+    $S.LabFx.Add_Click({ Invoke-LabAi 'fx' }); $S.LabRFx.Add_Click({ Invoke-LabAi 'refinefx' }); $S.LabSample.Add_Click({ Invoke-LabAi 'sample' })
+    $S.LabRand.Add_Click({ Invoke-LabRandom 1.0 }); $S.LabMut.Add_Click({ Invoke-LabRandom ([double]$S.LabAmt.Value) })
+    $S.LabReset.Add_Click({
+        $t = Get-CurTrack; if (-not $t) { return }
+        if ($S.LabTarget.SelectedIndex -eq 0) { $t.Patch = New-Object HbStudio.Patch; if ($t.Synth -ne 'patch') { $t.Synth = 'patch' } } else { $t.Fx = New-Object HbStudio.Fx }
+        Load-TrackProps; $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit
+    })
+    $S.LabAud.Add_Click({ try { Invoke-LabAudition (Get-CurTrack) ([int]$S.LabPitch.Value) $false } catch { Set-LabStatus ('Audition failed: ' + $_.Exception.Message) } })
+    $S.LabStop.Add_Click({ if ($S.Aud) { try { $S.Aud.Stop() } catch { } } })
+    $S.LabBake.Add_Click({
+        $t = Get-CurTrack; if (-not $t) { return }
+        try {
+            $pitch = [int]$S.LabPitch.Value
+            $smp = [HbStudio.Dsp]::RenderSample($t, $pitch, [double]$S.LabSecs.Value, $true)
+            $nt = New-StudioTrack ($t.Name + ' sample') 'sample'; $nt.Sample = $smp; $nt.SampleRoot = $pitch
+            $nt.Notes.Add((New-Object HbStudio.Note $pitch, 0, 1, 110)); $S.Proj.Tracks.Add($nt); Refresh-Tracks ($S.Proj.Tracks.Count - 1); $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit
+            Set-LabStatus "Baked '$($t.Name)' into a sampler track."
+        } catch { Set-LabStatus ('Bake failed: ' + $_.Exception.Message) }
+    })
+    $S.LabSave.Add_Click({
+        $t = Get-LabSampleTrack; if (-not $t) { return }
+        $d = New-Object Windows.Forms.SaveFileDialog; $d.Filter = 'WAV file|*.wav'; $d.InitialDirectory = (Get-StudioDir); $d.FileName = ($t.Name -replace '[^\w\- ]', '_') + '.wav'
+        if ($d.ShowDialog() -eq 'OK') { [HbStudio.Dsp]::WriteWavMono($d.FileName, $t.Sample); Log "Sample saved: $($d.FileName)" }
+    })
+    $S.LabLoad.Add_Click({
+        $d = New-Object Windows.Forms.OpenFileDialog; $d.Filter = 'WAV file|*.wav'
+        if ($d.ShowDialog() -eq 'OK') {
+            try {
+                $smp = [HbStudio.Dsp]::ReadWav($d.FileName)
+                if ($smp.Length -gt 44100 * 30) { $smp = $smp[0..(44100 * 30 - 1)] }
+                $nt = New-StudioTrack ([IO.Path]::GetFileNameWithoutExtension($d.FileName)) 'sample'; $nt.Sample = [float[]]$smp
+                $nt.Notes.Add((New-Object HbStudio.Note 60, 0, 1, 110)); $S.Proj.Tracks.Add($nt); Refresh-Tracks ($S.Proj.Tracks.Count - 1); $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit
+                Set-LabStatus "Loaded $($d.FileName) (trimmed to 30 s max)."
+            } catch { Set-LabStatus ('Could not load WAV: ' + $_.Exception.Message) }
+        }
+    })
+    $S.LabRev.Add_Click({ $t = Get-LabSampleTrack; if ($t) { [Array]::Reverse($t.Sample); $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Set-LabStatus 'Sample reversed.' } })
+    $S.LabNorm.Add_Click({ $t = Get-LabSampleTrack; if ($t) { [HbStudio.Dsp]::Normalize($t.Sample, 0.89); $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Set-LabStatus 'Sample normalized.' } })
+    $S.LabRoot.Add_ValueChanged({ if (-not $S.Loading) { $t = Get-CurTrack; if ($t) { $t.SampleRoot = [int]$S.LabRoot.Value; $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit } } })
+    $S.LabGate.Add_CheckedChanged({ if (-not $S.Loading) { $t = Get-CurTrack; if ($t) { $t.SampleGate = $S.LabGate.Checked; $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit } } })
+    $S.LabMode.Add_SelectedIndexChanged({ if (-not $S.Loading) { $t = Get-CurTrack; if ($t) { $t.SampleMode = [int]$S.LabMode.SelectedIndex; $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit } } })
+    # ---- Song tab: patterns, arrangement, presets, AI arranger -------------------------------------------------------
+    function Refresh-SongUi {
+        $pi = $S.PatList.SelectedIndex; $si = $S.SongList.SelectedIndex
+        $S.PatList.Items.Clear(); $S.SongList.Items.Clear()
+        $P = $S.Proj
+        foreach ($q in $P.Patterns) { [void]$S.PatList.Items.Add(('{0}  ({1} bars, {2} notes)' -f $q.Name, $q.Bars, $q.NoteCount)) }
+        $n = 1
+        foreach ($it in $P.Song) {
+            $nm = if ($it.Pattern -ge 0 -and $it.Pattern -lt $P.Patterns.Count) { $P.Patterns[$it.Pattern].Name } else { '(missing)' }
+            [void]$S.SongList.Items.Add(('{0}. {1}  x{2}' -f $n, $nm, $it.Repeats)); $n++
+        }
+        if ($pi -ge 0 -and $pi -lt $S.PatList.Items.Count) { $S.PatList.SelectedIndex = $pi }
+        if ($si -ge 0 -and $si -lt $S.SongList.Items.Count) { $S.SongList.SelectedIndex = $si }
+        $beats = [HbStudio.Arranger]::SongBeats($P); $sec = $beats * 60.0 / $P.Bpm
+        $S.SongInfo.Text = if ($P.Song.Count) { 'Song length: {0} beats, {1}:{2:00}' -f [int]$beats, [int][math]::Floor($sec / 60), [int]($sec % 60) } else { 'Song is empty: add patterns or auto-arrange.' }
+        $S.GridMaster.SelectedObject = $P.Master
+        try { Refresh-MixUi } catch { }
+    }
+    function Play-StudioPcm($pcm) {
+        Stop-Studio
+        $wav = Join-Path $env:TEMP 'hb-studio-preview.wav'
+        [HbStudio.Dsp]::WriteWav($wav, $pcm)
+        $S.Player = New-Object System.Media.SoundPlayer $wav; $S.Player.Load(); $S.Player.Play()
+    }
+    function Get-SelPattern { $i = $S.PatList.SelectedIndex; if ($i -ge 0 -and $i -lt $S.Proj.Patterns.Count) { return $S.Proj.Patterns[$i] }; return $null }
+    $S.PatList.Add_SelectedIndexChanged({ $q = Get-SelPattern; if ($q) { $S.PatName.Text = $q.Name } })
+    $S.PatCap.Add_Click({
+        Sync-Project
+        $sel = Get-SelPattern; $nm = $S.PatName.Text.Trim()
+        if (-not $nm -or ($sel -and $nm -eq $sel.Name)) { $nm = 'Pattern ' + ($S.Proj.Patterns.Count + 1) }
+        $S.Proj.Patterns.Add([HbStudio.Pattern]::Capture($S.Proj, $nm)); $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Refresh-SongUi
+        $S.PatList.SelectedIndex = $S.PatList.Items.Count - 1
+    })
+    $S.PatUpd.Add_Click({
+        $i = $S.PatList.SelectedIndex; if ($i -lt 0) { return }
+        Sync-Project; $nm = $S.Proj.Patterns[$i].Name
+        $S.Proj.Patterns[$i] = [HbStudio.Pattern]::Capture($S.Proj, $nm); $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Refresh-SongUi
+    })
+    $S.PatLoad.Add_Click({
+        $q = Get-SelPattern; if (-not $q) { return }
+        Push-Undo; $q.Apply($S.Proj)
+        $S.Loading = $true; $S.Bars.Value = [decimal][math]::Max($S.Bars.Minimum, [math]::Min($S.Bars.Maximum, $q.Bars)); $S.Loading = $false
+        Sync-Project; Refresh-Tracks ([math]::Max(0, $S.TrackList.SelectedIndex)); $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit
+        Status "Loaded pattern '$($q.Name)' into the editor."
+    })
+    $S.PatDup.Add_Click({
+        $q = Get-SelPattern; if (-not $q) { return }
+        $c = [HbStudio.Pattern]::Capture($S.Proj, $q.Name + ' copy'); $c.Bars = $q.Bars
+        for ($i = 0; $i -lt $q.Notes.Count -and $i -lt $c.Notes.Count; $i++) { $c.Notes[$i].Clear(); foreach ($n in $q.Notes[$i]) { $c.Notes[$i].Add($n.Clone()) }; $c.Mutes[$i] = $q.Mutes[$i] }
+        $S.Proj.Patterns.Add($c); $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Refresh-SongUi
+    })
+    $S.PatDel.Add_Click({
+        $i = $S.PatList.SelectedIndex; if ($i -lt 0) { return }
+        $S.Proj.Patterns.RemoveAt($i)
+        for ($k = $S.Proj.Song.Count - 1; $k -ge 0; $k--) {
+            $it = $S.Proj.Song[$k]
+            if ($it.Pattern -eq $i) { $S.Proj.Song.RemoveAt($k) } elseif ($it.Pattern -gt $i) { $it.Pattern-- }
+        }
+        $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Refresh-SongUi
+    })
+    $S.PatName.Add_Leave({
+        $q = Get-SelPattern; $nm = $S.PatName.Text.Trim()
+        if ($q -and $nm -and $nm -ne $q.Name) { $q.Name = $nm; $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Refresh-SongUi }
+    })
+    $S.SongAdd.Add_Click({
+        $i = $S.PatList.SelectedIndex; if ($i -lt 0) { Show-StudioMsg 'Select a pattern first.'; return }
+        $S.Proj.Song.Add((New-Object HbStudio.SongItem $i, [int]$S.SongReps.Value)); $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Refresh-SongUi
+    })
+    $S.SongRem.Add_Click({ $i = $S.SongList.SelectedIndex; if ($i -ge 0) { $S.Proj.Song.RemoveAt($i); $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Refresh-SongUi } })
+    $S.SongUp.Add_Click({
+        $i = $S.SongList.SelectedIndex; if ($i -gt 0) { $it = $S.Proj.Song[$i]; $S.Proj.Song.RemoveAt($i); $S.Proj.Song.Insert($i - 1, $it); $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Refresh-SongUi; $S.SongList.SelectedIndex = $i - 1 }
+    })
+    $S.SongDn.Add_Click({
+        $i = $S.SongList.SelectedIndex; if ($i -ge 0 -and $i -lt $S.Proj.Song.Count - 1) { $it = $S.Proj.Song[$i]; $S.Proj.Song.RemoveAt($i); $S.Proj.Song.Insert($i + 1, $it); $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Refresh-SongUi; $S.SongList.SelectedIndex = $i + 1 }
+    })
+    $S.SongList.Add_SelectedIndexChanged({
+        $i = $S.SongList.SelectedIndex
+        if ($i -ge 0 -and $i -lt $S.Proj.Song.Count) { $S.Loading = $true; $S.SongReps.Value = [decimal]$S.Proj.Song[$i].Repeats; $S.Loading = $false }
+    })
+    $S.SongReps.Add_ValueChanged({
+        $i = $S.SongList.SelectedIndex
+        if (-not $S.Loading -and $i -ge 0 -and $i -lt $S.Proj.Song.Count) { $S.Proj.Song[$i].Repeats = [int]$S.SongReps.Value; $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Refresh-SongUi }
+    })
+    $S.SongClear.Add_Click({ $S.Proj.Song.Clear(); $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Refresh-SongUi })
+    $S.SongAuto.Add_Click({
+        if ($S.Proj.Patterns.Count -gt 0 -and [Windows.Forms.MessageBox]::Show('Replace the existing patterns and arrangement with an auto-arranged song built from the current tracks?', 'Audio Studio', 'YesNo', 'Question') -ne 'Yes') { return }
+        Sync-Project; [HbStudio.Arranger]::AutoSong($S.Proj, [int](Get-Random -Maximum 100000)); $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Refresh-SongUi
+        Status 'Auto-arranged: Intro, Build, Drop, Breakdown, Drop B, Outro. Edit the patterns or order freely.'
+    })
+    $S.SongPlay.Add_Click({
+        try {
+            Sync-Project
+            if ($S.Proj.Song.Count -eq 0) { Show-StudioMsg 'The song is empty. Add patterns to the arrangement or use Auto-arrange.'; return }
+            $f.Cursor = 'WaitCursor'; Status 'Rendering song...'
+            $pcm = [HbStudio.Dsp]::RenderSong($S.Proj, $true)
+            Play-StudioPcm $pcm; Status 'Playing song (rendered preview).'
+        } catch { Show-StudioMsg ('Play song failed: ' + $_.Exception.Message) } finally { $f.Cursor = 'Default' }
+    })
+    $S.SongStop.Add_Click({ Stop-Studio; Status 'Stopped.' })
+    $S.PresetAdd.Add_Click({
+        $n = [string]$S.PresetList.SelectedItem; if (-not $n) { return }
+        Push-Undo; [void](Add-StudioPresetTrack $S.Proj $n); Refresh-Tracks ($S.Proj.Tracks.Count - 1); $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Status "Added '$n' as a new track."
+    })
+    $S.PresetApply.Add_Click({
+        $n = [string]$S.PresetList.SelectedItem; $i = $S.TrackList.SelectedIndex; if (-not $n -or $i -lt 0) { return }
+        Push-Undo; [void](Add-StudioPresetTrack $S.Proj $n $i); Refresh-Tracks $i; $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Status "Applied '$n' to the selected track."
+    })
+    $S.SongAi.Add_Click({
+        $S.SongAi.Enabled = $false; $S.SongAiStatus.Text = 'Thinking...'; $f.Cursor = 'AppStarting'
+        try {
+            Sync-Project
+            if ($S.Proj.Patterns.Count -eq 0) { throw 'Capture some patterns first (or use Auto-arrange to create them).' }
+            $names = @(); for ($i = 0; $i -lt $S.Proj.Patterns.Count; $i++) { $q = $S.Proj.Patterns[$i]; $names += ('{0}: "{1}" ({2} bars, {3} notes)' -f $i, $q.Name, $q.Bars, $q.NoteCount) }
+            $sys = 'You arrange electronic music tracks from existing scenes. Reply with ONE JSON object and nothing else (no markdown): {"song":[{"pattern":<index of a listed pattern>,"repeats":<1-16>}]}. Use only the listed pattern indexes, build energy sensibly, and keep to 4-40 entries.'
+            $user = "BPM $($S.Proj.Bpm), time signature $($S.Proj.BeatsPerBar)/$($S.Proj.BeatUnit).`nPatterns:`n$($names -join "`n")`nRequest: $($S.SongPrompt.Text)$(if ($S.BrUse.Checked -and $S.Brief.Text.Trim()) { "`nCreative direction: " + $S.Brief.Text.Trim() })"
+            $res = Invoke-StudioJsonModel (Get-AiModel) $sys $user 1500 ({ param($x) Find-StudioJsonObject $x '' }); $reply = $res.Reply; $j = $res.Value
+            $list = if ($j.song) { @($j.song) } else { throw 'The reply had no "song" list.' }
+            $new = New-Object 'System.Collections.Generic.List[HbStudio.SongItem]'
+            foreach ($e in $list) {
+                $pi = [int]$e.pattern
+                if ($pi -lt 0 -or $pi -ge $S.Proj.Patterns.Count) { continue }
+                $rp = 1; if ($null -ne $e.repeats) { $rp = [math]::Max(1, [math]::Min(16, [int]$e.repeats)) }
+                $new.Add((New-Object HbStudio.SongItem $pi, $rp))
+            }
+            if ($new.Count -eq 0) { throw 'The reply did not reference any valid patterns.' }
+            $S.Proj.Song.Clear(); $S.Proj.Song.AddRange($new); $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Refresh-SongUi
+            $S.SongAiStatus.Text = "Arranged $($new.Count) sections."
+        } catch { $S.SongAiStatus.Text = 'AI arrange failed: ' + $_.Exception.Message }
+        finally { $S.SongAi.Enabled = $true; $f.Cursor = 'Default' }
+    })
+
+    # ---- Master tab: analysis, auto/AI mastering, preview, export ----------------------------------------------------
+    function Get-MasterTarget { if ($S.MTarget.Text -match '-(\d+)') { return -[double]$Matches[1] }; return -14.0 }
+    function Get-SourceMix {
+        Sync-Project
+        $song = ($S.MSource.SelectedIndex -eq 1)
+        if ($song -and $S.Proj.Song.Count -eq 0) { throw 'The song is empty. Build an arrangement on the Song tab, or switch Source to Current pattern.' }
+        $L = $null; $R = $null; [HbStudio.Dsp]::Mix($S.Proj, $song, $true, [ref]$L, [ref]$R)
+        return @{ L = $L; R = $R }
+    }
+    function Set-MasterStatus([string]$m) { $S.EStatus.Text = $m; Status $m }
+    $S.MAnalyze.Add_Click({
+        try {
+            $f.Cursor = 'WaitCursor'; $m = Get-SourceMix
+            $txt = "DRY MIX`r`n" + ([HbStudio.Mastering]::Analyze($m.L, $m.R)).Report()
+            if ($S.Proj.Master.Enabled) {
+                $cl = [float[]]$m.L.Clone(); $cr = [float[]]$m.R.Clone(); [HbStudio.Mastering]::Process($cl, $cr, $S.Proj.Master)
+                $txt += "`r`n`r`nWITH MASTER CHAIN`r`n" + ([HbStudio.Mastering]::Analyze($cl, $cr)).Report()
+            }
+            $S.MReport.Text = $txt
+        } catch { Set-MasterStatus ('Analyze failed: ' + $_.Exception.Message) } finally { $f.Cursor = 'Default' }
+    })
+    $S.MAuto.Add_Click({
+        try {
+            $f.Cursor = 'WaitCursor'; $m = Get-SourceMix; $tg = Get-MasterTarget
+            $ms = [HbStudio.Mastering]::Auto($m.L, $m.R, $tg); $ms.Enabled = $true
+            $S.Proj.Master = $ms; $S.GridMaster.SelectedObject = $ms; $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit
+            $S.EMaster.Checked = $true
+            Set-MasterStatus ('Auto master applied (target {0} LUFS). Preview it, then fine-tune in the grid.' -f $tg)
+            $S.MAnalyze.PerformClick()
+        } catch { Set-MasterStatus ('Auto master failed: ' + $_.Exception.Message) } finally { $f.Cursor = 'Default' }
+    })
+    $S.MReset.Add_Click({ $S.Proj.Master = New-Object HbStudio.MasterSettings; $S.GridMaster.SelectedObject = $S.Proj.Master; $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Set-MasterStatus 'Master settings reset (chain disabled).' })
+    $S.GridMaster.Add_PropertyValueChanged({ $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit })
+    function Invoke-MasterPreview([bool]$Mastered) {
+        try {
+            $f.Cursor = 'WaitCursor'; Set-MasterStatus 'Rendering preview...'
+            Sync-Project
+            $song = ($S.MSource.SelectedIndex -eq 1)
+            if ($song -and $S.Proj.Song.Count -eq 0) { throw 'The song is empty.' }
+            $pcm = if ($song) { [HbStudio.Dsp]::RenderSong($S.Proj, $Mastered) } else { [HbStudio.Dsp]::Render($S.Proj, $false, $Mastered) }
+            Play-StudioPcm $pcm
+            $note = if ($Mastered -and -not $S.Proj.Master.Enabled) { ' (the chain is disabled: set Enabled = True or run Auto master)' } else { '' }
+            Set-MasterStatus ('Playing ' + $(if ($Mastered) { 'mastered' } else { 'dry' }) + ' preview.' + $note)
+        } catch { Set-MasterStatus ('Preview failed: ' + $_.Exception.Message) } finally { $f.Cursor = 'Default' }
+    }
+    $S.MPrevM.Add_Click({ Invoke-MasterPreview $true })
+    $S.MPrevD.Add_Click({ Invoke-MasterPreview $false })
+    $S.MStop.Add_Click({ Stop-Studio; Status 'Stopped.' })
+    $S.MAi.Add_Click({ Invoke-MixAi $S.MPrompt.Text $S.MAi { param($m) Set-MasterStatus $m } })
+    function Update-FfmpegLabel {
+        $S.FfmpegPath = Find-StudioFfmpeg
+        $S.EFfmpeg.Text = if ($S.FfmpegPath) { 'FFmpeg ready' } else { 'Get FFmpeg (MP3/OGG)' }
+        $S.EFfmpeg.Enabled = -not $S.FfmpegPath
+    }
+    $S.EFfmpeg.Add_Click({
+        if ([Windows.Forms.MessageBox]::Show("Download FFmpeg (about 90 MB, gyan.dev release build) into the studio folder? It is only used to encode MP3, OGG and FLAC.", 'Audio Studio', 'YesNo', 'Question') -ne 'Yes') { return }
+        try {
+            $f.Cursor = 'WaitCursor'
+            [void](Install-StudioFfmpeg { param($mb) Set-MasterStatus "Downloading FFmpeg... $mb MB" })
+            Set-MasterStatus 'FFmpeg installed.'
+        } catch { Set-MasterStatus ('FFmpeg download failed: ' + $_.Exception.Message) } finally { $f.Cursor = 'Default'; Update-FfmpegLabel }
+    })
+    function Show-StudioExportDialog {
+        $s = $script:StudioExportSettings
+        if (-not $s) { $s = @{ Song = $false; Loops = 1; Tempo = 0; Click = $false; Master = $true; Normalize = $false; NormDb = -1.0; FadeIn = 0; FadeOut = 0; Format = 'WAV 16-bit'; SampleRate = 44100; Mono = $false } }
+        $f = New-Object Windows.Forms.Form
+        $f.Text = 'Export audio'; $f.StartPosition = 'CenterParent'; $f.FormBorderStyle = 'FixedDialog'
+        $f.MaximizeBox = $false; $f.MinimizeBox = $false; $f.ClientSize = New-Object Drawing.Size(520, 380)
+        $f.BackColor = $script:Colors.Bg; $f.ForeColor = $script:Colors.Text
+        $add = { param($c) $f.Controls.Add($c) }
+        $y = 14
+        & $add (Lbl 'Source' 16 $y 70); $cbSource = Combo @('Current pattern', 'Whole song') 110 $y 170; $cbSource.SelectedIndex = $(if ($s.Song) { 1 } else { 0 }); & $add $cbSource
+        & $add (Lbl 'Loop count' 300 $y 80); $nLoops = Num $s.Loops 1 64 1 0 390 $y 70; & $add $nLoops
+        $y += 36
+        & $add (Lbl 'Tempo override' 16 $y 95); $nTempo = Num $s.Tempo 0 300 1 0 110 $y 70; & $add $nTempo
+        & $add (Lbl '(0 = project tempo)' 190 $y 140)
+        $y += 36
+        $ckClick = New-Check 'Include metronome click' 16 $y 220 ([bool]$s.Click); & $add $ckClick
+        $ckMaster = New-Check 'Apply mastering chain' 260 $y 220 ([bool]$s.Master); & $add $ckMaster
+        $y += 36
+        $ckNorm = New-Check 'Normalize peak' 16 $y 130 ([bool]$s.Normalize); & $add $ckNorm
+        & $add (Lbl 'Target dBFS' 160 $y 80); $nNorm = Num $s.NormDb -24 0 0.5 1 250 $y 70; & $add $nNorm
+        $y += 36
+        & $add (Lbl 'Fade in (ms)' 16 $y 80); $nFadeIn = Num $s.FadeIn 0 10000 50 0 110 $y 70; & $add $nFadeIn
+        & $add (Lbl 'Fade out (ms)' 260 $y 85); $nFadeOut = Num $s.FadeOut 0 10000 50 0 360 $y 70; & $add $nFadeOut
+        $y += 40
+        & $add (Lbl 'Format' 16 $y 70); $cbFormat = Combo @($script:StudioFormats.Keys) 110 $y 220; $cbFormat.SelectedItem = [string]$s.Format; if ($cbFormat.SelectedIndex -lt 0) { $cbFormat.SelectedIndex = 0 }; & $add $cbFormat
+        $y += 36
+        & $add (Lbl 'Sample rate' 16 $y 85); $cbRate = Combo @('44100', '48000', '96000') 110 $y 100; $cbRate.SelectedItem = [string]$s.SampleRate; if ($cbRate.SelectedIndex -lt 0) { $cbRate.SelectedIndex = 0 }; & $add $cbRate
+        & $add (Lbl 'Channels' 260 $y 70); $cbCh = Combo @('Stereo', 'Mono') 340 $y 100; $cbCh.SelectedIndex = $(if ($s.Mono) { 1 } else { 0 }); & $add $cbCh
+        $y += 40
+        & $add (Lbl 'Pattern exports loop seamlessly; Loop count repeats it. Song export uses the arrangement.' 16 $y 480)
+        $ok = Btn 'Export' 300 330 90 30 $true
+        $cancel = Btn 'Cancel' 400 330 88 30
+        $ok.Add_Click({ $f.DialogResult = 'OK'; $f.Close() })
+        $cancel.Add_Click({ $f.DialogResult = 'Cancel'; $f.Close() })
+        $f.Controls.AddRange(@($ok, $cancel))
+        $f.AcceptButton = $ok; $f.CancelButton = $cancel
+        if ($f.ShowDialog() -ne 'OK') { return $null }
+        $res = @{
+            Song = ($cbSource.SelectedIndex -eq 1); Loops = [int]$nLoops.Value; Tempo = [double]$nTempo.Value; Click = [bool]$ckClick.Checked
+            Master = [bool]$ckMaster.Checked; Normalize = [bool]$ckNorm.Checked; NormDb = [double]$nNorm.Value
+            FadeIn = [int]$nFadeIn.Value; FadeOut = [int]$nFadeOut.Value
+            Format = [string]$cbFormat.SelectedItem; SampleRate = [int]$cbRate.SelectedItem; Mono = ($cbCh.SelectedIndex -eq 1)
+        }
+        $script:StudioExportSettings = $res
+        return $res
+    }
+    function Invoke-StudioExport {
+        $opt = if ($script:StudioExportPath) {
+            @{ Song = [bool]$S.ESong.Checked; Loops = 1; Tempo = 0; Click = [bool]$S.Proj.Click; Master = [bool]$S.EMaster.Checked; Normalize = $false; NormDb = -1.0; FadeIn = 0; FadeOut = 0; Format = [string]$S.EFormat.Text; SampleRate = 44100; Mono = $false }
+        } else { Show-StudioExportDialog }
+        if (-not $opt) { return }
+        $fn = [string]$opt.Format; $fmt = $script:StudioFormats[$fn]; if (-not $fmt) { return }
+        try {
+            Sync-Project
+            $song = [bool]$opt.Song
+            if ($song -and $S.Proj.Song.Count -eq 0) { Show-StudioMsg 'The song is empty. Build an arrangement on the Song tab or choose Current pattern.'; return }
+            $needFf = ($fmt.Ext -ne 'wav' -or $fmt.Args -or [int]$opt.SampleRate -ne 44100 -or [bool]$opt.Mono)
+            $ff = $null
+            if ($needFf) {
+                $ff = Find-StudioFfmpeg
+                if (-not $ff) { Show-StudioMsg 'This format or sample rate needs FFmpeg. Press "Get FFmpeg" first, or export 16-bit WAV at 44100 Hz.'; return }
+            }
+            if ($script:StudioExportPath) { $d = [pscustomobject]@{ FileName = $script:StudioExportPath } }
+            else {
+                $d = New-Object Windows.Forms.SaveFileDialog
+                $d.Filter = ('{0} (*{1})|*{1}' -f $fn, ('.' + $fmt.Ext)); $d.InitialDirectory = (Join-Path (Get-StudioDir) 'renders')
+                $d.FileName = 'studio-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.' + $fmt.Ext
+                if ($d.ShowDialog() -ne 'OK') { return }
+            }
+            $f.Cursor = 'WaitCursor'; Stop-Studio; Set-MasterStatus 'Rendering...'
+            $p = $S.Proj; $oldBpm = $p.Bpm; $oldClick = $p.Click
+            try {
+                if ([double]$opt.Tempo -gt 0) { $p.Bpm = [double]$opt.Tempo }
+                $p.Click = [bool]$opt.Click
+                $loops = if ($song) { 1 } else { [math]::Max(1, [int]$opt.Loops) }
+                if ($song) { $pcm = [HbStudio.Dsp]::RenderSong($p, [bool]$opt.Master) }
+                else {
+                    $pcm = [HbStudio.Dsp]::Render($p, $true, [bool]$opt.Master)
+                    if ($loops -gt 1) { $pcm = [HbStudio.ExportDsp]::Repeat($pcm, $loops) }
+                }
+            } finally { $p.Bpm = $oldBpm; $p.Click = $oldClick }
+            [HbStudio.ExportDsp]::NormalizeFade($pcm, [bool]$opt.Normalize, [double]$opt.NormDb, [int]$opt.FadeIn, [int]$opt.FadeOut, 44100)
+            $direct = ($fmt.Ext -eq 'wav' -and -not $fmt.Args -and [int]$opt.SampleRate -eq 44100 -and -not [bool]$opt.Mono)
+            if ($direct) { [HbStudio.Dsp]::WriteWav($d.FileName, $pcm) }
+            else {
+                $tmp = Join-Path $env:TEMP ('hb-studio-export-' + [guid]::NewGuid().ToString('N') + '.wav')
+                try {
+                    [HbStudio.Dsp]::WriteWav($tmp, $pcm)
+                    Set-MasterStatus "Encoding $fn..."
+                    $extra = "-ar $([int]$opt.SampleRate)"
+                    if ([bool]$opt.Mono) { $extra += ' -ac 1' }
+                    if ($fmt.Ext -eq 'wav' -and -not $fmt.Args) { $extra += ' -c:a pcm_s16le' }
+                    Convert-StudioAudio $ff $tmp $d.FileName $fn $extra
+                } finally { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
+            }
+            Log ("Exported $($d.FileName) ($loops loop(s), $fn, $($opt.SampleRate) Hz)");
+            Set-MasterStatus ('Exported ' + (Split-Path $d.FileName -Leaf) + "  ($loops loop(s), $fn)")
+            try { if (Get-Command Add-AudioPlaylistFiles -ErrorAction SilentlyContinue) { [void](Add-AudioPlaylistFiles @($d.FileName)) } } catch { }
+            if (-not $script:StudioExportPath) { Start-Process explorer.exe -ArgumentList "/select,`"$($d.FileName)`"" }
+        } catch { Log ('Export failed: ' + $_.Exception.Message); Set-MasterStatus ('Export failed: ' + $_.Exception.Message); Show-StudioMsg ('Export failed: ' + $_.Exception.Message) }
+        finally { $f.Cursor = 'Default' }
+    }
+    $S.EGo.Add_Click({ Invoke-StudioExport })
+
+    # ---- tooltips: one shared ToolTip for the whole window -----------------------------------------------------
+    $tip = New-Object Windows.Forms.ToolTip; $tip.AutoPopDelay = 8000; $tip.InitialDelay = 500; $tip.ReshowDelay = 150
+    function TT($c, [string]$t) { if ($c) { $tip.SetToolTip($c, $t) } }
+    TT $S.Play 'Render and play the loop (or arrangement) with the built-in synth or SuperCollider'
+    TT $S.Stop 'Stop preview playback'
+    TT $S.Loop 'Loop the pattern when previewing (song plays the arrangement once)'
+    TT $S.Click 'Metronome: accented blip on the downbeat, plain blip on the other beats. Synthesised into renders and previews (not audible over SuperCollider live)'
+    TT $S.Bpm 'Tempo in beats per minute (20-400)'
+    TT $S.Bpb 'Beats per bar (time signature numerator)'
+    TT $S.Den 'Beat unit (time signature denominator)'
+    TT $S.Bars 'Length of the pattern in bars'
+    TT $S.Phrase 'Phrase length in bars (used by the composer for tension/release)'
+    TT $S.Key 'Root note of the scale used for snap and the composer'
+    TT $S.Scale 'Scale used for snap and the harmony helpers'
+    TT $S.SnapScale 'When on, notes snap to the selected scale when edited/generated'
+    TT $S.Grid 'Edit grid resolution for the piano roll (Ctrl+wheel zooms, Shift+wheel scrolls)'
+    TT $S.Engine 'Preview voice: built-in synth or SuperCollider if located'
+    TT $S.BtnNew 'New project (drums/acid/pad starter)'
+    TT $S.BtnOpen 'Open a saved .hbstudio.json project'
+    TT $S.BtnSave 'Save the project to a .hbstudio.json file'
+    TT $S.BtnWav 'Render the current loop (or song) to a WAV file'
+    TT $S.BtnMidi 'Export the pattern as a MIDI file'
+    TT $S.BtnScd 'Export a SuperCollider .scd script of the pattern'
+    TT $S.BtnSc 'Point to sclang.exe for SuperCollider previews'
+    TT $S.BtnScGet 'Open the SuperCollider downloads page'
+    TT $S.TVol 'Track gain (0-1.5x). Double-click the knob to reset. Drag up/down, wheel, Shift for fine'
+    TT $S.TPan 'Stereo pan (-1 left to +1 right)'
+    TT $S.TCut 'Base filter cutoff in Hz (log taper)'
+    TT $S.TRes 'Filter resonance (0.9+ screams, acid style)'
+    TT $S.TEnv 'Filter envelope amount (how far the cutoff sweeps per note)'
+    TT $S.TAtk 'Note attack time'
+    TT $S.TRel 'Note release time'
+    TT $S.TCrush 'Bit depth for the track downsampler'
+    TT $S.KSwing 'Swing amount for the 16th grid (0-100%)'
+    TT $S.KDelay 'Global dotted-eighth ping-pong delay mix'
+    TT $S.KBeats 'Global delay time in beats'
+    TT $S.KFb 'Global delay feedback'
+    TT $S.TBus 'Send this track to a shared bus with its own FX chain (Bus A-D) or play direct'
+    TT $S.BtnBusFx 'Open the Bus / FX rack (shared FX buses with module toggles and knobs)'
+    TT $S.TMute 'Mute this track (sidechain sources still trigger, but stay silent)'
+    TT $S.TSolo 'Solo this track - when any Solo is on, only soloed tracks are heard'
+    TT $S.BtnTAdd 'Add a track'
+    TT $S.BtnTDup 'Duplicate the selected track'
+    TT $S.BtnTDel 'Delete the selected track'
+    TT $S.BtnViewRoll 'Edit notes in the piano roll'
+    TT $S.BtnViewPatch 'Patch tracks, FX modules and buses like a eurorack rack (drag jack-to-jack)'
+    TT $S.BtnPatchFit 'Fit every module in the patch graph into view'
+    TT $S.BtnPatchTidy 'Re-arrange modules into signal-flow columns (cables are kept)'
+    TT $S.BtnGroupSel 'Group the ctrl-selected modules under one group master bus (cables are kept)'
+    TT $S.BtnPatchDelete 'Delete the selected module from the patch graph'
+    TT $S.PatchBypass 'Bypass the module (signal passes through untouched)'
+    TT $S.T_zoomIn 'Roll zoom +'; TT $S.T_zoomOut 'Roll zoom -'
+    foreach ($b in $S.ModBtns) { TT $b "Toggle the $($b.Tag) effect module on the track" }
+    foreach ($b in $S.BusBtns) { TT $b "Send this track to Bus $($b.Tag) (click again to send direct)" }
+    foreach ($row in $S.BusRows) { TT $row.Check "Enable the FX chain on Bus $($row.Letter)"; TT $row.Fader "Bus $($row.Letter) output gain (fader)" }
+
+    $S.TrackList.Add_SelectedIndexChanged({ if (-not $S.Loading) { Load-TrackProps } })
+    foreach ($k in @('TName', 'TSynth', 'TKit', 'TSamplerMode')) { $S[$k].Add_TextChanged({ Save-TrackProps }) }
+    # Unified instrument selector: built-in synths, drum kits and saved instruments in one list.
+    $S.TInstrument.Add_SelectedIndexChanged({ if ($S.Loading) { return }; $sel = [string]$S.TInstrument.SelectedItem; $t = Get-CurTrack; if (-not $t -or -not $sel) { return }; $S.TSynth.Visible = $false; $S.TKit.Visible = $false
+        if ($sel -like 'Kit: *') { $t.Synth = 'drums'; $t.DrumKit = $sel.Substring(5); $t.InstrumentName = ''; $S.TSynth.Text = 'drums'; try { $ki = [array]::IndexOf([HbStudio.DrumKits]::Names, $t.DrumKit); if ($ki -ge 0) { $S.TKit.SelectedIndex = $ki } } catch { } }
+        elseif ($sel -like 'Inst: *') { $nm = $sel.Substring(6); $inst = Get-StudioInstrument $nm; if (-not $inst) { return }; if ($t.Synth -eq 'sample' -and [string]$inst.kind -in 'patch', 'morph') { $tmp = New-Object HbStudio.Track; Set-StudioTrackFromInstrument $tmp $inst; $baked = [HbStudio.Dsp]::RenderSample($tmp, 60, 2.0, $false); $t.Sample = $baked; $t.SampleRoot = 60; $t.SampleGate = $true; $t.InstrumentName = $nm } else { Set-StudioTrackFromInstrument $t $inst; $t.InstrumentName = $nm }; $S.TSynth.Text = $t.Synth }
+        elseif ($script:StudioSynths -contains $sel) { $t.Synth = $sel; if ($sel -eq 'drums') { $t.DrumKit = 'Standard'; $S.TKit.SelectedIndex = 0 } else { $t.InstrumentName = '' }; $S.TSynth.Text = $sel }
+        else { return }; Load-TrackProps; $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Status "Track '$($t.Name)' now uses '$sel'." })
+    $S.TPreset.Add_SelectedIndexChanged({ if ($S.Loading) { return }; $sel = [string]$S.TPreset.SelectedItem; $t = Get-CurTrack; if (-not $t -or -not $sel -or $sel -eq '(none)') { return }; [void](Add-StudioPresetTrack $S.Proj $sel ($S.Proj.Tracks.IndexOf($t))); Load-TrackProps; $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Status "Applied patch preset '$sel' to '$($t.Name)'." })
+    $S.TSample.Add_SelectedIndexChanged({ if ($S.Loading) { return }; $sel = [string]$S.TSample.SelectedItem; $t = Get-CurTrack; if (-not $t -or -not $sel -or $sel -eq '(none)') { return }; $inst = Get-StudioInstrument $sel; if (-not $inst) { return }; $t.Sample = Get-StudioInstrumentSample $inst; $t.Synth = 'sample'; $t.SampleRoot = $(if ($null -ne $inst.root) { [int]$inst.root } else { 60 }); $t.SampleGate = [bool]$inst.gate; $t.InstrumentName = $sel; Load-TrackProps; $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Status "Sample source on '$($t.Name)' is now '$sel'." })
+    $S.TKit.Add_SelectedIndexChanged({ if ($S.Loading) { return }; Save-TrackProps })
+    $S.TSamplerMode.Add_SelectedIndexChanged({ if ($S.Loading) { return }; Save-TrackProps })
+    $S.TName.Add_Leave({ Refresh-Tracks })
+    $S.TMute.Add_CheckedChanged({ Save-TrackProps; Refresh-Tracks })
+    $S.TSolo.Add_CheckedChanged({ Save-TrackProps; Refresh-Tracks })
+    $S.Click.Add_CheckedChanged({ Sync-Project; $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit })
+    foreach ($k in @('TVol', 'TPan', 'TCut', 'TRes', 'TEnv', 'TAtk', 'TRel', 'TCrush')) { $S[$k].Add_ValueChanged({ Save-TrackProps }) }
+    $S.TBus.Add_SelectedIndexChanged({ if ($S.Loading) { return }; Save-TrackProps; Refresh-StripBus; Refresh-BusTrackList })
+    foreach ($b in $S.BusBtns) { $b.Add_Click({ param($snd, $e) $t = Get-CurTrack; if (-not $t) { return }; $idx = [int][char]$snd.Tag - 64; $t.Bus = $(if ($t.Bus -eq $idx) { 0 } else { $idx }); $S.Loading = $true; $S.TBus.SelectedIndex = $t.Bus; $S.Loading = $false; $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Refresh-StripBus; Refresh-BusTrackList; Status $(if ($t.Bus -gt 0) { $t.Name + ' > Bus ' + [char](64 + $t.Bus) } else { $t.Name + ' > direct to master' }) }) }
+    foreach ($b in $S.ModBtns) { $b.Add_Click({ param($snd, $e) $t = Get-CurTrack; if (-not $t) { return }; $m = $snd.Tag; # "FX modules on this track" always edits the TRACK's own chain. Bus FX is edited on the Bus / FX tab.
+        Set-FxModule $t.Fx $m (-not (Get-FxModuleOn $t.Fx $m)); $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; try { $S.GridFx.SelectedObject = $t.Fx } catch { }; Refresh-StripBus }) }
+    foreach ($row in $S.BusRows) {
+        $row.Check.Add_CheckedChanged({ param($snd, $e) if ($S.Loading) { return }; $i = [int]$snd.Tag; if ($i -lt $S.Proj.Buses.Count) { $b = $S.Proj.Buses[$i]; $b.Enabled = $snd.Checked; if ($S.Proj.Graph -and $S.Proj.Graph.Initialized) { $busFxNode = @($S.Proj.Graph.Nodes | Where-Object { $_.Kind -eq 'fx' -and $_.Type -eq 'busfx' -and $_.Label -eq ('BUS ' + [char](64 + $i)) }) | Select-Object -First 1; if ($busFxNode) { $busFxNode.Bypass = -not $snd.Checked } }; $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Refresh-StripBus } })
+        $row.Fader.Add_Scroll({ param($snd, $e) $i = [int]$snd.Tag; if ($i -lt $S.Proj.Buses.Count) { $b = $S.Proj.Buses[$i]; $b.Fx.Gain = $snd.Value / 100.0; $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit } })
+    }
+    $S.BtnBusFx.Add_Click({ $tabs.SelectedTab = $S.BusTab })
+    $S.BtnViewRoll.Add_Click({ Set-ViewMode 'roll' })
+    $S.BtnViewPatch.Add_Click({ Set-ViewMode 'patch' })
+    $S.BtnPatchFit.Add_Click({ $S.Patch.FrameAll(); Status 'Patch view fitted to the whole graph.' })
+    $S.BtnGroupSel.Add_Click({ if ($S.Patch.Selection.Count -lt 1) { Status 'Ctrl+click to select two or more modules, then click Group selection.'; return }; $S.Patch.GroupSelectionInteractive(); $S.Dirty = $true; Status 'Group created. Wire its members into the new group master (OUT > IN), or right-click the group and choose Wire unconnected members.' })
+    $S.BtnPatchTidy.Add_Click({ $S.Patch.Tidy(); $S.Dirty = $true; Status 'Patch modules re-arranged into signal-flow columns. Wiring unchanged.' })
+    $S.Patch.Add_SelectionChanged({ Update-PatchSide })
+    $S.Patch.Add_GraphChanged({ $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit })
+    $S.Patch.Add_LinkMade({ param($snd, $link) if (-not $S.PatchAiAssist.Checked) { return }; $now = Get-Date; if ($S.LastPatchAi -and ($now - $S.LastPatchAi).TotalSeconds -lt 2.5) { return }; $S.LastPatchAi = $now; Invoke-PatchAiReview })
+    $S.BtnPatchAiReview.Add_Click({ Invoke-PatchAiReview })
+    $S.PatchBypass.Add_CheckedChanged({ if ($S.Loading) { return }; $n = $S.Patch.Selected; if ($n) { $n.Bypass = $S.PatchBypass.Checked; $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; $S.Patch.Invalidate() } })
+    $S.BtnPatchDelete.Add_Click({ $S.Patch.DeleteSelected(); Update-PatchSide })
+    foreach ($k in @('Bpm', 'Bpb', 'Phrase', 'Bars')) { $S[$k].Add_ValueChanged({ Sync-Project; $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit }) }
+    foreach ($k in @('KSwing', 'KDelay', 'KBeats', 'KFb')) { $S[$k].Add_ValueChanged({ Sync-Project; $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit }) }
+    foreach ($k in @('Key', 'Scale', 'Grid', 'Den')) { $S[$k].Add_SelectedIndexChanged({ Sync-Project }) }
+    $S.SnapScale.Add_CheckedChanged({ Sync-Project })
+    $S.BtnTAdd.Add_Click({
+        Push-Undo; $S.Proj.Tracks.Add((New-StudioTrack ('Track ' + ($S.Proj.Tracks.Count + 1)) 'saw'))
+        # Let the normal track->FX->out builder add BOTH modules; the old code added a bare track node,
+        # which left new tracks without an FX module and out of step with AutoPatch.
+        try { if ($S.Proj.Graph.Initialized) { [HbStudio.PatchGraphControl]::AddTrackNode($S.Proj, $S.Proj.Tracks[$S.Proj.Tracks.Count - 1]); $S.Patch.Invalidate() } } catch { }
+        Refresh-Tracks ($S.Proj.Tracks.Count - 1)
+    })
+    $S.BtnTDup.Add_Click({
+        $t = Get-CurTrack; if (-not $t) { return }
+        $c = New-StudioTrack ($t.Name + ' copy') $t.Synth
+        foreach ($k in 'Vol', 'Pan', 'Cutoff', 'Res', 'EnvAmt', 'Atk', 'Rel', 'Crush', 'SampleRoot', 'SampleGate', 'SampleMode', 'DrumKit', 'InstrumentName', 'Bus', 'Solo') { $c.$k = $t.$k }
+        if ($t.Patch) { $c.Patch = $t.Patch.Clone() }
+        [void](Set-StudioObjectFromJson $c.Fx ([pscustomobject](ConvertTo-StudioMap $t.Fx)))
+        if ($t.Sample) { $c.Sample = $t.Sample.Clone() }
+        foreach ($n in $t.Notes) { $c.Notes.Add($n.Clone()) }
+        $S.Proj.Tracks.Add($c); Refresh-Tracks ($S.Proj.Tracks.Count - 1)
+    })
+    $S.BtnTDel.Add_Click({
+        if ($S.Proj.Tracks.Count -le 1) { Show-StudioMsg 'A project needs at least one track.'; return }
+        $i = $S.TrackList.SelectedIndex; if ($i -ge 0) {
+            $uid = $S.Proj.Tracks[$i].Uid
+            $S.Proj.Tracks.RemoveAt($i); foreach ($q in $S.Proj.Patterns) { $q.RemoveTrack($i) }
+            # Drop this track's module from the patch graph too, otherwise it lingers as "(MISSING)".
+            $g = $S.Proj.Graph
+            if ($g) {
+                $dead = @($g.Nodes | Where-Object { $_.Kind -eq 'track' -and $_.TrackUid -eq $uid })
+                foreach ($dn in $dead) {
+                    [void]$g.Nodes.Remove($dn)
+                    for ($k = $g.Links.Count - 1; $k -ge 0; $k--) { $l = $g.Links[$k]; if ($l.From -eq $dn.Id -or $l.To -eq $dn.Id) { $g.Links.RemoveAt($k) } }
+                    foreach ($pg in @($g.Groups)) { [void]$pg.Members.Remove($dn.Id) }
+                }
+                if ($dead.Count -and $S.Patch) { $S.Patch.Invalidate() }
+            }
+            Refresh-Tracks ([math]::Max(0, $i - 1)); Refresh-SongUi
+        }
+    })
+    function Add-SelectedTrackNode {
+        $t = Get-CurTrack
+        if (-not $t) { Status 'Select a track first.'; return }
+        if (-not $S.Proj.Graph.Initialized) { [HbStudio.PatchGraphControl]::AutoPatch($S.Proj) }
+        [HbStudio.PatchGraphControl]::AddTrackNode($S.Proj, $t)
+        $S.Patch.Invalidate(); $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit
+        Status "Added '$($t.Name)' to the patch graph."
+    }
+    $S.BtnTAddNode.Add_Click({ Add-SelectedTrackNode })
+    $miAddNode.Add_Click({ Add-SelectedTrackNode })
+    $roll.Add_BeginEdit({ Push-Undo })
+    $roll.Add_Changed({ $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit })
+    $roll.Add_UndoRequested({ Invoke-Undo })
+    $roll.Add_SpaceRequested({ if ($S.Playing) { Stop-Studio } else { Start-Studio } })
+    $f.Add_KeyDown({ param($snd, $e) if ($e.Control -and $e.KeyCode -eq 'Z' -and -not ($f.ActiveControl -is [Windows.Forms.TextBoxBase])) { Invoke-Undo; $e.Handled = $true } })
+
+    $S.Play.Add_Click({ try { Start-Studio } catch { Log ('Play failed: ' + $_.Exception.Message); Show-StudioMsg ('Play failed: ' + $_.Exception.Message); Stop-Studio } })
+    $S.Stop.Add_Click({ Stop-Studio; Status 'Stopped.' })
+    $S.BtnWav.Add_Click({ Invoke-StudioRender })
+    $S.BtnMidi.Add_Click({
+        $d = New-Object Windows.Forms.SaveFileDialog; $d.Filter = 'MIDI file|*.mid'; $d.FileName = 'studio.mid'; $d.InitialDirectory = (Get-StudioDir)
+        if ($d.ShowDialog() -eq 'OK') { Sync-Project; [HbStudio.MidiWriter]::Write($S.Proj, $d.FileName); Log "MIDI saved: $($d.FileName)" }
+    })
+    $S.BtnScd.Add_Click({
+        $d = New-Object Windows.Forms.SaveFileDialog; $d.Filter = 'SuperCollider script|*.scd'; $d.FileName = 'studio.scd'; $d.InitialDirectory = (Get-StudioDir)
+        if ($d.ShowDialog() -eq 'OK') { Sync-Project; [IO.File]::WriteAllText($d.FileName, (Get-StudioScd $S.Proj $S.ScCode.Text 'live' '' (Join-Path (Get-StudioDir) 'live.stop')), (New-Object Text.UTF8Encoding($false))); Log "Script saved: $($d.FileName)" }
+    })
+    $S.BtnSave.Add_Click({
+        $d = New-Object Windows.Forms.SaveFileDialog; $d.Filter = 'Studio project|*.hbstudio.json'; $d.InitialDirectory = (Join-Path (Get-StudioDir) 'projects'); $d.FileName = 'project.hbstudio.json'
+        if ($d.ShowDialog() -eq 'OK') {
+            Sync-Project
+            $data = Get-StudioProjectData $S.Proj; $data['scCode'] = $S.ScCode.Text
+            ($data | ConvertTo-Json -Depth 8) | Set-Content -LiteralPath $d.FileName -Encoding UTF8; $S.Dirty = $false; Log "Saved $($d.FileName)"
+        }
+    })
+    $S.BtnOpen.Add_Click({
+        $d = New-Object Windows.Forms.OpenFileDialog; $d.Filter = 'Studio project|*.hbstudio.json;*.json'; $d.InitialDirectory = (Join-Path (Get-StudioDir) 'projects')
+        if ($d.ShowDialog() -eq 'OK') {
+            try {
+                $j = Get-Content -LiteralPath $d.FileName -Raw | ConvertFrom-Json
+                Stop-Studio; $S.Proj = Read-StudioProjectData $j; $S.Undo.Clear()
+                $S.Loading = $true
+                $p = $S.Proj; $S.Bpm.Value = [decimal]$p.Bpm; $S.Bpb.Value = $p.BeatsPerBar; $S.Den.SelectedItem = [string]$p.BeatUnit; $S.Phrase.Value = [decimal][math]::Max(1, [math]::Min(16, $p.PhraseBars)); $S.Bars.Value = $p.Bars; $S.KSwing.Value = [double]($p.Swing * 100)
+                $S.KDelay.Value = [double]$p.DelayMix; $S.KBeats.Value = [double]$p.DelayBeats; $S.KFb.Value = [double]$p.DelayFb
+                $S.Click.Checked = $p.Click
+                $S.Key.SelectedIndex = $p.Key; $S.Scale.SelectedItem = $p.Scale
+                if ($j.scCode) { $S.ScCode.Text = [string]$j.scCode }
+                $S.Loading = $false
+                $S.Roll.Proj = $p; $S.Patch.Proj = $p; Update-PatchSide; Sync-Project; Refresh-Tracks 0; Refresh-SongUi; $S.Patch.FrameAll()
+                Log "Opened $($d.FileName)"
+            } catch { $S.Loading = $false; Show-StudioMsg ('Could not open: ' + $_.Exception.Message) }
+        }
+    })
+    $S.BtnNew.Add_Click({
+        if ($S.Dirty -and [Windows.Forms.MessageBox]::Show('Discard the current project?', 'Audio Studio', 'YesNo', 'Question') -ne 'Yes') { return }
+        Stop-Studio; $S.Proj = New-StudioProject; $S.Undo.Clear(); $S.Dirty = $false
+        $S.Roll.Proj = $S.Proj; $S.Patch.Proj = $S.Proj; Update-PatchSide; Sync-Project; Refresh-Tracks 0; Refresh-SongUi
+    })
+    $S.BtnSc.Add_Click({
+        $d = New-Object Windows.Forms.OpenFileDialog; $d.Filter = 'sclang.exe|sclang.exe'; $d.Title = 'Locate sclang.exe (SuperCollider install folder)'
+        if ($d.ShowDialog() -eq 'OK') { Save-StudioSclangPath $d.FileName; $S.Sc = $d.FileName; Update-ScLabel; Log "SuperCollider set to $($d.FileName)" }
+    })
+    $S.BtnScGet.Add_Click({ Start-Process 'https://supercollider.github.io/downloads' })
+    $S.ScTemplate.Add_Click({
+        $S.ScCode.AppendText("`r`nSynthDef(\hello, { |out=0, freq=110, amp=0.3, pan=0, sustain=0.3, cutoff=1800, res=0.5, envamt=1, atk=0.003, rel=0.2, crush=16|`r`n    var env = EnvGen.ar(Env.linen(atk, sustain, rel, 1, -4), doneAction: 2);`r`n    var sig = Mix([Saw.ar(freq), Pulse.ar(freq * 1.005, 0.3)]);`r`n    sig = RLPF.ar(sig, (cutoff * (1 + (EnvGen.ar(Env.perc(0.001, 0.3)) * envamt * 4))).clip(40, 16000), (1 - res).clip(0.05, 1));`r`n    Out.ar(out, Pan2.ar(sig.tanh * env * amp, pan));`r`n}).add;`r`n")
+    })
+    $S.ScTest.Add_Click({
+        if (-not $S.Sc) { Show-StudioMsg 'SuperCollider was not found.'; return }
+        $prev = $S.Bars.Value; $S.Engine.SelectedIndex = 1
+        Invoke-StudioRender
+    })
+    foreach ($k in @('up1', 'dn1', 'up12', 'dn12', 'quant', 'scale', 'rev', 'dbl', 'half', 'all', 'clear', 'undo', 'legato', 'stacc', 'velup', 'veldn', 'velrnd', 'accent', 'inv', 'nudge', 'nudgeb', 'thin', 'octl')) { $S["T_$k"].Add_Click({ param($snd, $e) Invoke-StudioTool ([string]$snd.Tag) }) }
+    $S.T_hum.Add_Click({ Invoke-StudioTool 'hum' }); $S.T_mut.Add_Click({ Invoke-StudioTool 'mut' }); $S.T_chop.Add_Click({ Invoke-StudioTool 'chop' }); $S.T_ratch.Add_Click({ Invoke-StudioTool 'ratch' })
+    $S.T_euc.Add_Click({ Invoke-StudioGenerator 'euc' }); $S.T_walk.Add_Click({ Invoke-StudioGenerator 'walk' }); $S.T_poly.Add_Click({ Invoke-StudioGenerator 'poly' })
+    function Set-RollZoom([double]$f) { $S.Roll.Zoom = [math]::Max(3.0, [math]::Min(400.0, $S.Roll.Zoom * $f)); $S.Roll.UpdateScroll(); $S.Roll.Invalidate() }
+    $S.T_zoomIn.Add_Click({ Set-RollZoom 1.3 }); $S.T_zoomOut.Add_Click({ Set-RollZoom (1.0 / 1.3) })
+    $S.AiCompose.Add_Click({ Invoke-AiAction 'compose' }); $S.AiVary.Add_Click({ Invoke-AiAction 'vary' }); $S.AiSynth.Add_Click({ Invoke-AiAction 'synth' }); $S.AiAdvice.Add_Click({ Invoke-AiAction 'advice' })
+    $S.AiRefresh.Add_Click({ Update-AiModels })
+    $f.Add_FormClosing({
+        if ($S.Dirty -and [Windows.Forms.MessageBox]::Show('Close the Studio? Unsaved changes will be lost.', 'Audio Studio', 'YesNo', 'Question') -ne 'Yes') { $_.Cancel = $true; return }
+        $timer.Stop(); Stop-Studio
+    })
+    $f.Add_Shown({ Sync-Project; Refresh-Tracks 0; Refresh-SongUi; Update-FfmpegLabel; Update-ScLabel; Update-AiModels; $S.Roll.UpdateScroll(); $S.Roll.ScrollToPitch(48); $S.Roll.Focus(); Status 'Ready. Space = play/stop; Roll: click add, drag edge = length, right-click erase; Drums: C2 kick, D2 snare, D#2 clap, F#2 hat, A#2 open hat.'; $S.Dirty = $false })
+
+    $S.Roll.Proj = $S.Proj
+    $S.Patch.Proj = $S.Proj
+    Update-PatchSide
+    $f.Show()
+    # Event handlers rely on this function's scope, so keep it alive with a message pump until the window closes.
+    # The rest of the app stays responsive because DoEvents keeps dispatching its messages.
+    while (-not $f.IsDisposed -and $f.Visible) { [Windows.Forms.Application]::DoEvents(); Start-Sleep -Milliseconds 12 }
+    $timer.Dispose(); $script:StudioForm = $null
+}
+
+
+

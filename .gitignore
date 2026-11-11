@@ -1,0 +1,6 @@
+# Local/runtime data
+*.log
+renders/
+projects/
+chats/
+*.hbstudio.json
