@@ -14,6 +14,15 @@ From PowerShell:
 powershell -ExecutionPolicy Bypass -File ".\Humble Baker Studio.ps1"
 ```
 
+## Documentation
+
+| Guide | Contents |
+|---|---|
+| [Manual](docs/MANUAL.md) | every window, tab, tool, button and workflow |
+| [Effect Reference](docs/EFFECTS.md) | all 98 effects, every control, range and description |
+| [Synth Patch Reference](docs/SYNTH.md) | every synth parameter |
+| [Settings Reference](docs/SETTINGS.md) | mastering, mix rules, spectral and meta settings |
+
 ## Requirements
 
 ### Required
@@ -29,7 +38,7 @@ powershell -ExecutionPolicy Bypass -File ".\Humble Baker Studio.ps1"
 
 | Requirement | Link | Notes |
 |---|---|---|
-| FFmpeg | [ffmpeg.org/download](https://ffmpeg.org/download.html) · [Windows builds (gyan.dev)](https://www.gyan.dev/ffmpeg/builds/) | Needed for MP3, OGG, Opus, AAC/M4A, ALAC, AIFF, 24/32-bit WAV and resampling. The Export dialog can download it, or put `ffmpeg.exe` in `Tools\` (or `Audio\studio\ffmpeg\ffmpeg.exe`). |
+| FFmpeg | [ffmpeg.org/download](https://ffmpeg.org/download.html) · [Windows builds (gyan.dev)](https://www.gyan.dev/ffmpeg/builds/) | Needed for MP3, OGG Vorbis, FLAC, non-44.1 kHz or mono exports. The Export dialog can download it, or put `ffmpeg.exe` in `Tools\` (or `Audio\studio\ffmpeg\ffmpeg.exe`). |
 | SuperCollider | [supercollider.github.io/downloads](https://supercollider.github.io/downloads) | Only for live preview/render via `sclang`. The built-in synth needs no extra install. Use **Locate SuperCollider** in the app. |
 | Ollama | [ollama.com/download](https://ollama.com/download) | Only for the local AI patch/drum/melody/composer/mastering tools. Runs fully locally. |
 | Git | [git-scm.com/download/win](https://git-scm.com/download/win) | Only for cloning or contributing to the source. |
@@ -42,7 +51,7 @@ No installer is required: the build is portable. FFmpeg and SuperCollider are di
 - **Piano roll** with scales, snap, velocity, note lengths, and per-track drums/melody parts.
 - **Synth engine**: subtractive, FM, additive, wavetable, vowel, Karplus-Strong pluck, modal bells, noise, filters, drive, bitcrush.
 - **Drums** with multiple kits and per-kit character.
-- **Patch graph**: tracks, FX modules, buses, groups, master out; **all 73 effects are added as graph nodes**, and shared FX nodes process all tracks routed through them.
+- **Patch graph**: tracks, FX modules, buses, groups, master out; **all 98 effects are added as graph nodes**, and shared FX nodes process all tracks routed through them.
 - **MIDI input**: connect a controller, watch a live note/CC log, record quantized notes into the selected track, and optionally monitor incoming notes through that track.
 - **Sampler tab**: WAV import, draggable waveform selection, normalize/reverse/trim, auto-slice at onsets, equal chop, add selection as a slice, audition and export slices, and turn slices into sampler tracks.
 - **Automation painting**:
@@ -54,7 +63,7 @@ No installer is required: the build is portable. FFmpeg and SuperCollider are di
   - current pattern with 1–64 seamless loops, or the whole arrangement
   - tempo override, metronome click
   - mastering chain, peak normalization, fade in/out
-  - WAV 16/24/32-float, MP3, OGG Vorbis, Opus, AAC/M4A, ALAC, FLAC, AIFF
+  - WAV 16-bit, MP3 (320/192/V0), OGG Vorbis (q6/q9), FLAC
   - 44.1 / 48 / 96 kHz, stereo or mono
 - **Mastering** analysis and auto-master, AI mixing/mastering advice.
 - **AI tools** for patches, drums, melody, arrangement, mixing and mastering, using a local Ollama model.
@@ -68,6 +77,7 @@ No installer is required: the build is portable. FFmpeg and SuperCollider are di
 | `Humble Baker Studio.ps1` | Launcher source |
 | `AudioStudioImplementation.ps1` | Canonical studio implementation |
 | `Humble Baker Studio.standalone.ps1` | Single-file standalone build |
+| `docs/` | Manual and full parameter references |
 
 ## Notes
 

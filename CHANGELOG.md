@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.0.12 — 2026-11-10
+
+- Added full documentation: [Manual](docs/MANUAL.md), [Effect Reference](docs/EFFECTS.md) with all 98 effects and every control, [Synth Patch Reference](docs/SYNTH.md) with all 89 parameters, and [Settings Reference](docs/SETTINGS.md) for mastering, mix rules, spectral and meta settings.
+- README now links the documentation and lists the actual export formats.
+
+## 1.0.11 — 2026-11-10
+
+- Expanded the FX graph to **98 modules** (25 new): Opto compressor, FET compressor, VCA compressor, Expander, Mid/Side compressor, Dynamic EQ, Pultec EQ, Overdrive, Metal drive, Speaker cab, Multiband drive, Tape flutter, Dimension, Envelope phaser, Envelope flanger, Chopper, Barber-pole, Half speed, Pitch echo, Spectral freeze, Reverse delay, Echo-verb, Bloom reverb, Non-linear reverb and Vocoder.
+- All new modules expose categories, ranges and descriptions and are created only as Patch graph nodes.
+- Verified 98/98 catalog entries create active nodes with no NaN/Inf on a test tone.
+
 ## 1.0.10 — 2026-11-10
 
 - Expanded the FX graph to **73 modules** (25 new): Ladder filter, Tube preamp, Tape saturator, Diode drive, Fuzz, Chip tune, Sub bass, Bass enhancer, Frequency shifter, Air band, Stereo image, Ping-pong delay, Dub delay, Cathedral reverb, Room reverb, Ambience, Wah pedal, Talk box, Ducker, Level rider, Harmonic tremolo, Beat repeat, Granular cloud, Glitch gate and Sweep filter.
