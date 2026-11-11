@@ -14,6 +14,7 @@ using System.Drawing;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 namespace HbStudio {
@@ -23,6 +24,146 @@ public class Note {
     public Note() { }
     public Note(int p, double s, double l, int v) { Pitch = p; Start = s; Len = l; Vel = v; }
     public Note Clone() { return new Note(Pitch, Start, Len, Vel); }
+}
+
+// Windows MIDI input (winmm). Raw events are queued for the UI: kind 1 = note on, 0 = note off,
+// 2 = control change, 3 = pitch bend; data1/data2 are the MIDI bytes and data3 is TickCount.
+public class MidiInPort : IDisposable {
+    [DllImport("winmm.dll")] static extern int midiInGetNumDevs();
+    [DllImport("winmm.dll")] static extern int midiInGetDevCaps(IntPtr uDeviceID, ref MIDIINCAPS caps, int cbMidiInCaps);
+    [DllImport("winmm.dll")] static extern int midiInOpen(out IntPtr hMidiIn, int uDeviceID, MidiInProc lpCallback, IntPtr dwInstance, int dwFlags);
+    [DllImport("winmm.dll")] static extern int midiInStart(IntPtr hMidiIn);
+    [DllImport("winmm.dll")] static extern int midiInStop(IntPtr hMidiIn);
+    [DllImport("winmm.dll")] static extern int midiInReset(IntPtr hMidiIn);
+    [DllImport("winmm.dll")] static extern int midiInClose(IntPtr hMidiIn);
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+    public struct MIDIINCAPS {
+        public short wMid; public short wPid; public int vDriverVersion;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string szPname;
+    }
+    delegate void MidiInProc(IntPtr hMidiIn, int wMsg, IntPtr dwInstance, IntPtr dwParam1, IntPtr dwParam2);
+
+    const int CALLBACK_FUNCTION = 0x00030000, MIM_DATA = 0x3C3;
+    IntPtr handle = IntPtr.Zero; MidiInProc callback;
+    readonly List<int[]> events = new List<int[]>();
+    readonly object gate = new object();
+    public bool IsOpen = false; public string LastError = ""; public int DeviceIndex = -1; public string DeviceName = "";
+
+    public static string[] GetDevices() {
+        int n = midiInGetNumDevs(); if (n < 0) n = 0;
+        string[] r = new string[n];
+        for (int i = 0; i < n; i++) {
+            MIDIINCAPS c = new MIDIINCAPS();
+            midiInGetDevCaps((IntPtr)i, ref c, Marshal.SizeOf(typeof(MIDIINCAPS)));
+            r[i] = string.IsNullOrEmpty(c.szPname) ? ("MIDI device " + (i + 1)) : c.szPname;
+        }
+        return r;
+    }
+    public bool Open(int index) {
+        Close();
+        callback = OnMessage;
+        int rc = midiInOpen(out handle, index, callback, IntPtr.Zero, CALLBACK_FUNCTION);
+        if (rc != 0) { LastError = "midiInOpen failed (" + rc + ")"; handle = IntPtr.Zero; return false; }
+        rc = midiInStart(handle);
+        if (rc != 0) { LastError = "midiInStart failed (" + rc + ")"; midiInClose(handle); handle = IntPtr.Zero; return false; }
+        DeviceIndex = index; IsOpen = true; LastError = ""; return true;
+    }
+    public void Close() {
+        if (handle != IntPtr.Zero) {
+            try { midiInStop(handle); } catch { }
+            try { midiInReset(handle); } catch { }
+            try { midiInClose(handle); } catch { }
+            handle = IntPtr.Zero;
+        }
+        IsOpen = false;
+    }
+    void OnMessage(IntPtr h, int msg, IntPtr inst, IntPtr p1, IntPtr p2) {
+        if (msg != MIM_DATA) return;
+        int raw = p1.ToInt32(), status = raw & 0xFF, d1 = (raw >> 8) & 0x7F, d2 = (raw >> 16) & 0x7F, kind = -1;
+        if (status >= 0x90 && status <= 0x9F) kind = d2 > 0 ? 1 : 0;
+        else if (status >= 0x80 && status <= 0x8F) kind = 0;
+        else if (status >= 0xB0 && status <= 0xBF) kind = 2;
+        else if (status >= 0xE0 && status <= 0xEF) kind = 3;
+        if (kind < 0) return;
+        lock (gate) { events.Add(new int[] { kind, d1, d2, Environment.TickCount }); if (events.Count > 8192) events.RemoveRange(0, 4096); }
+    }
+    public int[][] Drain() { lock (gate) { int[][] r = events.ToArray(); events.Clear(); return r; } }
+    public void Dispose() { Close(); }
+}
+
+// Waveform display with drag selection and slice markers. Samples are mono 44.1 kHz.
+public class WaveView : Control {
+    public float[] Samples;
+    public int SelStart = 0, SelEnd = 0;
+    public int[] Markers = new int[0];
+    public event EventHandler SelectionChanged;
+    bool dragging; int dragAnchor;
+    public WaveView() { DoubleBuffered = true; BackColor = Color.FromArgb(20, 22, 28); ForeColor = Color.FromArgb(110, 215, 195); }
+    public int SampleAt(int x) {
+        if (Samples == null || Samples.Length == 0) return 0;
+        double f = Math.Max(0, Math.Min(1, (x - 4) / (double)Math.Max(1, Width - 8)));
+        return (int)(f * (Samples.Length - 1));
+    }
+    public int XAt(int sample) {
+        if (Samples == null || Samples.Length < 2) return 4;
+        return 4 + (int)((double)sample / (Samples.Length - 1) * (Width - 8));
+    }
+    protected override void OnPaint(PaintEventArgs e) {
+        Graphics g = e.Graphics; g.Clear(BackColor);
+        int w = Math.Max(1, Width - 8), h = Math.Max(1, Height - 8);
+        using (Pen mid = new Pen(Color.FromArgb(48, 52, 62))) g.DrawLine(mid, 4, 4 + h / 2, 4 + w, 4 + h / 2);
+        if (Samples == null || Samples.Length < 2) { using (Brush b = new SolidBrush(Color.FromArgb(110, 118, 132))) g.DrawString("Import a WAV to see its waveform.", Font, b, 10, 10); return; }
+        int n = Samples.Length;
+        if (SelEnd > SelStart) { int x1 = XAt(SelStart), x2 = XAt(SelEnd); using (Brush sb = new SolidBrush(Color.FromArgb(60, 70, 180, 255))) g.FillRectangle(sb, Math.Min(x1, x2), 4, Math.Max(1, Math.Abs(x2 - x1)), h); }
+        using (Pen p = new Pen(ForeColor)) {
+            for (int px = 0; px < w; px++) {
+                int s0 = (int)((double)px / w * n), s1 = (int)((double)(px + 1) / w * n);
+                if (s1 <= s0) s1 = s0 + 1; if (s1 > n) s1 = n;
+                double mn = 0, mx = 0;
+                for (int i = s0; i < s1; i++) { double v = Samples[i]; if (v < mn) mn = v; if (v > mx) mx = v; }
+                int y1 = 4 + h / 2 - (int)(mx * (h / 2)), y2 = 4 + h / 2 - (int)(mn * (h / 2));
+                g.DrawLine(p, 4 + px, y1, 4 + px, y2);
+            }
+        }
+        using (Pen mp = new Pen(Color.FromArgb(235, 170, 60))) {
+            if (Markers != null) foreach (int m in Markers) { int x = XAt(m); g.DrawLine(mp, x, 4, x, 4 + h); }
+        }
+        using (Brush tb = new SolidBrush(Color.FromArgb(145, 152, 166))) {
+            double dur = n / (double)Dsp.SR;
+            g.DrawString(dur.ToString("0.000") + " s", Font, tb, 6, Height - 18);
+            if (SelEnd > SelStart) g.DrawString((SelStart / (double)Dsp.SR).ToString("0.000") + " - " + (SelEnd / (double)Dsp.SR).ToString("0.000") + " s", Font, tb, 90, Height - 18);
+        }
+    }
+    protected override void OnMouseDown(MouseEventArgs e) {
+        base.OnMouseDown(e); dragging = true; dragAnchor = SampleAt(e.X); SelStart = dragAnchor; SelEnd = dragAnchor; Invalidate();
+        if (SelectionChanged != null) SelectionChanged(this, EventArgs.Empty);
+    }
+    protected override void OnMouseMove(MouseEventArgs e) {
+        base.OnMouseMove(e); if (!dragging) return;
+        int s = SampleAt(e.X); SelStart = Math.Min(dragAnchor, s); SelEnd = Math.Max(dragAnchor, s); Invalidate();
+        if (SelectionChanged != null) SelectionChanged(this, EventArgs.Empty);
+    }
+    protected override void OnMouseUp(MouseEventArgs e) {
+        base.OnMouseUp(e); dragging = false; if (SelectionChanged != null) SelectionChanged(this, EventArgs.Empty);
+    }
+}
+
+// Splits a mono buffer at detected onsets; returns start sample indices (always includes 0).
+public static class SampleSlicer {
+    public static int[] Boundaries(float[] s, double sensitivity, int minGapSamples) {
+        List<int> points = new List<int>();
+        points.Add(0);
+        if (s != null && s.Length > 2048) {
+            double[] sec = Transcriber.OnsetSeconds(s, Math.Max(0, Math.Min(1, sensitivity)));
+            int last = 0;
+            foreach (double t in sec) {
+                int p = (int)(t * Dsp.SR);
+                if (p > 64 && p < s.Length - 64 && p - last >= minGapSamples) { points.Add(p); last = p; }
+            }
+        }
+        return points.ToArray();
+    }
 }
 
 public enum Wave { saw, square, pulse, tri, sine, noise, additive, vowel, pluck, bell, sync }
@@ -186,6 +327,31 @@ public class Fx {
         DoublerMix = 0; DoublerDelay = 18;
         FormantMix = 0; FormantVowel = 0; FormantShift = 1;
         MBOn = false; MBLowThresh = -18; MBMidThresh = -18; MBHighThresh = -18; MBRatio = 3; MBMakeup = 0;
+        LadderMix = 0; LadderCutoff = 1200; LadderReso = 0.4; LadderDrive = 0.3;
+        SubBassMix = 0; SubBassFreq = 60; SubBassDrive = 0.3;
+        BassEnhMix = 0; BassEnhFreq = 120; BassEnhAmount = 0.4;
+        AirMix = 0; AirFreq = 8000; AirGain = 3;
+        TubeDrive = 0.5; TubeBias = 0.2; TubeMix = 0;
+        TapeSatDrive = 0.4; TapeSatTone = 0.5; TapeSatMix = 0;
+        DiodeDrive = 0.5; DiodeTone = 0.5; DiodeMix = 0;
+        FuzzAmount = 0; FuzzGate = 0.2; FuzzMix = 0.5;
+        ChipMix = 0; ChipBits = 6; ChipRate = 4;
+        FreqShiftHz = 100; FreqShiftMix = 0;
+        BeatRepeatMix = 0; BeatRepeatDiv = 4; BeatRepeatChance = 0.3;
+        GrainMix = 0; GrainSize = 80; GrainDensity = 20;
+        PingPongMix = 0; PingPongTime = 350; PingPongFb = 0.45;
+        DubMix = 0; DubTime = 380; DubFb = 0.55; DubTone = 0.5;
+        CathedralMix = 0; CathedralSize = 0.8; CathedralDamp = 0.5;
+        RoomMix = 0; RoomSize = 0.5; RoomDamp = 0.5;
+        AmbienceMix = 0; AmbienceSize = 0.6; AmbienceDamp = 0.5;
+        WahPedalMix = 0; WahPedalRate = 2; WahPedalDepth = 0.7; WahPedalQ = 0.6;
+        TalkMix = 0; TalkRate = 3; TalkVowel = 0;
+        DuckerMix = 0; DuckerThreshold = -30; DuckerDepth = 0.6; DuckerRelease = 150;
+        RiderAmount = 0; RiderTarget = -18; RiderSpeed = 0.3;
+        StereoWidth = 1; BassMonoFreq = 0;
+        HarmTremMix = 0; HarmTremRate = 4; HarmTremDepth = 0.5;
+        GlitchMix = 0; GlitchDensity = 0.3; GlitchSeed = 1;
+        SweepMix = 0; SweepRate = 0.5; SweepDepth = 0.6; SweepQ = 0.5; SweepCenter = 1200;
     }
     [Category("1 Filter"), Description("Filter type: off, lowpass, highpass, bandpass.")] public FilterMode Filter { get; set; }
     [Category("1 Filter"), Description("Cutoff in Hz."), Rng(30, 16000)] public double Cutoff { get; set; }
@@ -329,6 +495,85 @@ public class Fx {
     [Category("14 Pitch"), Description("Formant filter mix (0 = off)."), Rng(0, 1)] public double FormantMix { get; set; }
     [Category("14 Pitch"), Description("Formant vowel 0=a 1=e 2=i 3=o 4=u."), Rng(0, 4)] public double FormantVowel { get; set; }
     [Category("14 Pitch"), Description("Formant shift (0.5 = down, 1 = natural, 2 = up)."), Rng(0.5, 2)] public double FormantShift { get; set; }
+    [Category("18 Drive / Saturation"), Description("Ladder filter mix (0 = off)."), Rng(0, 1)] public double LadderMix { get; set; }
+    [Category("18 Drive / Saturation"), Description("Ladder cutoff in Hz."), Rng(40, 16000)] public double LadderCutoff { get; set; }
+    [Category("18 Drive / Saturation"), Description("Ladder resonance."), Rng(0, 0.95)] public double LadderReso { get; set; }
+    [Category("18 Drive / Saturation"), Description("Ladder input drive."), Rng(0, 1)] public double LadderDrive { get; set; }
+    [Category("18 Drive / Saturation"), Description("Tube preamp drive."), Rng(0, 1)] public double TubeDrive { get; set; }
+    [Category("18 Drive / Saturation"), Description("Tube bias (asymmetry)."), Rng(-1, 1)] public double TubeBias { get; set; }
+    [Category("18 Drive / Saturation"), Description("Tube preamp mix (0 = off)."), Rng(0, 1)] public double TubeMix { get; set; }
+    [Category("18 Drive / Saturation"), Description("Tape saturation drive."), Rng(0, 1)] public double TapeSatDrive { get; set; }
+    [Category("18 Drive / Saturation"), Description("Tape saturation tone (0 dark, 1 bright)."), Rng(0, 1)] public double TapeSatTone { get; set; }
+    [Category("18 Drive / Saturation"), Description("Tape saturation mix (0 = off)."), Rng(0, 1)] public double TapeSatMix { get; set; }
+    [Category("18 Drive / Saturation"), Description("Diode distortion drive."), Rng(0, 1)] public double DiodeDrive { get; set; }
+    [Category("18 Drive / Saturation"), Description("Diode distortion tone."), Rng(0, 1)] public double DiodeTone { get; set; }
+    [Category("18 Drive / Saturation"), Description("Diode distortion mix (0 = off)."), Rng(0, 1)] public double DiodeMix { get; set; }
+    [Category("18 Drive / Saturation"), Description("Fuzz amount (0 = off)."), Rng(0, 1)] public double FuzzAmount { get; set; }
+    [Category("18 Drive / Saturation"), Description("Fuzz noise gate."), Rng(0, 1)] public double FuzzGate { get; set; }
+    [Category("18 Drive / Saturation"), Description("Fuzz mix."), Rng(0, 1)] public double FuzzMix { get; set; }
+    [Category("18 Drive / Saturation"), Description("Chip-tune mix (0 = off)."), Rng(0, 1)] public double ChipMix { get; set; }
+    [Category("18 Drive / Saturation"), Description("Chip-tune bit depth."), Rng(2, 12)] public double ChipBits { get; set; }
+    [Category("18 Drive / Saturation"), Description("Chip-tune sample rate in kHz."), Rng(1, 44)] public double ChipRate { get; set; }
+    [Category("19 Pitch / Bass"), Description("Sub-bass mix (0 = off)."), Rng(0, 1)] public double SubBassMix { get; set; }
+    [Category("19 Pitch / Bass"), Description("Sub-bass frequency in Hz."), Rng(20, 120)] public double SubBassFreq { get; set; }
+    [Category("19 Pitch / Bass"), Description("Sub-bass drive."), Rng(0, 1)] public double SubBassDrive { get; set; }
+    [Category("19 Pitch / Bass"), Description("Bass enhancer mix (0 = off)."), Rng(0, 1)] public double BassEnhMix { get; set; }
+    [Category("19 Pitch / Bass"), Description("Bass enhancer crossover in Hz."), Rng(40, 300)] public double BassEnhFreq { get; set; }
+    [Category("19 Pitch / Bass"), Description("Bass enhancer amount."), Rng(0, 1)] public double BassEnhAmount { get; set; }
+    [Category("19 Pitch / Bass"), Description("Frequency shifter mix (0 = off)."), Rng(0, 1)] public double FreqShiftMix { get; set; }
+    [Category("19 Pitch / Bass"), Description("Frequency shift in Hz (positive = up)."), Rng(-1000, 1000)] public double FreqShiftHz { get; set; }
+    [Category("20 Air / EQ"), Description("Air band mix (0 = off)."), Rng(0, 1)] public double AirMix { get; set; }
+    [Category("20 Air / EQ"), Description("Air band frequency in Hz."), Rng(2000, 16000)] public double AirFreq { get; set; }
+    [Category("20 Air / EQ"), Description("Air band gain in dB."), Rng(0, 12)] public double AirGain { get; set; }
+    [Category("20 Air / EQ"), Description("Stereo width (1 = normal)."), Rng(0, 2)] public double StereoWidth { get; set; }
+    [Category("20 Air / EQ"), Description("Bass mono crossover in Hz (0 = off)."), Rng(0, 500)] public double BassMonoFreq { get; set; }
+    [Category("21 Space"), Description("Ping-pong delay mix (0 = off)."), Rng(0, 1)] public double PingPongMix { get; set; }
+    [Category("21 Space"), Description("Ping-pong time in ms."), Rng(20, 1200)] public double PingPongTime { get; set; }
+    [Category("21 Space"), Description("Ping-pong feedback."), Rng(0, 0.95)] public double PingPongFb { get; set; }
+    [Category("21 Space"), Description("Dub delay mix (0 = off)."), Rng(0, 1)] public double DubMix { get; set; }
+    [Category("21 Space"), Description("Dub delay time in ms."), Rng(40, 1200)] public double DubTime { get; set; }
+    [Category("21 Space"), Description("Dub delay feedback."), Rng(0, 0.95)] public double DubFb { get; set; }
+    [Category("21 Space"), Description("Dub delay tone (0 dark, 1 bright)."), Rng(0, 1)] public double DubTone { get; set; }
+    [Category("21 Space"), Description("Cathedral reverb mix (0 = off)."), Rng(0, 1)] public double CathedralMix { get; set; }
+    [Category("21 Space"), Description("Cathedral reverb size."), Rng(0, 1)] public double CathedralSize { get; set; }
+    [Category("21 Space"), Description("Cathedral reverb damping."), Rng(0, 1)] public double CathedralDamp { get; set; }
+    [Category("21 Space"), Description("Room reverb mix (0 = off)."), Rng(0, 1)] public double RoomMix { get; set; }
+    [Category("21 Space"), Description("Room reverb size."), Rng(0, 1)] public double RoomSize { get; set; }
+    [Category("21 Space"), Description("Room reverb damping."), Rng(0, 1)] public double RoomDamp { get; set; }
+    [Category("21 Space"), Description("Ambience mix (0 = off)."), Rng(0, 1)] public double AmbienceMix { get; set; }
+    [Category("21 Space"), Description("Ambience size."), Rng(0, 1)] public double AmbienceSize { get; set; }
+    [Category("21 Space"), Description("Ambience damping."), Rng(0, 1)] public double AmbienceDamp { get; set; }
+    [Category("22 Modulation"), Description("Wah pedal mix (0 = off)."), Rng(0, 1)] public double WahPedalMix { get; set; }
+    [Category("22 Modulation"), Description("Wah pedal LFO rate in Hz."), Rng(0.05, 10)] public double WahPedalRate { get; set; }
+    [Category("22 Modulation"), Description("Wah pedal depth."), Rng(0, 1)] public double WahPedalDepth { get; set; }
+    [Category("22 Modulation"), Description("Wah pedal resonance."), Rng(0, 0.95)] public double WahPedalQ { get; set; }
+    [Category("22 Modulation"), Description("Talk box mix (0 = off)."), Rng(0, 1)] public double TalkMix { get; set; }
+    [Category("22 Modulation"), Description("Talk box vowel rate in Hz."), Rng(0.05, 12)] public double TalkRate { get; set; }
+    [Category("22 Modulation"), Description("Talk box vowel offset 0-4."), Rng(0, 4)] public double TalkVowel { get; set; }
+    [Category("22 Modulation"), Description("Harmonic tremolo mix (0 = off)."), Rng(0, 1)] public double HarmTremMix { get; set; }
+    [Category("22 Modulation"), Description("Harmonic tremolo rate in Hz."), Rng(0.1, 12)] public double HarmTremRate { get; set; }
+    [Category("22 Modulation"), Description("Harmonic tremolo depth."), Rng(0, 1)] public double HarmTremDepth { get; set; }
+    [Category("22 Modulation"), Description("Sweep filter mix (0 = off)."), Rng(0, 1)] public double SweepMix { get; set; }
+    [Category("22 Modulation"), Description("Sweep filter LFO rate in Hz."), Rng(0.05, 10)] public double SweepRate { get; set; }
+    [Category("22 Modulation"), Description("Sweep filter depth."), Rng(0, 1)] public double SweepDepth { get; set; }
+    [Category("22 Modulation"), Description("Sweep filter resonance."), Rng(0, 0.95)] public double SweepQ { get; set; }
+    [Category("22 Modulation"), Description("Sweep filter center in Hz."), Rng(80, 8000)] public double SweepCenter { get; set; }
+    [Category("23 Dynamics"), Description("Ducker mix (0 = off)."), Rng(0, 1)] public double DuckerMix { get; set; }
+    [Category("23 Dynamics"), Description("Ducker threshold in dB."), Rng(-60, 0)] public double DuckerThreshold { get; set; }
+    [Category("23 Dynamics"), Description("Ducker depth."), Rng(0, 1)] public double DuckerDepth { get; set; }
+    [Category("23 Dynamics"), Description("Ducker release in ms."), Rng(10, 1000)] public double DuckerRelease { get; set; }
+    [Category("23 Dynamics"), Description("Level rider amount (0 = off)."), Rng(0, 1)] public double RiderAmount { get; set; }
+    [Category("23 Dynamics"), Description("Level rider target in dB."), Rng(-40, 0)] public double RiderTarget { get; set; }
+    [Category("23 Dynamics"), Description("Level rider speed."), Rng(0.01, 1)] public double RiderSpeed { get; set; }
+    [Category("24 Creative"), Description("Beat repeat mix (0 = off)."), Rng(0, 1)] public double BeatRepeatMix { get; set; }
+    [Category("24 Creative"), Description("Beat repeat divisions per half second."), Rng(2, 16)] public double BeatRepeatDiv { get; set; }
+    [Category("24 Creative"), Description("Beat repeat chance."), Rng(0, 1)] public double BeatRepeatChance { get; set; }
+    [Category("24 Creative"), Description("Granular cloud mix (0 = off)."), Rng(0, 1)] public double GrainMix { get; set; }
+    [Category("24 Creative"), Description("Grain size in ms."), Rng(10, 300)] public double GrainSize { get; set; }
+    [Category("24 Creative"), Description("Grains per second."), Rng(1, 80)] public double GrainDensity { get; set; }
+    [Category("24 Creative"), Description("Glitch gate mix (0 = off)."), Rng(0, 1)] public double GlitchMix { get; set; }
+    [Category("24 Creative"), Description("Glitch gate density."), Rng(0, 1)] public double GlitchDensity { get; set; }
+    [Category("24 Creative"), Description("Glitch gate seed."), Rng(0, 99)] public double GlitchSeed { get; set; }
     [Category("5 Output"), Description("Output gain."), Rng(0, 2, NoRandom = true)] public double Gain { get; set; }
     public bool Active {
         get {
@@ -343,7 +588,13 @@ public class Fx {
                 || EnsembleMix > 0 || RotaryMix > 0 || OctaverMix > 0 || HarmonizerMix > 0 || ResonatorMix > 0
                 || TiltGain != 0 || MidGain != 0 || SideGain != 0 || DeEsserAmount > 0 || MBOn
                 || ClipperAmount > 0 || AutoFilterMix > 0 || GateVerbMix > 0 || ReverseVerbMix > 0
-                || MultiTapMix > 0 || DoublerMix > 0 || FormantMix > 0;
+                || MultiTapMix > 0 || DoublerMix > 0 || FormantMix > 0
+                || LadderMix > 0 || SubBassMix > 0 || BassEnhMix > 0 || AirMix > 0 || TubeMix > 0
+                || TapeSatMix > 0 || DiodeMix > 0 || FuzzAmount > 0 || ChipMix > 0 || FreqShiftMix > 0
+                || BeatRepeatMix > 0 || GrainMix > 0 || PingPongMix > 0 || DubMix > 0
+                || CathedralMix > 0 || RoomMix > 0 || AmbienceMix > 0 || WahPedalMix > 0 || TalkMix > 0
+                || DuckerMix > 0 || RiderAmount > 0 || Math.Abs(StereoWidth - 1) > 0.001 || BassMonoFreq > 0
+                || HarmTremMix > 0 || GlitchMix > 0 || SweepMix > 0;
         }
     }
 }
@@ -1344,6 +1595,31 @@ public static class KnobPanel {
             else if (m == "multitap") { s.Add("MultiTapMix"); s.Add("MultiTapTime"); s.Add("MultiTapFb"); }
             else if (m == "doubler") { s.Add("DoublerMix"); s.Add("DoublerDelay"); }
             else if (m == "formant") { s.Add("FormantMix"); s.Add("FormantVowel"); s.Add("FormantShift"); }
+            else if (m == "ladder") { s.Add("LadderMix"); s.Add("LadderCutoff"); s.Add("LadderReso"); s.Add("LadderDrive"); }
+            else if (m == "tube") { s.Add("TubeDrive"); s.Add("TubeBias"); s.Add("TubeMix"); }
+            else if (m == "tapesat") { s.Add("TapeSatDrive"); s.Add("TapeSatTone"); s.Add("TapeSatMix"); }
+            else if (m == "diode") { s.Add("DiodeDrive"); s.Add("DiodeTone"); s.Add("DiodeMix"); }
+            else if (m == "fuzz") { s.Add("FuzzAmount"); s.Add("FuzzGate"); s.Add("FuzzMix"); }
+            else if (m == "chiptune") { s.Add("ChipMix"); s.Add("ChipBits"); s.Add("ChipRate"); }
+            else if (m == "subbass") { s.Add("SubBassMix"); s.Add("SubBassFreq"); s.Add("SubBassDrive"); }
+            else if (m == "bassenh") { s.Add("BassEnhMix"); s.Add("BassEnhFreq"); s.Add("BassEnhAmount"); }
+            else if (m == "freqshift") { s.Add("FreqShiftMix"); s.Add("FreqShiftHz"); }
+            else if (m == "airband") { s.Add("AirMix"); s.Add("AirFreq"); s.Add("AirGain"); }
+            else if (m == "stereoimage") { s.Add("StereoWidth"); s.Add("BassMonoFreq"); }
+            else if (m == "pingpong") { s.Add("PingPongMix"); s.Add("PingPongTime"); s.Add("PingPongFb"); }
+            else if (m == "dubdelay") { s.Add("DubMix"); s.Add("DubTime"); s.Add("DubFb"); s.Add("DubTone"); }
+            else if (m == "cathedral") { s.Add("CathedralMix"); s.Add("CathedralSize"); s.Add("CathedralDamp"); }
+            else if (m == "roomverb") { s.Add("RoomMix"); s.Add("RoomSize"); s.Add("RoomDamp"); }
+            else if (m == "ambience") { s.Add("AmbienceMix"); s.Add("AmbienceSize"); s.Add("AmbienceDamp"); }
+            else if (m == "wahpedal") { s.Add("WahPedalMix"); s.Add("WahPedalRate"); s.Add("WahPedalDepth"); s.Add("WahPedalQ"); }
+            else if (m == "talkbox") { s.Add("TalkMix"); s.Add("TalkRate"); s.Add("TalkVowel"); }
+            else if (m == "ducker") { s.Add("DuckerMix"); s.Add("DuckerThreshold"); s.Add("DuckerDepth"); s.Add("DuckerRelease"); }
+            else if (m == "rider") { s.Add("RiderAmount"); s.Add("RiderTarget"); s.Add("RiderSpeed"); }
+            else if (m == "harmtrem") { s.Add("HarmTremMix"); s.Add("HarmTremRate"); s.Add("HarmTremDepth"); }
+            else if (m == "beatrepeat") { s.Add("BeatRepeatMix"); s.Add("BeatRepeatDiv"); s.Add("BeatRepeatChance"); }
+            else if (m == "grain") { s.Add("GrainMix"); s.Add("GrainSize"); s.Add("GrainDensity"); }
+            else if (m == "glitchgate") { s.Add("GlitchMix"); s.Add("GlitchDensity"); s.Add("GlitchSeed"); }
+            else if (m == "sweep") { s.Add("SweepMix"); s.Add("SweepRate"); s.Add("SweepDepth"); s.Add("SweepQ"); s.Add("SweepCenter"); }
             s.Add("Gain");
         }
         return s;
@@ -2148,7 +2424,14 @@ public class PatchGraphControl : Control {
         new[] { "Ensemble", "ensemble" }, new[] { "Rotary", "rotary" }, new[] { "Octaver", "octaver" }, new[] { "Harmonizer", "harmonizer" },
         new[] { "Resonator", "resonator" }, new[] { "Tilt EQ", "tilteq" }, new[] { "Mid/Side EQ", "midside" }, new[] { "De-esser", "deesser" },
         new[] { "Multiband comp", "mbcomp" }, new[] { "Clipper", "clipper" }, new[] { "Auto-filter", "autofilter" }, new[] { "Gated reverb", "gatedverb" },
-        new[] { "Reverse reverb", "reverseverb" }, new[] { "Multi-tap", "multitap" }, new[] { "Doubler", "doubler" }, new[] { "Formant", "formant" }
+        new[] { "Reverse reverb", "reverseverb" }, new[] { "Multi-tap", "multitap" }, new[] { "Doubler", "doubler" }, new[] { "Formant", "formant" },
+        new[] { "Ladder filter", "ladder" }, new[] { "Tube preamp", "tube" }, new[] { "Tape saturator", "tapesat" }, new[] { "Diode drive", "diode" },
+        new[] { "Fuzz", "fuzz" }, new[] { "Chip tune", "chiptune" }, new[] { "Sub bass", "subbass" }, new[] { "Bass enhancer", "bassenh" },
+        new[] { "Frequency shifter", "freqshift" }, new[] { "Air band", "airband" }, new[] { "Stereo image", "stereoimage" }, new[] { "Ping-pong delay", "pingpong" },
+        new[] { "Dub delay", "dubdelay" }, new[] { "Cathedral reverb", "cathedral" }, new[] { "Room reverb", "roomverb" }, new[] { "Ambience", "ambience" },
+        new[] { "Wah pedal", "wahpedal" }, new[] { "Talk box", "talkbox" }, new[] { "Ducker", "ducker" }, new[] { "Level rider", "rider" },
+        new[] { "Harmonic tremolo", "harmtrem" }, new[] { "Beat repeat", "beatrepeat" }, new[] { "Granular cloud", "grain" }, new[] { "Glitch gate", "glitchgate" },
+        new[] { "Sweep filter", "sweep" }
     };
     public static PatchNode NewFxNode(string type, int x, int y) {
         PatchNode n = new PatchNode(); n.Kind = "fx"; n.Type = type; n.Label = type.ToUpperInvariant(); n.X = x; n.Y = y;
@@ -2202,6 +2485,31 @@ public class PatchGraphControl : Control {
             case "multitap": fx.MultiTapMix = 0.4; fx.MultiTapTime = 180; fx.MultiTapFb = 0.4; break;
             case "doubler": fx.DoublerMix = 0.5; fx.DoublerDelay = 18; break;
             case "formant": fx.FormantMix = 0.5; fx.FormantVowel = 0; fx.FormantShift = 1; break;
+            case "ladder": fx.LadderMix = 0.6; fx.LadderCutoff = 1200; fx.LadderReso = 0.5; fx.LadderDrive = 0.3; break;
+            case "tube": fx.TubeMix = 0.6; fx.TubeDrive = 0.5; fx.TubeBias = 0.2; break;
+            case "tapesat": fx.TapeSatMix = 0.6; fx.TapeSatDrive = 0.45; fx.TapeSatTone = 0.5; break;
+            case "diode": fx.DiodeMix = 0.6; fx.DiodeDrive = 0.5; fx.DiodeTone = 0.5; break;
+            case "fuzz": fx.FuzzAmount = 0.5; fx.FuzzGate = 0.2; fx.FuzzMix = 0.5; break;
+            case "chiptune": fx.ChipMix = 0.6; fx.ChipBits = 6; fx.ChipRate = 8; break;
+            case "subbass": fx.SubBassMix = 0.5; fx.SubBassFreq = 60; fx.SubBassDrive = 0.3; break;
+            case "bassenh": fx.BassEnhMix = 0.5; fx.BassEnhFreq = 120; fx.BassEnhAmount = 0.4; break;
+            case "freqshift": fx.FreqShiftMix = 0.5; fx.FreqShiftHz = 100; break;
+            case "airband": fx.AirMix = 0.5; fx.AirFreq = 9000; fx.AirGain = 4; break;
+            case "stereoimage": fx.StereoWidth = 1.3; fx.BassMonoFreq = 120; break;
+            case "pingpong": fx.PingPongMix = 0.35; fx.PingPongTime = 350; fx.PingPongFb = 0.45; break;
+            case "dubdelay": fx.DubMix = 0.35; fx.DubTime = 380; fx.DubFb = 0.55; fx.DubTone = 0.5; break;
+            case "cathedral": fx.CathedralMix = 0.35; fx.CathedralSize = 0.8; fx.CathedralDamp = 0.5; break;
+            case "roomverb": fx.RoomMix = 0.3; fx.RoomSize = 0.5; fx.RoomDamp = 0.5; break;
+            case "ambience": fx.AmbienceMix = 0.3; fx.AmbienceSize = 0.6; fx.AmbienceDamp = 0.5; break;
+            case "wahpedal": fx.WahPedalMix = 0.6; fx.WahPedalRate = 2; fx.WahPedalDepth = 0.7; fx.WahPedalQ = 0.6; break;
+            case "talkbox": fx.TalkMix = 0.6; fx.TalkRate = 3; fx.TalkVowel = 0; break;
+            case "ducker": fx.DuckerMix = 0.5; fx.DuckerThreshold = -30; fx.DuckerDepth = 0.6; fx.DuckerRelease = 150; break;
+            case "rider": fx.RiderAmount = 0.5; fx.RiderTarget = -18; fx.RiderSpeed = 0.3; break;
+            case "harmtrem": fx.HarmTremMix = 0.6; fx.HarmTremRate = 4; fx.HarmTremDepth = 0.5; break;
+            case "beatrepeat": fx.BeatRepeatMix = 0.5; fx.BeatRepeatDiv = 4; fx.BeatRepeatChance = 0.3; break;
+            case "grain": fx.GrainMix = 0.5; fx.GrainSize = 80; fx.GrainDensity = 20; break;
+            case "glitchgate": fx.GlitchMix = 0.5; fx.GlitchDensity = 0.3; fx.GlitchSeed = 1; break;
+            case "sweep": fx.SweepMix = 0.6; fx.SweepRate = 0.5; fx.SweepDepth = 0.6; fx.SweepQ = 0.5; fx.SweepCenter = 1200; break;
         }
         return n;
     }
@@ -3418,6 +3726,31 @@ public static class FxProc {
         if (fx.MultiTapMix > 0) MultiTapFx(fx, a, b);
         if (fx.DoublerMix > 0) DoublerFx(fx, a, b);
         if (fx.FormantMix > 0) FormantFx(fx, a, b);
+        if (fx.LadderMix > 0) LadderFx(fx, a, b);
+        if (fx.SubBassMix > 0) SubBassFx(fx, a, b);
+        if (fx.BassEnhMix > 0) BassEnhFx(fx, a, b);
+        if (fx.AirMix > 0) AirBandFx(fx, a, b);
+        if (fx.TubeMix > 0) TubeFx(fx, a, b);
+        if (fx.TapeSatMix > 0) TapeSatFx(fx, a, b);
+        if (fx.DiodeMix > 0) DiodeFx(fx, a, b);
+        if (fx.FuzzAmount > 0) FuzzFx(fx, a, b);
+        if (fx.ChipMix > 0) ChipTuneFx(fx, a, b);
+        if (fx.FreqShiftMix > 0) FreqShiftFx(fx, a, b);
+        if (fx.BeatRepeatMix > 0) BeatRepeatFx(fx, a, b);
+        if (fx.GrainMix > 0) GrainFx(fx, a, b);
+        if (fx.PingPongMix > 0) PingPongFx(fx, a, b);
+        if (fx.DubMix > 0) DubDelayFx(fx, a, b);
+        if (fx.CathedralMix > 0) VerbCore(fx, a, b, fx.CathedralMix, fx.CathedralSize, fx.CathedralDamp, 3.0);
+        if (fx.RoomMix > 0) VerbCore(fx, a, b, fx.RoomMix, fx.RoomSize, fx.RoomDamp, 1.0);
+        if (fx.AmbienceMix > 0) VerbCore(fx, a, b, fx.AmbienceMix, fx.AmbienceSize, fx.AmbienceDamp, 0.55);
+        if (fx.WahPedalMix > 0) WahPedalFx(fx, a, b);
+        if (fx.TalkMix > 0) TalkBoxFx(fx, a, b);
+        if (fx.DuckerMix > 0) DuckerFx(fx, a, b);
+        if (fx.RiderAmount > 0) RiderFx(fx, a, b);
+        if (Math.Abs(fx.StereoWidth - 1) > 0.001 || fx.BassMonoFreq > 0) StereoImageFx(fx, a, b);
+        if (fx.HarmTremMix > 0) HarmTremFx(fx, a, b);
+        if (fx.GlitchMix > 0) GlitchGateFx(fx, a, b);
+        if (fx.SweepMix > 0) SweepFx(fx, a, b);
         if (fx.PitchShift != 0) PitchShift(fx, a, b);
         if (fx.TapeWow > 0) Wow(fx, a, b);
         if (fx.TapeStop > 0) TapeStopFx(fx, a, b, spb);
@@ -3685,6 +4018,301 @@ public static class FxProc {
                 double wa = bdA / 3.0, wb = bdB / 3.0;
                 a[i] = (float)(a[i] * (1 - mix) + wa * mix); b[i] = (float)(b[i] * (1 - mix) + wb * mix);
             }
+        }
+    }
+    static void LadderFx(Fx fx, float[] a, float[] b) {
+        int n = a.Length; double mix = Math.Max(0, Math.Min(1, fx.LadderMix));
+        double fc = Math.Min(0.99, 2 * Math.Sin(Math.PI * Math.Max(40, Math.Min(16000, fx.LadderCutoff)) / SR));
+        double k = 4 * Math.Max(0, Math.Min(0.95, fx.LadderReso)), drive = 1 + fx.LadderDrive * 8;
+        double y1 = 0, y2 = 0, y3 = 0, y4 = 0, z1 = 0, z2 = 0, z3 = 0, z4 = 0;
+        for (int i = 0; i < n; i++) {
+            double xa = Math.Tanh(a[i] * drive) - k * Math.Tanh(y4), xb = Math.Tanh(b[i] * drive) - k * Math.Tanh(z4);
+            y1 += fc * (xa - y1); y2 += fc * (y1 - y2); y3 += fc * (y2 - y3); y4 += fc * (y3 - y4);
+            z1 += fc * (xb - z1); z2 += fc * (z1 - z2); z3 += fc * (z2 - z3); z4 += fc * (z3 - z4);
+            y4 = Math.Max(-4, Math.Min(4, y4)); z4 = Math.Max(-4, Math.Min(4, z4));
+            a[i] = (float)(a[i] * (1 - mix) + y4 * mix); b[i] = (float)(b[i] * (1 - mix) + z4 * mix);
+        }
+    }
+    static void SubBassFx(Fx fx, float[] a, float[] b) {
+        double mix = Math.Max(0, Math.Min(1, fx.SubBassMix)), w = 2 * Math.PI * Math.Max(20, Math.Min(120, fx.SubBassFreq)) / SR;
+        double drive = 1 + fx.SubBassDrive * 4, c = Math.Exp(-2 * Math.PI * 140 / SR), lpA = 0, lpB = 0, ph = 0, env = 0;
+        double atk = 1 - Math.Exp(-1.0 / (0.005 * SR)), rel = 1 - Math.Exp(-1.0 / (0.08 * SR));
+        for (int i = 0; i < a.Length; i++) {
+            lpA = (1 - c) * a[i] + c * lpA; lpB = (1 - c) * b[i] + c * lpB;
+            double x = Math.Max(Math.Abs(a[i]), Math.Abs(b[i])); env += (x > env ? atk : rel) * (x - env);
+            ph += w; if (ph > 2 * Math.PI) ph -= 2 * Math.PI;
+            double s = Math.Sin(ph) * env * drive;
+            a[i] = (float)(a[i] * (1 - mix) + (lpA * 0.5 + s * 0.5) * mix);
+            b[i] = (float)(b[i] * (1 - mix) + (lpB * 0.5 + s * 0.5) * mix);
+        }
+    }
+    static void BassEnhFx(Fx fx, float[] a, float[] b) {
+        double mix = Math.Max(0, Math.Min(1, fx.BassEnhMix)), amt = Math.Max(0, Math.Min(1, fx.BassEnhAmount));
+        double c = Math.Exp(-2 * Math.PI * Math.Max(40, Math.Min(300, fx.BassEnhFreq)) / SR), lpA = 0, lpB = 0;
+        for (int i = 0; i < a.Length; i++) {
+            lpA = (1 - c) * a[i] + c * lpA; lpB = (1 - c) * b[i] + c * lpB;
+            double ha = Math.Tanh(lpA * 4) - lpA, hb = Math.Tanh(lpB * 4) - lpB;
+            a[i] = (float)(a[i] * (1 - mix) + (a[i] + ha * amt * 2) * mix);
+            b[i] = (float)(b[i] * (1 - mix) + (b[i] + hb * amt * 2) * mix);
+        }
+    }
+    static void AirBandFx(Fx fx, float[] a, float[] b) {
+        double mix = Math.Max(0, Math.Min(1, fx.AirMix)), g = Math.Pow(10, fx.AirGain / 20.0) - 1;
+        double c = Math.Exp(-2 * Math.PI * Math.Max(2000, Math.Min(16000, fx.AirFreq)) / SR), lpA = 0, lpB = 0;
+        for (int i = 0; i < a.Length; i++) {
+            lpA = (1 - c) * a[i] + c * lpA; lpB = (1 - c) * b[i] + c * lpB;
+            a[i] = (float)(a[i] * (1 - mix) + (a[i] + (a[i] - lpA) * g) * mix);
+            b[i] = (float)(b[i] * (1 - mix) + (b[i] + (b[i] - lpB) * g) * mix);
+        }
+    }
+    static void TubeFx(Fx fx, float[] a, float[] b) {
+        double mix = Math.Max(0, Math.Min(1, fx.TubeMix)), g = 1 + fx.TubeDrive * 10, bias = fx.TubeBias * 0.5;
+        double c = Math.Exp(-2 * Math.PI * 18 / SR), dcA = 0, dcB = 0;
+        for (int i = 0; i < a.Length; i++) {
+            double ya = Math.Tanh(a[i] * g + bias) - Math.Tanh(bias), yb = Math.Tanh(b[i] * g + bias) - Math.Tanh(bias);
+            dcA = (1 - c) * ya + c * dcA; dcB = (1 - c) * yb + c * dcB;
+            a[i] = (float)(a[i] * (1 - mix) + (ya - dcA) * mix * 0.7);
+            b[i] = (float)(b[i] * (1 - mix) + (yb - dcB) * mix * 0.7);
+        }
+    }
+    static void TapeSatFx(Fx fx, float[] a, float[] b) {
+        double mix = Math.Max(0, Math.Min(1, fx.TapeSatMix)), g = 1 + fx.TapeSatDrive * 8, tone = Math.Max(0, Math.Min(1, fx.TapeSatTone));
+        double c = Math.Exp(-2 * Math.PI * (700 + tone * 11000) / SR), lpA = 0, lpB = 0;
+        for (int i = 0; i < a.Length; i++) {
+            double sa = Math.Tanh(a[i] * g) / Math.Tanh(g), sb = Math.Tanh(b[i] * g) / Math.Tanh(g);
+            lpA = (1 - c) * sa + c * lpA; lpB = (1 - c) * sb + c * lpB;
+            a[i] = (float)(a[i] * (1 - mix) + (sa + (sa - lpA) * tone) * mix);
+            b[i] = (float)(b[i] * (1 - mix) + (sb + (sb - lpB) * tone) * mix);
+        }
+    }
+    static void DiodeFx(Fx fx, float[] a, float[] b) {
+        double mix = Math.Max(0, Math.Min(1, fx.DiodeMix)), g = 1 + fx.DiodeDrive * 12, tone = Math.Max(0, Math.Min(1, fx.DiodeTone));
+        double c = Math.Exp(-2 * Math.PI * (900 + tone * 9000) / SR), lpA = 0, lpB = 0;
+        for (int i = 0; i < a.Length; i++) {
+            double xa = a[i], xb = b[i];
+            double ya = (1 - Math.Exp(-Math.Abs(xa) * g)) * Math.Sign(xa), yb = (1 - Math.Exp(-Math.Abs(xb) * g)) * Math.Sign(xb);
+            lpA = (1 - c) * ya + c * lpA; lpB = (1 - c) * yb + c * lpB;
+            a[i] = (float)(xa * (1 - mix) + (ya * (1 - tone) + lpA * tone) * mix * 0.8);
+            b[i] = (float)(xb * (1 - mix) + (yb * (1 - tone) + lpB * tone) * mix * 0.8);
+        }
+    }
+    static void FuzzFx(Fx fx, float[] a, float[] b) {
+        double mix = Math.Max(0, Math.Min(1, fx.FuzzMix)), g = 1 + fx.FuzzAmount * 30, gate = fx.FuzzGate * 0.05;
+        for (int i = 0; i < a.Length; i++) {
+            double xa = a[i], xb = b[i];
+            double ya = Math.Abs(xa) < gate ? 0 : Math.Tanh(xa * g), yb = Math.Abs(xb) < gate ? 0 : Math.Tanh(xb * g);
+            a[i] = (float)(xa * (1 - mix) + ya * mix * 0.6); b[i] = (float)(xb * (1 - mix) + yb * mix * 0.6);
+        }
+    }
+    static void ChipTuneFx(Fx fx, float[] a, float[] b) {
+        double mix = Math.Max(0, Math.Min(1, fx.ChipMix));
+        double steps = Math.Pow(2, Math.Max(2, Math.Min(12, Math.Round(fx.ChipBits))) - 1);
+        int hold = Math.Max(1, (int)(SR / Math.Max(1000, fx.ChipRate * 1000)));
+        float ha = 0, hb = 0;
+        for (int i = 0; i < a.Length; i++) {
+            if (i % hold == 0) { ha = (float)(Math.Round(a[i] * steps) / steps); hb = (float)(Math.Round(b[i] * steps) / steps); }
+            a[i] = (float)(a[i] * (1 - mix) + ha * mix); b[i] = (float)(b[i] * (1 - mix) + hb * mix);
+        }
+    }
+    static void FreqShiftFx(Fx fx, float[] a, float[] b) {
+        double mix = Math.Max(0, Math.Min(1, fx.FreqShiftMix)), w = 2 * Math.PI * fx.FreqShiftHz / SR;
+        double t = Math.Tan(Math.PI * 500 / SR), ap = (t - 1) / (t + 1), za = 0, zb = 0, ph = 0;
+        for (int i = 0; i < a.Length; i++) {
+            double xa = a[i], xb = b[i];
+            double qa = ap * xa + za; za = xa - ap * qa;
+            double qb = ap * xb + zb; zb = xb - ap * qb;
+            ph += w; if (ph > Math.PI) ph -= 2 * Math.PI; if (ph < -Math.PI) ph += 2 * Math.PI;
+            double co = Math.Cos(ph), si = Math.Sin(ph);
+            a[i] = (float)(xa * (1 - mix) + (xa * co - qa * si) * mix);
+            b[i] = (float)(xb * (1 - mix) + (xb * co - qb * si) * mix);
+        }
+    }
+    static void BeatRepeatFx(Fx fx, float[] a, float[] b) {
+        int n = a.Length, div = Math.Max(2, Math.Min(16, (int)Math.Round(fx.BeatRepeatDiv)));
+        int chunk = Math.Max(256, (int)(SR * 0.5 / div));
+        double mix = Math.Max(0, Math.Min(1, fx.BeatRepeatMix)), chance = Math.Max(0, Math.Min(1, fx.BeatRepeatChance));
+        float[] ba = new float[chunk], bb = new float[chunk]; Random r = new Random(777);
+        int pos = 0, reps = 0, totalReps = 0; bool repeating = false;
+        for (int i = 0; i < n; i++) {
+            if (!repeating) {
+                ba[pos] = a[i]; bb[pos] = b[i];
+                a[i] = (float)(a[i] * (1 - mix) + ba[pos] * mix); b[i] = (float)(b[i] * (1 - mix) + bb[pos] * mix);
+                pos++; if (pos >= chunk) { pos = 0; repeating = true; reps = 0; totalReps = r.NextDouble() < chance ? div : 1; }
+            } else {
+                a[i] = (float)(a[i] * (1 - mix) + ba[pos] * mix); b[i] = (float)(b[i] * (1 - mix) + bb[pos] * mix);
+                pos++; if (pos >= chunk) { pos = 0; reps++; if (reps >= totalReps) repeating = false; }
+            }
+        }
+    }
+    static void GrainFx(Fx fx, float[] a, float[] b) {
+        int n = a.Length, bufLen = Math.Max(4096, (int)(SR * 1.0)), gmax = 8;
+        float[] ba = new float[bufLen], bb = new float[bufLen];
+        int[] gpos = new int[gmax], glen = new int[gmax], gcur = new int[gmax];
+        for (int k = 0; k < gmax; k++) { glen[k] = 0; gcur[k] = 1; }
+        int hop = Math.Max(1, (int)(SR / Math.Max(1, fx.GrainDensity))), since = hop, w = 0;
+        double mix = Math.Max(0, Math.Min(1, fx.GrainMix));
+        Random r = new Random(9001);
+        for (int i = 0; i < n; i++) {
+            ba[w] = a[i]; bb[w] = b[i]; w++; if (w >= bufLen) w = 0;
+            since++;
+            if (since >= hop) {
+                since = 0;
+                for (int k = 0; k < gmax; k++) {
+                    if (gcur[k] >= glen[k]) {
+                        int gl = Math.Max(64, (int)(Math.Max(10, fx.GrainSize) * 0.001 * SR * (0.75 + 0.5 * r.NextDouble())));
+                        int maxBack = Math.Min(w, bufLen / 2);
+                        if (maxBack > gl + 1) { gpos[k] = (w - gl - r.Next(maxBack - gl)) % bufLen; glen[k] = gl; gcur[k] = 0; }
+                        break;
+                    }
+                }
+            }
+            double oa = 0, ob = 0; int active = 0;
+            for (int k = 0; k < gmax; k++) {
+                if (gcur[k] < glen[k]) {
+                    int idx = (gpos[k] + gcur[k]) % bufLen;
+                    double win = 0.5 - 0.5 * Math.Cos(2 * Math.PI * gcur[k] / Math.Max(1, glen[k]));
+                    oa += ba[idx] * win; ob += bb[idx] * win; gcur[k]++; active++;
+                }
+            }
+            if (active > 0) { double norm = 0.7 / Math.Sqrt(active); a[i] = (float)(a[i] * (1 - mix) + oa * norm * mix); b[i] = (float)(b[i] * (1 - mix) + ob * norm * mix); }
+        }
+    }
+    static void PingPongFx(Fx fx, float[] a, float[] b) {
+        int d = Math.Max(2, (int)(fx.PingPongTime * 0.001 * SR)); float[] dl = new float[d], dr = new float[d]; int pos = 0;
+        double fb = Math.Max(0, Math.Min(0.95, fx.PingPongFb)), mix = Math.Max(0, Math.Min(1, fx.PingPongMix));
+        for (int i = 0; i < a.Length; i++) {
+            double yl = dl[pos], yr = dr[pos];
+            dl[pos] = (float)(a[i] + yr * fb); dr[pos] = (float)(b[i] + yl * fb);
+            pos++; if (pos >= d) pos = 0;
+            a[i] = (float)(a[i] * (1 - mix) + yl * mix); b[i] = (float)(b[i] * (1 - mix) + yr * mix);
+        }
+    }
+    static void DubDelayFx(Fx fx, float[] a, float[] b) {
+        int d = Math.Max(2, (int)(fx.DubTime * 0.001 * SR)); float[] dl = new float[d], dr = new float[d]; int pos = 0;
+        double fb = Math.Max(0, Math.Min(0.95, fx.DubFb)), mix = Math.Max(0, Math.Min(1, fx.DubMix));
+        double c = Math.Exp(-2 * Math.PI * (400 + fx.DubTone * 6000) / SR), lpA = 0, lpB = 0;
+        for (int i = 0; i < a.Length; i++) {
+            double yl = dl[pos], yr = dr[pos];
+            lpA = (1 - c) * yl + c * lpA; lpB = (1 - c) * yr + c * lpB;
+            dl[pos] = (float)(a[i] + lpA * fb); dr[pos] = (float)(b[i] + lpB * fb);
+            pos++; if (pos >= d) pos = 0;
+            a[i] = (float)(a[i] * (1 - mix) + yl * mix); b[i] = (float)(b[i] * (1 - mix) + yr * mix);
+        }
+    }
+    static void VerbCore(Fx fx, float[] a, float[] b, double mixv, double size, double damp, double scale) {
+        int n = a.Length; double mix = Math.Max(0, Math.Min(1, mixv)), sz = Math.Max(0, Math.Min(1, size)), dp = Math.Max(0, Math.Min(1, damp));
+        int baseLen = Math.Max(64, (int)(SR * 0.03 * scale)); double fb = 0.55 + 0.4 * sz;
+        int[] combLens = { baseLen, (int)(baseLen * 1.13), (int)(baseLen * 0.97), (int)(baseLen * 1.27) };
+        for (int ch = 0; ch < 2; ch++) {
+            float[] src = ch == 0 ? a : b; float[] wet = new float[n];
+            for (int c = 0; c < combLens.Length; c++) {
+                int len = combLens[c] + ch * 37; float[] buf = new float[len]; int idx = 0; double store = 0;
+                for (int i = 0; i < n; i++) { double outv = buf[idx]; store = outv * (1 - dp) + store * dp; buf[idx] = (float)(src[i] + store * fb); if (++idx >= len) idx = 0; wet[i] += (float)outv; }
+            }
+            int[] apLens = { (int)(baseLen * 0.23) + ch * 13 + 5, (int)(baseLen * 0.41) + ch * 7 + 3 };
+            for (int k = 0; k < apLens.Length; k++) {
+                int len = Math.Max(5, apLens[k]); float[] buf = new float[len]; int idx = 0;
+                for (int i = 0; i < n; i++) { double bo = buf[idx]; double x = wet[i]; wet[i] = (float)(-x + bo); buf[idx] = (float)(x + bo * 0.5); if (++idx >= len) idx = 0; }
+            }
+            for (int i = 0; i < n; i++) src[i] = (float)(src[i] * (1 - mix) + wet[i] * 0.25 * mix);
+        }
+    }
+    static void WahPedalFx(Fx fx, float[] a, float[] b) {
+        double mix = Math.Max(0, Math.Min(1, fx.WahPedalMix)), rate = Math.Max(0.05, fx.WahPedalRate), depth = Math.Max(0, Math.Min(1, fx.WahPedalDepth));
+        double damp = 1 - Math.Max(0, Math.Min(0.95, fx.WahPedalQ)) * 0.9, loA = 0, bdA = 0, loB = 0, bdB = 0;
+        for (int i = 0; i < a.Length; i++) {
+            double lfo = 0.5 + 0.5 * Math.Sin(2 * Math.PI * rate * i / SR);
+            double fc = Math.Max(120, Math.Min(SR / 5.0, 300 + depth * lfo * 2500)), ff = 2 * Math.Sin(Math.PI * fc / SR);
+            double xa = a[i], xb = b[i];
+            double hiA = xa - loA - damp * bdA; bdA += ff * hiA; loA += ff * bdA;
+            double hiB = xb - loB - damp * bdB; bdB += ff * hiB; loB += ff * bdB;
+            a[i] = (float)(xa * (1 - mix) + bdA * mix * 1.6); b[i] = (float)(xb * (1 - mix) + bdB * mix * 1.6);
+        }
+    }
+    static void TalkBoxFx(Fx fx, float[] a, float[] b) {
+        double[][] vowel = { new double[] { 800, 1200, 2500 }, new double[] { 400, 2000, 2600 }, new double[] { 300, 2300, 3000 }, new double[] { 450, 800, 2830 }, new double[] { 325, 700, 2530 } };
+        double mix = Math.Max(0, Math.Min(1, fx.TalkMix)), rate = Math.Max(0.05, fx.TalkRate), off = Math.Max(0, Math.Min(4, fx.TalkVowel));
+        double[] loA = new double[3], bdA = new double[3], loB = new double[3], bdB = new double[3];
+        for (int i = 0; i < a.Length; i++) {
+            int v = (int)((i * rate / SR + off)) % 5; if (v < 0) v += 5;
+            double[] fs = vowel[v]; double xa = a[i], xb = b[i], oa = 0, ob = 0;
+            for (int band = 0; band < 3; band++) {
+                double fc = Math.Max(80, Math.Min(SR / 5.0, fs[band])), ff = 2 * Math.Sin(Math.PI * fc / SR), damp = 0.4;
+                double hiA = xa - loA[band] - damp * bdA[band]; bdA[band] += ff * hiA; loA[band] += ff * bdA[band];
+                double hiB = xb - loB[band] - damp * bdB[band]; bdB[band] += ff * hiB; loB[band] += ff * bdB[band];
+                oa += bdA[band]; ob += bdB[band];
+            }
+            a[i] = (float)(xa * (1 - mix) + oa * mix * 0.8); b[i] = (float)(xb * (1 - mix) + ob * mix * 0.8);
+        }
+    }
+    static void DuckerFx(Fx fx, float[] a, float[] b) {
+        double mix = Math.Max(0, Math.Min(1, fx.DuckerMix)), thr = Math.Pow(10, fx.DuckerThreshold / 20.0), depth = Math.Max(0, Math.Min(1, fx.DuckerDepth));
+        double atk = 1 - Math.Exp(-1.0 / (0.003 * SR)), rel = 1 - Math.Exp(-1.0 / (Math.Max(10, fx.DuckerRelease) * 0.001 * SR));
+        double env = 0, gain = 1;
+        for (int i = 0; i < a.Length; i++) {
+            double x = Math.Max(Math.Abs(a[i]), Math.Abs(b[i])); env += (x > env ? atk : rel) * (x - env);
+            double target = env > thr ? 1 - depth : 1; gain += (target - gain) * (target < gain ? atk : rel);
+            double g = 1 - mix + mix * gain; a[i] = (float)(a[i] * g); b[i] = (float)(b[i] * g);
+        }
+    }
+    static void RiderFx(Fx fx, float[] a, float[] b) {
+        double amount = Math.Max(0, Math.Min(1, fx.RiderAmount)), target = Math.Pow(10, fx.RiderTarget / 20.0);
+        double coef = 1 - Math.Exp(-1.0 / (Math.Max(0.01, fx.RiderSpeed) * 0.5 * SR));
+        double env = 0, gain = 1;
+        for (int i = 0; i < a.Length; i++) {
+            double x = Math.Max(Math.Abs(a[i]), Math.Abs(b[i])); env += (x > env ? 0.01 : coef) * (x - env);
+            double desired = env > 0.0005 ? target / env : 1; desired = Math.Max(0.1, Math.Min(4, desired));
+            gain += (desired - gain) * coef;
+            double g = 1 - amount + amount * gain; a[i] = (float)(a[i] * g); b[i] = (float)(b[i] * g);
+        }
+    }
+    static void StereoImageFx(Fx fx, float[] a, float[] b) {
+        double width = Math.Max(0, Math.Min(2, fx.StereoWidth)), bass = Math.Max(0, fx.BassMonoFreq);
+        double c = Math.Exp(-2 * Math.PI * (bass > 0 ? bass : 120) / SR), lpA = 0, lpB = 0;
+        for (int i = 0; i < a.Length; i++) {
+            double mid = (a[i] + b[i]) * 0.5, side = (a[i] - b[i]) * 0.5 * width;
+            double l = mid + side, r = mid - side;
+            if (bass > 0) {
+                lpA = (1 - c) * l + c * lpA; lpB = (1 - c) * r + c * lpB;
+                double lowM = (lpA + lpB) * 0.5; l = l - lpA + lowM; r = r - lpB + lowM;
+            }
+            a[i] = (float)l; b[i] = (float)r;
+        }
+    }
+    static void HarmTremFx(Fx fx, float[] a, float[] b) {
+        double mix = Math.Max(0, Math.Min(1, fx.HarmTremMix)), rate = Math.Max(0.1, fx.HarmTremRate), depth = Math.Max(0, Math.Min(1, fx.HarmTremDepth));
+        for (int i = 0; i < a.Length; i++) {
+            double ph = 2 * Math.PI * rate * i / SR;
+            double gl = 1 - depth * (0.5 + 0.5 * Math.Sin(ph)), gr = 1 - depth * (0.5 + 0.5 * Math.Sin(ph + Math.PI / 2));
+            a[i] = (float)(a[i] * (1 - mix + mix * gl) * 1.3); b[i] = (float)(b[i] * (1 - mix + mix * gr) * 1.3);
+        }
+    }
+    static void GlitchGateFx(Fx fx, float[] a, float[] b) {
+        double mix = Math.Max(0, Math.Min(1, fx.GlitchMix)), dens = Math.Max(0, Math.Min(1, fx.GlitchDensity));
+        Random r = new Random((int)(Math.Max(0, fx.GlitchSeed) * 977) + 13);
+        bool open = true; int remain = 0;
+        for (int i = 0; i < a.Length; i++) {
+            if (remain <= 0) {
+                open = !open;
+                double avg = open ? 0.02 + 0.10 * (1 - dens) : 0.015 + 0.20 * dens;
+                remain = Math.Max(32, (int)(SR * avg * (0.4 + r.NextDouble())));
+            }
+            remain--;
+            double g = open ? 1 : 0;
+            a[i] = (float)(a[i] * (1 - mix + mix * g)); b[i] = (float)(b[i] * (1 - mix + mix * g));
+        }
+    }
+    static void SweepFx(Fx fx, float[] a, float[] b) {
+        double mix = Math.Max(0, Math.Min(1, fx.SweepMix)), rate = Math.Max(0.05, fx.SweepRate), depth = Math.Max(0, Math.Min(1, fx.SweepDepth));
+        double damp = 1 - Math.Max(0, Math.Min(0.95, fx.SweepQ)) * 0.9, center = Math.Max(80, fx.SweepCenter);
+        double loA = 0, bdA = 0, loB = 0, bdB = 0;
+        for (int i = 0; i < a.Length; i++) {
+            double lfo = Math.Sin(2 * Math.PI * rate * i / SR);
+            double fc = Math.Max(40, Math.Min(SR / 5.0, center * Math.Pow(2, depth * lfo * 2))), ff = 2 * Math.Sin(Math.PI * fc / SR);
+            double xa = a[i], xb = b[i];
+            double hiA = xa - loA - damp * bdA; bdA += ff * hiA; loA += ff * bdA;
+            double hiB = xb - loB - damp * bdB; bdB += ff * hiB; loB += ff * bdB;
+            a[i] = (float)(xa * (1 - mix) + bdA * mix * 1.4); b[i] = (float)(xb * (1 - mix) + bdB * mix * 1.4);
         }
     }
     static void GateFx(Fx fx, float[] a, float[] b) {
@@ -4686,6 +5314,9 @@ public static class Transcriber {
         }
         return e;
     }
+
+    // Public onset list in seconds, used by the sampler's auto-slice feature.
+    public static double[] OnsetSeconds(float[] x, double sens) { return OnsetTimes(x, sens).ToArray(); }
 
     // Peak-picked onset times in seconds (adaptive threshold over a ~0.25 s window; sens 0..1 lowers the threshold).
     static List<double> OnsetTimes(float[] x, double sens) {
@@ -8563,7 +9194,306 @@ function Show-AudioStudio {
     
     # Add automation tab to the main tabs
     $tabs.TabPages.Add($tAuto)
-    
+
+    # ---- MIDI input tab ---------------------------------------------------------------------------------------
+    $tMidi = New-Object Windows.Forms.TabPage; $tMidi.Text = 'MIDI In'; $tMidi.BackColor = $dk.Panel; $tMidi.ForeColor = $dk.Text; $tMidi.AutoScroll = $true
+    $tabs.TabPages.Add($tMidi)
+    $S.MidiPort = $null; $S.MidiRec = $false; $S.MidiNotes = @{}; $S.MidiStart = [long]0; $S.MidiTake = New-Object Collections.ArrayList
+    $S.MidiDevice = Combo @('(no MIDI inputs found)') 8 8 330 $true
+    $S.MidiRefresh = Btn 'Refresh devices' 344 6 122
+    $S.MidiConnect = Btn 'Connect' 472 6 92 $true
+    $S.MidiStatus = Lbl 'Not connected. Choose an input and press Connect.' 8 36 900
+    $S.MidiRecord = Btn 'Start recording' 8 62 132 $true
+    $S.MidiStop = Btn 'Stop' 146 62 70
+    $S.MidiClear = Btn 'Clear take' 222 62 96
+    $S.MidiTarget = Lbl 'Target: selected track' 330 68 420
+    $S.MidiQuant = Combo @('Off', '1/4', '1/8', '1/16', '1/32', '1/16 triplet') 76 96 110 $true; $S.MidiQuant.SelectedIndex = 2
+    $S.MidiMonitor = New-Object Windows.Forms.CheckBox; $S.MidiMonitor.Text = 'Monitor incoming notes through the selected track'
+    $S.MidiMonitor.SetBounds(198, 98, 360, 22); $S.MidiMonitor.BackColor = $dk.Panel; $S.MidiMonitor.ForeColor = $dk.Text
+    $S.MidiLog = Sty (New-Object Windows.Forms.TextBox); $S.MidiLog.Multiline = $true; $S.MidiLog.ReadOnly = $true; $S.MidiLog.ScrollBars = 'Vertical'; $S.MidiLog.Font = New-Object Drawing.Font('Consolas', 9); $S.MidiLog.SetBounds(8, 154, 900, 190)
+    $tMidi.Controls.AddRange(@($S.MidiDevice, $S.MidiRefresh, $S.MidiConnect, $S.MidiStatus, $S.MidiRecord, $S.MidiStop, $S.MidiClear, $S.MidiTarget, (Lbl 'Quantize' 8 100 64), $S.MidiQuant, $S.MidiMonitor, (Lbl 'Recent MIDI events (notes, CC and pitch bend)' 8 132 420), $S.MidiLog))
+    function Add-MidiLog([string]$M) {
+        try {
+            $S.MidiLog.AppendText(('[{0}] {1}{2}' -f (Get-Date -Format 'HH:mm:ss'), $M, "`r`n"))
+            if ($S.MidiLog.TextLength -gt 60000) { $S.MidiLog.Clear() }
+            $S.MidiLog.SelectionStart = $S.MidiLog.TextLength; $S.MidiLog.ScrollToCaret()
+        } catch { }
+    }
+    function Get-MidiQuantGrid {
+        switch ([string]$S.MidiQuant.SelectedItem) {
+            '1/4' { return 1.0 } '1/8' { return 0.5 } '1/16' { return 0.25 } '1/32' { return 0.125 } '1/16 triplet' { return (1.0 / 6.0) } default { return 0.0 }
+        }
+    }
+    function Refresh-MidiDevices {
+        try { $devs = @([HbStudio.MidiInPort]::GetDevices()) } catch { $devs = @() }
+        $S.MidiDevice.Items.Clear()
+        if ($devs.Count -eq 0) { [void]$S.MidiDevice.Items.Add('(no MIDI inputs found)') } else { foreach ($d in $devs) { [void]$S.MidiDevice.Items.Add([string]$d) } }
+        $S.MidiDevice.SelectedIndex = 0
+        $S.MidiStatus.Text = $(if ($devs.Count -eq 0) { 'No MIDI input devices were found. Plug in a controller and press Refresh.' } else { "Found $($devs.Count) MIDI input(s). Choose one and press Connect." })
+    }
+    $S.MidiTimer = New-Object Windows.Forms.Timer; $S.MidiTimer.Interval = 40
+    $S.MidiTimer.Add_Tick({
+        if (-not $S.MidiPort) { return }
+        $evs = $null; try { $evs = $S.MidiPort.Drain() } catch { return }
+        if (-not $evs -or $evs.Count -eq 0) { return }
+        $spb = 60.0 / [math]::Max(20.0, [double]$S.Proj.Bpm)
+        $t = Get-CurTrack
+        foreach ($e in $evs) {
+            $kind = [int]$e[0]; $d1 = [int]$e[1]; $d2 = [int]$e[2]; $ms = [long]$e[3]
+            $beat = if ($S.MidiRec) { ($ms - $S.MidiStart) / 1000.0 / $spb } else { 0.0 }
+            if ($kind -eq 1) {
+                if ($S.MidiRec -and $t) {
+                    $q = Get-MidiQuantGrid; $st = if ($q -gt 0) { [math]::Round($beat / $q) * $q } else { $beat }
+                    $S.MidiNotes[$d1] = @{ Beat = [double][math]::Max(0, $st); Vel = [int][math]::Max(1, [math]::Min(127, $d2)) }
+                    Add-MidiLog ('note on   pitch {0,-3} velocity {1}' -f $d1, $d2)
+                } else { Add-MidiLog ('note on   pitch {0,-3} velocity {1}' -f $d1, $d2) }
+                if ($S.MidiMonitor.Checked -and $t) { try { Invoke-LabAudition $t $d1 $false } catch { } }
+            } elseif ($kind -eq 0) {
+                if ($S.MidiRec -and $t -and $S.MidiNotes.ContainsKey($d1)) {
+                    $info = $S.MidiNotes[$d1]; $len = [double]$beat - [double]$info.Beat
+                    if ($len -le 0.01) { $len = 0.1 }
+                    $q = Get-MidiQuantGrid; if ($q -gt 0) { $len = [math]::Max($q, [math]::Round($len / $q) * $q) }
+                    $n = New-Object HbStudio.Note -ArgumentList @([int]$d1, [double][math]::Max(0.0, [double]$info.Beat), [double]$len, [int]$info.Vel)
+                    $t.Notes.Add($n); [void]$S.MidiTake.Add($n); $S.MidiNotes.Remove($d1)
+                    $S.Dirty = $true; $S.Roll.Invalidate()
+                    Add-MidiLog ('note off  pitch {0,-3} length {1:0.00} beats' -f $d1, $len)
+                } else { Add-MidiLog ('note off  pitch {0}' -f $d1) }
+            } elseif ($kind -eq 2) { Add-MidiLog ('CC {0} = {1}' -f $d1, $d2) }
+            else { Add-MidiLog ('pitch bend {0}' -f (($d2 -shl 7) -bor $d1)) }
+        }
+    })
+    $S.MidiRefresh.Add_Click({ Refresh-MidiDevices })
+    $S.MidiConnect.Add_Click({
+        if ($S.MidiPort) { try { $S.MidiPort.Close() } catch { }; $S.MidiPort = $null; $S.MidiTimer.Stop(); $S.MidiConnect.Text = 'Connect'; $S.MidiStatus.Text = 'Disconnected.'; return }
+        $i = $S.MidiDevice.SelectedIndex
+        if ($i -lt 0 -or [string]$S.MidiDevice.SelectedItem -like '(no MIDI*') { $S.MidiStatus.Text = 'No MIDI input selected.'; return }
+        $port = New-Object HbStudio.MidiInPort
+        if ($port.Open($i)) {
+            $S.MidiPort = $port; $S.MidiConnect.Text = 'Disconnect'; $S.MidiTimer.Start()
+            $S.MidiStatus.Text = "Connected to '$([string]$S.MidiDevice.SelectedItem)'. Press Start recording, then play."
+            Add-MidiLog "Connected: $([string]$S.MidiDevice.SelectedItem)"
+        } else { $S.MidiStatus.Text = 'Could not open MIDI input: ' + $port.LastError; $port.Dispose() }
+    })
+    $S.MidiRecord.Add_Click({
+        $t = Get-CurTrack; if (-not $t) { $S.MidiStatus.Text = 'Select a track to record into.'; return }
+        if (-not $S.MidiPort) { $S.MidiStatus.Text = 'Connect a MIDI input first.'; return }
+        $S.MidiRec = $true; $S.MidiNotes = @{}; $S.MidiTake = New-Object Collections.ArrayList
+        $S.MidiStart = [long][Environment]::TickCount
+        $S.MidiRecord.Text = 'Recording...'; $S.MidiTarget.Text = "Target: $($t.Name)"
+        $S.MidiStatus.Text = "Recording into '$($t.Name)' at $([int]$S.Proj.Bpm) BPM. Quantize: $([string]$S.MidiQuant.SelectedItem)."
+        Add-MidiLog "Recording started into '$($t.Name)'."
+    })
+    $S.MidiStop.Add_Click({
+        if (-not $S.MidiRec) { return }
+        $S.MidiRec = $false; $S.MidiRecord.Text = 'Start recording'
+        $t = Get-CurTrack
+        if ($t) {
+            $spb = 60.0 / [math]::Max(20.0, [double]$S.Proj.Bpm)
+            $beat = ([Environment]::TickCount - $S.MidiStart) / 1000.0 / $spb
+            foreach ($p in @($S.MidiNotes.Keys)) {
+                $info = $S.MidiNotes[$p]; $len = [math]::Max(0.1, $beat - [double]$info.Beat)
+                $n = New-Object HbStudio.Note -ArgumentList @([int]$p, [double][math]::Max(0.0, [double]$info.Beat), [double]$len, [int]$info.Vel)
+                $t.Notes.Add($n); [void]$S.MidiTake.Add($n)
+            }
+            $S.MidiNotes = @{}
+            $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; $S.Roll.Invalidate()
+        }
+        $S.MidiStatus.Text = "Recording stopped. Captured $($S.MidiTake.Count) note(s)."
+        Add-MidiLog "Recording stopped: $($S.MidiTake.Count) note(s)."
+    })
+    $S.MidiClear.Add_Click({
+        $t = Get-CurTrack
+        if ($t -and $S.MidiTake.Count -gt 0) { foreach ($n in @($S.MidiTake)) { [void]$t.Notes.Remove($n) }; $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; $S.Roll.Invalidate() }
+        $S.MidiTake = New-Object Collections.ArrayList; $S.MidiNotes = @{}
+        $S.MidiStatus.Text = 'Take cleared.'; Add-MidiLog 'Recorded take cleared.'
+    })
+    Refresh-MidiDevices
+
+    # ---- Sampler tab: import, waveform selection, auto-slice and chop --------------------------------------------
+    $tSamp = New-Object Windows.Forms.TabPage; $tSamp.Text = 'Sampler'; $tSamp.BackColor = $dk.Panel; $tSamp.ForeColor = $dk.Text; $tSamp.AutoScroll = $true
+    $tabs.TabPages.Add($tSamp)
+    $S.SmpBuffer = $null; $S.SmpTitle = ''; $S.SmpSlices = New-Object Collections.ArrayList
+    $S.SmpImport = Btn 'Import WAV...' 8 6 124 $true
+    $S.SmpFromTrack = Btn 'Load selected track sample' 138 6 186
+    $S.SmpSave = Btn 'Save WAV...' 330 6 110
+    $S.SmpToTrack = Btn 'Send to new sampler track' 446 6 180
+    $S.SmpName = Lbl 'No sample loaded. Import a WAV or load the selected track sample.' 8 36 1000
+    $S.SmpWave = New-Object HbStudio.WaveView; $S.SmpWave.SetBounds(8, 58, 1160, 180)
+    $S.SmpSel = Lbl 'Selection: none - drag across the waveform to select.' 8 244 360
+    $S.SmpPlay = Btn 'Play all' 376 240 84
+    $S.SmpPlaySel = Btn 'Play selection' 466 240 104
+    $S.SmpFull = Btn 'Select all' 576 240 84
+    $S.SmpNorm = Btn 'Normalize' 666 240 88
+    $S.SmpRev = Btn 'Reverse' 760 240 76
+    $S.SmpTrim = Btn 'Trim silence' 842 240 96
+    $S.SmpRootN = Num 60 0 127 1 0 1004 238 58
+    $S.SmpChopHdr = Lbl 'Chop & slice' 8 278 120
+    $S.SmpSens = Num 0.5 0 1 0.05 2 92 274 64
+    $S.SmpMin = Num 60 5 2000 5 0 214 274 76
+    $S.SmpAuto = Btn 'Auto-slice at onsets' 298 272 150
+    $S.SmpNParts = Num 4 2 64 1 0 458 274 54
+    $S.SmpChopN = Btn 'Chop into N parts' 518 272 132
+    $S.SmpAddSel = Btn 'Add selection as slice' 656 272 156
+    $S.SmpToTracks = Btn 'Slices to tracks' 818 272 120
+    $S.SmpList = Sty (New-Object Windows.Forms.ListBox); $S.SmpList.SetBounds(8, 312, 640, 170); $S.SmpList.Font = New-Object Drawing.Font('Consolas', 9)
+    $S.SmpAud = Btn 'Audition slice' 660 312 124
+    $S.SmpExport = Btn 'Export slices...' 660 346 124
+    $S.SmpClear = Btn 'Clear slices' 660 380 124
+    $tSamp.Controls.AddRange(@($S.SmpImport, $S.SmpFromTrack, $S.SmpSave, $S.SmpToTrack, $S.SmpName, $S.SmpWave, $S.SmpSel,
+        $S.SmpPlay, $S.SmpPlaySel, $S.SmpFull, $S.SmpNorm, $S.SmpRev, $S.SmpTrim, (Lbl 'Root note' 940 244 60), $S.SmpRootN,
+        $S.SmpChopHdr, (Lbl 'Sensitivity' 8 280 78), $S.SmpSens, (Lbl 'Min slice ms' 162 280 50), $S.SmpMin,
+        $S.SmpAuto, (Lbl 'Parts' 434 280 26), $S.SmpNParts, $S.SmpChopN, $S.SmpAddSel, $S.SmpToTracks,
+        (Lbl 'Slices' 8 296 60), $S.SmpList, $S.SmpAud, $S.SmpExport, $S.SmpClear))
+    function Get-SmpSelStart { return [int]$S.SmpWave.SelStart }
+    function Get-SmpSelEnd { return [int]$S.SmpWave.SelEnd }
+    function Update-SmpSelLabel {
+        $a = [int]$S.SmpWave.SelStart; $b = [int]$S.SmpWave.SelEnd
+        if ($b -le $a) { $S.SmpSel.Text = 'Selection: none - drag across the waveform to select.' }
+        else { $S.SmpSel.Text = ('Selection: {0:0.000} - {1:0.000} s  ({2:0.000} s)' -f ($a / 44100.0), ($b / 44100.0), (($b - $a) / 44100.0)) }
+    }
+    function Reset-SmpSlices { $S.SmpSlices.Clear(); $S.SmpList.Items.Clear(); $S.SmpWave.Markers = [int[]]@(); $S.SmpWave.Invalidate() }
+    function Update-SmpMarkers {
+        $m = New-Object 'System.Collections.Generic.List[int]'
+        foreach ($sl in $S.SmpSlices) { $m.Add([int]$sl.Start) }
+        $S.SmpWave.Markers = $m.ToArray(); $S.SmpWave.Invalidate()
+    }
+    function Add-SmpSlice([int]$Start, [int]$Length) {
+        if ($Length -lt 64) { return }
+        $sl = @{ Start = $Start; Length = $Length; Name = ('slice {0:00}' -f ($S.SmpSlices.Count + 1)) }
+        [void]$S.SmpSlices.Add($sl)
+        [void]$S.SmpList.Items.Add(('{0}   {1:0.000} - {2:0.000} s' -f $sl.Name, ($Start / 44100.0), (($Start + $Length) / 44100.0)))
+    }
+    function Set-SmpBuffer($Buf, [string]$Title) {
+        $S.SmpBuffer = [float[]]$Buf; $S.SmpTitle = $Title
+        Reset-SmpSlices
+        $S.SmpWave.Samples = $S.SmpBuffer
+        $S.SmpWave.SelStart = 0; $S.SmpWave.SelEnd = [math]::Max(0, $S.SmpBuffer.Length - 1); $S.SmpWave.Invalidate()
+        Update-SmpSelLabel
+        $S.SmpName.Text = ('{0}  -  {1:0.000} s, {2} samples, peak {3:0.00}' -f $Title, ($S.SmpBuffer.Length / 44100.0), $S.SmpBuffer.Length, ([HbStudio.WavIn]::Peak($S.SmpBuffer)))
+    }
+    function Get-SmpSelectionCopy {
+        $a = [math]::Max(0, (Get-SmpSelStart)); $b = [math]::Min($S.SmpBuffer.Length, (Get-SmpSelEnd))
+        if ($b -le $a) { return $null }
+        $copy = New-Object 'float[]' ($b - $a); [Array]::Copy($S.SmpBuffer, $a, $copy, 0, ($b - $a)); return , $copy
+    }
+    function New-SmpTrack($Buf, [string]$Name, [int]$Root) {
+        $nt = New-StudioTrack $Name 'sample'; $nt.Sample = [float[]]$Buf; $nt.SampleRoot = $Root
+        $nt.Notes.Add((New-Object HbStudio.Note -ArgumentList @([int]$Root, 0.0, 1.0, 110)))
+        $S.Proj.Tracks.Add($nt); return $nt
+    }
+    $S.SmpWave.Add_SelectionChanged({ Update-SmpSelLabel })
+    $S.SmpImport.Add_Click({
+        $d = New-Object Windows.Forms.OpenFileDialog; $d.Filter = 'WAV audio|*.wav'
+        if ($d.ShowDialog() -eq 'OK') {
+            try {
+                $smp = [HbStudio.Dsp]::ReadWav($d.FileName)
+                if ($smp.Length -gt 44100 * 120) { $smp = $smp[0..(44100 * 120 - 1)] }
+                Set-SmpBuffer ([float[]]$smp) ([IO.Path]::GetFileName($d.FileName))
+                $S.SmpName.Text += '  (trimmed to 120 s max)' 
+            } catch { $S.SmpName.Text = 'Could not load WAV: ' + $_.Exception.Message }
+        }
+    })
+    $S.SmpFromTrack.Add_Click({
+        $t = Get-CurTrack
+        if (-not $t -or -not $t.Sample) { $S.SmpName.Text = 'The selected track has no sample.'; return }
+        Set-SmpBuffer ([float[]]$t.Sample) ($t.Name + ' sample')
+    })
+    $S.SmpSave.Add_Click({
+        if (-not $S.SmpBuffer) { $S.SmpName.Text = 'Nothing to save.'; return }
+        $d = New-Object Windows.Forms.SaveFileDialog; $d.Filter = 'WAV file|*.wav'; $d.FileName = $(if ($S.SmpTitle) { ($S.SmpTitle -replace '\.[^.]+$', '') } else { 'sample' }) + '.wav'
+        if ($d.ShowDialog() -eq 'OK') { [HbStudio.Dsp]::WriteWavMono($d.FileName, $S.SmpBuffer); $S.SmpName.Text = 'Saved ' + $d.FileName }
+    })
+    $S.SmpToTrack.Add_Click({
+        if (-not $S.SmpBuffer) { return }
+        $root = [int]$S.SmpRootN.Value
+        $nm = if ($S.SmpTitle) { ($S.SmpTitle -replace '\.[^.]+$', '') } else { 'Sampler' }
+        $nt = New-SmpTrack ([float[]]$S.SmpBuffer) $nm $root
+        Refresh-Tracks ($S.Proj.Tracks.Count - 1); $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit
+        $S.SmpName.Text = "Created sampler track '$($nt.Name)' rooted at note $root."
+    })
+    $S.SmpPlay.Add_Click({ if ($S.SmpBuffer) { Play-StudioSamples $S.SmpBuffer } })
+    $S.SmpPlaySel.Add_Click({ $c = Get-SmpSelectionCopy; if ($c) { Play-StudioSamples $c } elseif ($S.SmpBuffer) { Play-StudioSamples $S.SmpBuffer } })
+    $S.SmpFull.Add_Click({ if ($S.SmpBuffer) { $S.SmpWave.SelStart = 0; $S.SmpWave.SelEnd = [math]::Max(0, $S.SmpBuffer.Length - 1); $S.SmpWave.Invalidate(); Update-SmpSelLabel } })
+    $S.SmpNorm.Add_Click({ if ($S.SmpBuffer) { [HbStudio.Dsp]::Normalize($S.SmpBuffer, 0.95); $S.SmpWave.Invalidate(); $S.SmpName.Text = 'Sample normalized.' } })
+    $S.SmpRev.Add_Click({ if ($S.SmpBuffer) { [Array]::Reverse($S.SmpBuffer); $S.SmpWave.Invalidate(); $S.SmpName.Text = 'Sample reversed.' } })
+    $S.SmpTrim.Add_Click({
+        if (-not $S.SmpBuffer) { return }
+        $trimmed = [HbStudio.WavIn]::Trim($S.SmpBuffer)
+        if ($trimmed -and $trimmed.Length -gt 64) { Set-SmpBuffer ([float[]]$trimmed) $S.SmpTitle; $S.SmpName.Text = 'Trimmed silence from both ends.' } else { $S.SmpName.Text = 'Nothing to trim.' }
+    })
+    $S.SmpAuto.Add_Click({
+        if (-not $S.SmpBuffer) { return }
+        try {
+            $pts = [HbStudio.SampleSlicer]::Boundaries($S.SmpBuffer, [double]$S.SmpSens.Value, [int]([double]$S.SmpMin.Value * 44.1))
+            Reset-SmpSlices
+            for ($i = 0; $i -lt $pts.Length; $i++) {
+                $st = [int]$pts[$i]; $en = if ($i + 1 -lt $pts.Length) { [int]$pts[$i + 1] } else { $S.SmpBuffer.Length }
+                Add-SmpSlice $st ($en - $st)
+            }
+            Update-SmpMarkers
+            $S.SmpName.Text = "Auto-sliced into $($S.SmpSlices.Count) slice(s)."
+        } catch { $S.SmpName.Text = 'Auto-slice failed: ' + $_.Exception.Message }
+    })
+    $S.SmpChopN.Add_Click({
+        if (-not $S.SmpBuffer) { return }
+        $n = [int]$S.SmpNParts.Value
+        Reset-SmpSlices
+        $step = [int][math]::Floor($S.SmpBuffer.Length / $n)
+        for ($i = 0; $i -lt $n; $i++) {
+            $st = $i * $step; $ln = if ($i -eq $n - 1) { $S.SmpBuffer.Length - $st } else { $step }
+            Add-SmpSlice $st $ln
+        }
+        Update-SmpMarkers
+        $S.SmpName.Text = "Chopped into $($S.SmpSlices.Count) equal slice(s)."
+    })
+    $S.SmpAddSel.Add_Click({
+        if (-not $S.SmpBuffer) { return }
+        $a = Get-SmpSelStart; $b = Get-SmpSelEnd
+        if ($b -le $a) { $S.SmpName.Text = 'Drag a selection on the waveform first.'; return }
+        Add-SmpSlice $a ($b - $a); Update-SmpMarkers
+        $S.SmpName.Text = "Added the selection as slice $($S.SmpSlices.Count)."
+    })
+    $S.SmpToTracks.Add_Click({
+        if (-not $S.SmpBuffer -or $S.SmpSlices.Count -eq 0) { $S.SmpName.Text = 'Slice the sample first.'; return }
+        $base = if ($S.SmpTitle) { ($S.SmpTitle -replace '\.[^.]+$', '') } else { 'Slice' }
+        $root = [int]$S.SmpRootN.Value; $made = 0
+        foreach ($sl in @($S.SmpSlices)) {
+            $len = [int]$sl.Length; if ($len -lt 64) { continue }
+            $copy = New-Object 'float[]' $len; [Array]::Copy($S.SmpBuffer, [int]$sl.Start, $copy, 0, $len)
+            $nt = New-SmpTrack $copy ('{0} {1}' -f $base, $sl.Name) $root; $made++
+            if ($made -ge 64) { break }
+        }
+        if ($made -gt 0) { Refresh-Tracks ($S.Proj.Tracks.Count - 1); $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit }
+        $S.SmpName.Text = "Created $made sampler track(s) from slices."
+    })
+    $S.SmpList.Add_SelectedIndexChanged({ })
+    $S.SmpList.Add_DoubleClick({ $S.SmpAud.PerformClick() })
+    $S.SmpAud.Add_Click({
+        if (-not $S.SmpBuffer) { return }
+        $i = $S.SmpList.SelectedIndex; if ($i -lt 0 -or $i -ge $S.SmpSlices.Count) { return }
+        $sl = $S.SmpSlices[$i]; $len = [int]$sl.Length
+        if ($len -lt 64) { return }
+        $copy = New-Object 'float[]' $len; [Array]::Copy($S.SmpBuffer, [int]$sl.Start, $copy, 0, $len)
+        Play-StudioSamples $copy
+    })
+    $S.SmpExport.Add_Click({
+        if (-not $S.SmpBuffer -or $S.SmpSlices.Count -eq 0) { return }
+        $d = New-Object Windows.Forms.FolderBrowserDialog
+        if ($d.ShowDialog() -eq 'OK') {
+            $base = if ($S.SmpTitle) { ($S.SmpTitle -replace '\.[^.]+$', '') } else { 'sample' }
+            $made = 0
+            for ($i = 0; $i -lt $S.SmpSlices.Count; $i++) {
+                $sl = $S.SmpSlices[$i]; $len = [int]$sl.Length; if ($len -lt 64) { continue }
+                $copy = New-Object 'float[]' $len; [Array]::Copy($S.SmpBuffer, [int]$sl.Start, $copy, 0, $len)
+                $nm = '{0} {1}.wav' -f ($base -replace '[^\w\- ]', '_'), $sl.Name
+                [HbStudio.Dsp]::WriteWavMono((Join-Path $d.SelectedPath $nm), $copy); $made++
+            }
+            $S.SmpName.Text = "Exported $made slice(s) to $($d.SelectedPath)."
+        }
+    })
+    $S.SmpClear.Add_Click({ Reset-SmpSlices; $S.SmpName.Text = 'Slices cleared.' })
+    $f.Add_FormClosing({ try { if ($S.MidiTimer) { $S.MidiTimer.Stop() }; if ($S.MidiPort) { $S.MidiPort.Close() } } catch { } })
+
     $f.Controls.Add($center); $f.Controls.Add($left); $f.Controls.Add($S.Status); $f.Controls.Add($tabs); $f.Controls.Add($top)
     $null = Make-Resizer $top 'Top' 110 320
     $null = Make-Resizer $left 'Left' 180 420
@@ -12505,6 +13435,11 @@ Rules: prefer the user's saved instruments when one fits the goal. Use design_so
     $S.Patch.Proj = $S.Proj
     Update-PatchSide
     $f.Show()
+    if ($env:HUMBLEBAKER_SMOKE) {
+        $smoke = New-Object Windows.Forms.Timer; $smoke.Interval = 2500
+        $smoke.Add_Tick({ $smoke.Stop(); $S.Dirty = $false; $f.Close() })
+        $smoke.Start()
+    }
     # Event handlers rely on this function's scope, so keep it alive with a message pump until the window closes.
     # The rest of the app stays responsive because DoEvents keeps dispatching its messages.
     while (-not $f.IsDisposed -and $f.Visible) { [Windows.Forms.Application]::DoEvents(); Start-Sleep -Milliseconds 12 }

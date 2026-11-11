@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.10 — 2026-11-10
+
+- Expanded the FX graph to **73 modules** (25 new): Ladder filter, Tube preamp, Tape saturator, Diode drive, Fuzz, Chip tune, Sub bass, Bass enhancer, Frequency shifter, Air band, Stereo image, Ping-pong delay, Dub delay, Cathedral reverb, Room reverb, Ambience, Wah pedal, Talk box, Ducker, Level rider, Harmonic tremolo, Beat repeat, Granular cloud, Glitch gate and Sweep filter.
+- Added the **MIDI In** tab: lists Windows MIDI inputs, connects to a controller, logs notes/CC/pitch bend, and records quantized notes into the selected track with optional monitoring.
+- Added the **Sampler** tab: WAV import, waveform drag selection, normalize/reverse/trim, onset auto-slicing, equal chopping, selection-to-slice, slice audition/export, and slice-to-track creation.
+- Effects remain graph-only; no rack or quick-add paths were reintroduced.
+
 ## 1.0.9 — 2026-11-10
 
 - All 48 effects are now graph nodes; effects are added only from the Patch graph (right-click → Add/Insert FX module).
