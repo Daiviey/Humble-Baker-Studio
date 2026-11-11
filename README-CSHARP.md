@@ -9,6 +9,8 @@ mastering, piano roll, project format, WAV export and local-AI helpers are in pl
 A few of the original studio's specialist tabs (SuperCollider live sessions, spectral
 painting, song-model import) are not ported yet. See `docs/PORT.md` for the exact matrix.
 
+![Sequencer](docs/screenshot-sequencer.png)
+
 ## Why C#
 
 - The original app already embedded ~6,300 lines of C# for its audio engine. The port lifts
