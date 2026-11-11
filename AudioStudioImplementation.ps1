@@ -4715,7 +4715,12 @@ function Convert-StudioAudio([string]$Ffmpeg, [string]$Wav, [string]$Out, [strin
     $ffArgs = "-y -hide_banner -loglevel error -i `"$Wav`" $($fmt.Args) $ExtraArgs -metadata comment=`"Humble Baker Studio`" `"$Out`""
     $pr = Start-Process -FilePath $Ffmpeg -ArgumentList $ffArgs -WindowStyle Hidden -PassThru -RedirectStandardError $err
     while (-not $pr.HasExited) { Start-Sleep -Milliseconds 80; [Windows.Forms.Application]::DoEvents() }
-    if ($pr.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $Out)) { $m = if (Test-Path $err) { (Get-Content -LiteralPath $err -Raw) } else { '' }; throw "FFmpeg could not encode $FormatName. $m" }
+    $pr.Refresh()
+    $code = $pr.ExitCode
+    $outOk = (Test-Path -LiteralPath $Out -PathType Leaf) -and ((Get-Item -LiteralPath $Out).Length -gt 44)
+    if ($null -ne $code -and $code -ne 0) { $outOk = $false }
+    try { Add-Content -LiteralPath (Join-Path $env:TEMP 'hb-export-debug.log') -Value ('[{0}] ffmpeg {1} exit={2} out={3}' -f (Get-Date), $FormatName, $code, $outOk) } catch { }
+    if (-not $outOk) { $m = if (Test-Path $err) { (Get-Content -LiteralPath $err -Raw) } else { '' }; throw "FFmpeg could not encode $FormatName (exit $code). $m" }
 }
 
 # ---------------------------------------------------------------------------------------------------------------

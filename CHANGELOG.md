@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.4 — 2026-11-10
+
+- Fixed false “FFmpeg could not encode” errors when the output file was actually written.
+- FFmpeg success is now determined from the output file and a refreshed exit code.
+- MP3/Opus continue to use the 48 kHz limit.
+
 ## 1.0.3 — 2026-11-10
 
 - MP3 and Opus exports now limit the sample rate to 48 kHz, preventing the libmp3lame/libopus encoder error.
