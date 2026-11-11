@@ -1,6 +1,6 @@
 # Humble Baker Studio - Manual
 
-Version 1.0.14. This manual covers every window, tab, tool, effect slot and option in the app. For the full parameter tables see:
+Version 1.0.15. This manual covers every window, tab, tool, effect slot and option in the app. For the full parameter tables see:
 
 - [Effect Reference](EFFECTS.md) - all 98 effects with every control, range and description
 - [Synth Patch Reference](SYNTH.md) - every synth parameter
@@ -39,6 +39,8 @@ Humble Baker Studio is a pattern-based electronic music studio:
 | Centre | `Piano roll` / `Patch graph` switch, the editor, and the selected-module inspector |
 | Bottom tabs | Tools, AI, SuperCollider code, Log, Sound Lab, Song, Master, Spectral, Meta synth, Mix, Knobs, Drums & melody AI, Instruments, Studio agent, Composer, Producer, Automation Painting, MIDI In, Sampler, Bus / FX |
 | Status bar | last action and messages |
+
+Drag the splitter above the bottom tabs to make the tab area taller or shorter, and the splitter on the left to widen the track panel. Editors, logs, lists and property grids grow with the window; if the window is narrower than the full layout, the active tab shows scrollbars instead of clipping controls.
 
 ---
 

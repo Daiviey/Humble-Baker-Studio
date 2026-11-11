@@ -9494,7 +9494,7 @@ function Show-AudioStudio {
     $S.BtnTAdd = Btn 'Add' 8 140 56 26; $S.BtnTDup = Btn 'Copy' 68 140 56 26; $S.BtnTDel = Btn 'Delete' 128 140 60 26
     $left.Controls.AddRange(@($S.TrackList, $S.BtnTAdd, $S.BtnTDup, $S.BtnTDel))
     # Manual graph-node creation from the track list (right-click a track, or use the button).
-    $S.BtnTAddNode = Btn 'Add to graph' 188 140 56 26
+    $S.BtnTAddNode = Btn 'Graph' 188 140 56 26
     $left.Controls.Add($S.BtnTAddNode)
     $S.TrackCtx = New-Object Windows.Forms.ContextMenuStrip
     $miAddNode = New-Object Windows.Forms.ToolStripMenuItem 'Add to patch graph'
@@ -9508,12 +9508,12 @@ function Show-AudioStudio {
     $S.TSolo = New-Object Windows.Forms.CheckBox; $S.TSolo.Text = 'Solo'; $S.TSolo.SetBounds(136, 232, 58, 20); $S.TSolo.ForeColor = $dk.Accent
     $left.Controls.AddRange(@($S.TName, $S.TSynth, $S.TMute, $S.TSolo, (Lbl 'Name' 8 180 60)))
     $S.TInstrument = Combo @('(none)') 80 204 162 $false; $S.TInstrument.SelectedIndex = 0
-    $left.Controls.AddRange(@((Lbl 'Instrument' 8 208 60), $S.TInstrument))
+    $left.Controls.AddRange(@((Lbl 'Instrument' 8 208 70), $S.TInstrument))
     $S.TKit = Combo ([HbStudio.DrumKits]::Names) 80 256 162 $false; $S.TKit.SelectedIndex = 0; $S.TKit.Visible = $false
     $S.TPreset = Combo @('(none)') 80 282 162 $false; $S.TPreset.SelectedIndex = 0
     $S.TSample = Combo @('(none)') 80 308 162 $false; $S.TSample.SelectedIndex = 0
     $S.TSamplerMode = Combo @('Pitch (key)', 'One-shot', 'Loop') 80 334 162 $false; $S.TSamplerMode.SelectedIndex = 0; $S.TSamplerMode.Visible = $false
-    $left.Controls.AddRange(@((Lbl 'Patch preset' 8 286 72), $S.TPreset, (Lbl 'Sample source' 8 312 72), $S.TSample))
+    $left.Controls.AddRange(@((Lbl 'Patch preset' 8 286 72), $S.TPreset, (Lbl 'Sample' 8 312 70), $S.TSample))
     $props = @()
     $py = 330
     # ---- red zone: bussing section (send selected track to a shared FX bus, toggle modules, faders) ----------
@@ -9544,7 +9544,7 @@ function Show-AudioStudio {
     # ---- bottom: tools / AI / SuperCollider / log ------------------------------------------------------------
     $tabs = New-Object Windows.Forms.TabControl; $tabs.Dock = 'Bottom'; $tabs.Height = 380
     $left.AutoScroll = $true
-    foreach ($n in @('Tools', 'AI', 'SuperCollider code', 'Log', 'Sound Lab', 'Song', 'Master', 'Spectral', 'Meta synth', 'Mix', 'Knobs', 'Drums & melody AI', 'Instruments', 'Studio agent', 'Composer', 'Producer')) { $tp = New-Object Windows.Forms.TabPage; $tp.Text = $n; $tp.BackColor = $dk.Panel; $tp.ForeColor = $dk.Text; $tp.AutoScroll = $true; $tabs.TabPages.Add($tp) }
+    foreach ($n in @('Tools', 'AI', 'SuperCollider code', 'Log', 'Sound Lab', 'Song', 'Master', 'Spectral', 'Meta synth', 'Mix', 'Knobs', 'Drums & melody AI', 'Instruments', 'Studio agent', 'Composer', 'Producer')) { $tp = New-Object Windows.Forms.TabPage; $tp.Text = $n; $tp.BackColor = $dk.Panel; $tp.ForeColor = $dk.Text; $tp.AutoScroll = $false; $tabs.TabPages.Add($tp) }
     $tTools = $tabs.TabPages[0]; $tAi = $tabs.TabPages[1]; $tSc = $tabs.TabPages[2]; $tLog = $tabs.TabPages[3]; $tLab = $tabs.TabPages[4]; $tSong = $tabs.TabPages[5]; $tMaster = $tabs.TabPages[6]; $tSpec = $tabs.TabPages[7]; $tMeta = $tabs.TabPages[8]; $tMix = $tabs.TabPages[9]; $tKnobs = $tabs.TabPages[10]; $tWrite = $tabs.TabPages[11]; $tInst = $tabs.TabPages[12]; $tAgent = $tabs.TabPages[13]; $tComp = $tabs.TabPages[14]; $tProd = $tabs.TabPages[15]
 
     $toolDefs = @(
@@ -9602,19 +9602,19 @@ function Show-AudioStudio {
     }
     $S.GridPatch = New-LabGrid 4 410; $S.GridFx = New-LabGrid 420 410; $S.GridFx.Visible = $false
     $S.LabPrompt = Sty (New-Object Windows.Forms.TextBox); $S.LabPrompt.Multiline = $true; $S.LabPrompt.ScrollBars = 'Vertical'; $S.LabPrompt.SetBounds(846, 24, 500, 50)
-    $tLab.Controls.Add((Lbl 'Describe the sound (for example: "wet liquid FM bell that decays into static" or "tearing detuned acid bass")' 846 4 510))
+    $tLab.Controls.Add((Lbl 'Describe the sound (AI)' 846 4 300))
     $S.LabSynth = Btn 'Design synth' 846 80 118 28 $true; $S.LabRSynth = Btn 'Refine synth' 970 80 118; $S.LabFx = Btn 'Design effects' 1094 80 118; $S.LabRFx = Btn 'Refine effects' 1218 80 118
     $S.LabSample = Btn 'Text to sample (new sampler track)' 846 112 250; $S.LabBake = Btn 'Bake track to sampler' 1102 112 160
     $tLab.Controls.Add((Lbl 'Target' 846 150 44))
     $S.LabTarget = Combo @('Synth patch', 'Effects') 892 146 104; $S.LabTarget.SelectedIndex = 0
-    $tLab.Controls.Add((Lbl 'Amount' 1002 150 52)); $S.LabAmt = Num 0.25 0 1 0.05 2 1056 146 54
+    $tLab.Controls.Add((Lbl 'Amt' 1002 150 30)); $S.LabAmt = Num 0.25 0 1 0.05 2 1036 146 54
     $S.LabRand = Btn 'Randomize' 1116 144 84; $S.LabMut = Btn 'Mutate' 1204 144 66; $S.LabReset = Btn 'Reset' 1274 144 56
-    $tLab.Controls.Add((Lbl 'Audition note' 846 186 80)); $S.LabPitch = Num 48 0 127 1 0 930 182 52; $tLab.Controls.Add((Lbl 'seconds' 990 186 48)); $S.LabSecs = Num 1.5 0.1 12 0.25 2 1040 182 56
-    $S.LabAud = Btn 'Audition' 1104 180 80; $S.LabStop = Btn 'Stop' 1190 180 60; $S.LabInst = Btn 'Save instrument' 1256 180 106
+    $tLab.Controls.Add((Lbl 'Pitch' 846 186 40)); $S.LabPitch = Num 48 0 127 1 0 888 182 52; $tLab.Controls.Add((Lbl 'Sec' 948 186 30)); $S.LabSecs = Num 1.5 0.1 12 0.25 2 980 182 56
+    $S.LabAud = Btn 'Audition' 1044 180 80; $S.LabStop = Btn 'Stop' 1130 180 60; $S.LabInst = Btn 'Save instrument' 1196 180 106
     $S.LabSave = Btn 'Save sample WAV' 846 218 130; $S.LabLoad = Btn 'Load WAV as sampler' 982 218 150; $S.LabRev = Btn 'Reverse' 1138 218 70; $S.LabNorm = Btn 'Normalize' 1214 218 80
-    $tLab.Controls.Add((Lbl 'Sample root note' 846 256 100)); $S.LabRoot = Num 60 0 127 1 0 950 252 52
-    $S.LabGate = New-Object Windows.Forms.CheckBox; $S.LabGate.Text = 'Gate to note length'; $S.LabGate.SetBounds(1014, 254, 140, 22)
-    $tLab.Controls.Add((Lbl 'Sample mode' 1160 256 86)); $S.LabMode = Combo @('Pitch (key)', 'One-shot', 'Loop') 1246 252 126; $S.LabMode.SelectedIndex = 0
+    $tLab.Controls.Add((Lbl 'Root' 846 256 40)); $S.LabRoot = Num 60 0 127 1 0 886 252 52
+    $S.LabGate = New-Object Windows.Forms.CheckBox; $S.LabGate.Text = 'Gate to note length'; $S.LabGate.SetBounds(950, 254, 150, 22)
+    $tLab.Controls.Add((Lbl 'Sample mode' 1110 256 86)); $S.LabMode = Combo @('Pitch (key)', 'One-shot', 'Loop') 1200 252 126; $S.LabMode.SelectedIndex = 0
     $S.LabStatus = Lbl '' 846 284 500
     $tLab.Controls.AddRange(@($S.GridPatch, $S.GridFx, $S.LabPrompt, $S.LabSynth, $S.LabRSynth, $S.LabFx, $S.LabRFx, $S.LabSample, $S.LabBake, $S.LabTarget, $S.LabAmt, $S.LabRand, $S.LabMut, $S.LabReset, $S.LabPitch, $S.LabSecs, $S.LabAud, $S.LabStop, $S.LabInst, $S.LabSave, $S.LabLoad, $S.LabRev, $S.LabNorm, $S.LabRoot, $S.LabGate, $S.LabMode, $S.LabStatus))
 
@@ -9658,17 +9658,17 @@ function Show-AudioStudio {
     $S.EMaster = New-Object Windows.Forms.CheckBox; $S.EMaster.Text = 'Apply mastering chain'; $S.EMaster.Checked = $true; $S.EMaster.SetBounds(820, 82, 240, 22)
     $S.EGo = Btn 'Export...' 820 112 120 30 $true; $S.EFfmpeg = Btn 'Get FFmpeg (MP3/OGG)' 946 112 170
     $S.EStatus = Lbl '' 820 150 520
-    $tMaster.Controls.Add((Lbl 'Ask the AI (mastering, mixing, sidechain...): e.g. "sidechain bass to kick, dark and warm, club ready"' 820 180 540))
+    $tMaster.Controls.Add((Lbl 'Ask the AI (mastering, mixing, sidechain...)' 820 180 540))
     $S.MPrompt = Sty (New-Object Windows.Forms.TextBox); $S.MPrompt.Multiline = $true; $S.MPrompt.SetBounds(820, 202, 520, 56)
     $tMaster.Controls.AddRange(@($S.GridMaster, $S.MAnalyze, $S.MAuto, $S.MAi, $S.MTarget, $S.MSource, $S.MPrevM, $S.MPrevD, $S.MStop, $S.MReset, $S.MReport, $S.EFormat, $S.ESong, $S.EMaster, $S.EGo, $S.EFfmpeg, $S.EStatus, $S.MPrompt))
 
     # Spectral tab: paint a spectrogram (time across, pitch up) and resynthesise it as a sample
     $S.SpecGrid = New-Object HbStudio.SpectralGrid 160, 64; $S.SpecSet = New-Object HbStudio.SpectralSettings
     $S.SpecPic = New-Object Windows.Forms.PictureBox; $S.SpecPic.SetBounds(4, 24, 640, 256); $S.SpecPic.BackColor = [Drawing.Color]::Black; $S.SpecPic.BorderStyle = 'FixedSingle'; $S.SpecPic.Cursor = 'Cross'
-    $tSpec.Controls.Add((Lbl 'Canvas: drag to paint. Left = start, right = end. Bottom = low pitch, top = high pitch. Brighter = louder.' 4 4 640))
+    $tSpec.Controls.Add((Lbl 'Canvas: left = start, right = end, bottom = low pitch, top = high pitch.' 4 4 600))
     $S.GridSpec = New-LabGrid 650 290; $S.GridSpec.SelectedObject = $S.SpecSet
     $tSpec.Controls.Add((Lbl 'Brush' 950 6 40)); $S.SpecBrush = Num 3 1 20 0.5 1 992 2 52
-    $tSpec.Controls.Add((Lbl 'Brush type' 950 92 60)); $S.SpecBrushType = Combo @('Hard', 'Soft', 'Smooth', 'Streak', 'Gradient', 'Smudge', 'Harmonic') 1015 90 130 26; $S.SpecBrushType.SelectedIndex = 0
+    $tSpec.Controls.Add((Lbl 'Brush' 950 92 60)); $S.SpecBrushType = Combo @('Hard', 'Soft', 'Smooth', 'Streak', 'Gradient', 'Smudge', 'Harmonic') 1015 90 130 26; $S.SpecBrushType.SelectedIndex = 0
     $tSpec.Controls.Add($S.SpecBrushType)
     $tSpec.Controls.Add((Lbl 'Amount' 1052 6 50)); $S.SpecAmt = Num 0.9 0.05 1 0.05 2 1104 2 54
     $S.SpecErase = New-Object Windows.Forms.CheckBox; $S.SpecErase.Text = 'Erase'; $S.SpecErase.SetBounds(1168, 4, 60, 22)
@@ -9676,20 +9676,22 @@ function Show-AudioStudio {
     $S.SpecClear = Btn 'Clear' 950 32 56 26; $S.SpecBlur = Btn 'Blur' 1010 32 50 26; $S.SpecSmear = Btn 'Smear' 1064 32 56 26; $S.SpecInvert = Btn 'Invert' 1124 32 56 26
     $S.SpecFlipT = Btn 'Flip time' 1184 32 66 26; $S.SpecFlipF = Btn 'Flip pitch' 1254 32 70 26
     $S.SpecGrain = Btn 'Grain' 950 62 56 26; $S.SpecThresh = Btn 'Threshold' 1010 62 76 26; $S.SpecUp = Btn 'Pitch +' 1090 62 62 26; $S.SpecDown = Btn 'Pitch -' 1156 62 62 26
-    $tSpec.Controls.Add((Lbl 'Harmonic stack: base Hz' 950 98 130)); $S.SpecHz = Num 110 20 4000 5 0 1150 94 60
-    $tSpec.Controls.Add((Lbl 'partials' 1214 98 48)); $S.SpecParts = Num 10 1 40 1 0 1264 94 44; $S.SpecAddStack = Btn 'Add stack' 1310 92 90 26
-    $S.SpecLoad = Btn 'Load image' 950 124 90 26; $S.SpecFromSmp = Btn 'From selected track sound' 1044 124 170 26; $S.SpecInst = Btn 'Save instrument' 1218 124 116 26
-    $S.SpecAud = Btn 'Render and play' 950 156 130 28 $true; $S.SpecStopB = Btn 'Stop' 1084 156 50 28; $S.SpecTrack = Btn 'Render to new sample track' 1138 156 192 28
-    $S.SpecPrompt = Sty (New-Object Windows.Forms.TextBox); $S.SpecPrompt.SetBounds(950, 186, 380, 24)
-    $S.SpecAi = Btn 'AI: draw this picture as a spectrogram' 950 214 200 28 $true
-    $S.SpecKBtn = Btn 'Kontext refine' 1154 214 110 28; $S.SpecKStop = Btn 'Cancel' 1268 214 62 28; $S.SpecKStop.Enabled = $false
-    $S.SpecMode = Combo @('Shapes (sound design)', 'Shapes + Kontext refine', 'Photo / illustration (FLUX)') 950 246 196; $S.SpecMode.SelectedIndex = 0
-    $S.SpecUndo = Btn 'Undo refine' 1154 244 110 26; $S.SpecKProc = $null; $S.SpecKCancel = $false; $S.SpecKTries = 2; $S.SpecBackup = $null
-    $S.SpecStatus = Lbl 'Tip: the AI prompt could be "a descending whale call over a rising shimmer" or "a harsh stuttering noise burst".' 950 272 420
+    $tSpec.Controls.Add((Lbl 'Harmonic base Hz' 950 118 160)); $S.SpecHz = Num 110 20 4000 5 0 1150 114 60
+    $tSpec.Controls.Add((Lbl 'partials' 1214 118 48)); $S.SpecParts = Num 10 1 40 1 0 1264 114 44; $S.SpecAddStack = Btn 'Add stack' 1310 112 90 26
+    $S.SpecLoad = Btn 'Load image' 950 144 90 26; $S.SpecFromSmp = Btn 'From selected track sound' 1044 144 170 26; $S.SpecInst = Btn 'Save instrument' 1218 144 116 26
+    $S.SpecAud = Btn 'Render and play' 950 176 130 28 $true; $S.SpecStopB = Btn 'Stop' 1084 176 50 28; $S.SpecTrack = Btn 'Render to new sample track' 1138 176 192 28
+    $S.SpecPrompt = Sty (New-Object Windows.Forms.TextBox); $S.SpecPrompt.SetBounds(950, 212, 380, 24)
+    $S.SpecAi = Btn 'AI: draw this picture as a spectrogram' 950 240 200 28 $true
+    $S.SpecKBtn = Btn 'Kontext refine' 1154 240 110 28; $S.SpecKStop = Btn 'Cancel' 1268 240 62 28; $S.SpecKStop.Enabled = $false
+    $S.SpecMode = Combo @('Shapes (sound design)', 'Shapes + Kontext refine', 'Photo / illustration (FLUX)') 950 270 196; $S.SpecMode.SelectedIndex = 0
+    $S.SpecUndo = Btn 'Undo refine' 1154 268 110 26; $S.SpecKProc = $null; $S.SpecKCancel = $false; $S.SpecKTries = 2; $S.SpecBackup = $null
+    $S.SpecStatus = Lbl 'Tip: describe a shape, call, riser or texture.' 950 300 420
+    $S.SpecStatus.Height = 22
     
     # Add audio visualization features
-    $S.SpecVisualize = Btn 'Visualize Audio' 950 298 180 26; $S.SpecVisualize.Enabled = $false
-    $S.SpecVisType = Combo @('Spectrogram', 'Waveform', 'Frequency Domain', 'Magnitude Spectrum') 1140 298 180 26; $S.SpecVisType.SelectedIndex = 0
+    $S.SpecVisualize = Btn 'Visualize Audio' 950 326 180 26; $S.SpecVisualize.Enabled = $false
+    $S.SpecVisType = Combo @('Spectrogram', 'Waveform', 'Frequency Domain', 'Magnitude Spectrum') 1140 326 180 26; $S.SpecVisType.SelectedIndex = 0
+    $S.SpecVisualize.Visible = $false; $S.SpecVisType.Visible = $false
     
     # Brush palette for spectral painting
     $S.SpecBrushPalette = New-Object Windows.Forms.Panel
@@ -9710,6 +9712,7 @@ function Show-AudioStudio {
     # Add the palette to the spec tab and all controls
     $tSpec.Controls.Add($S.SpecBrushPalette)
     $tSpec.Controls.AddRange(@($S.SpecKBtn, $S.SpecKStop, $S.SpecMode, $S.SpecUndo, $S.SpecVisualize, $S.SpecVisType, $S.SpecBrushPalette))
+    $S.SpecBrushPalette.Visible = $false
     $S.SpecStatus.Height = 22
     $tSpec.Controls.AddRange(@($S.SpecPic, $S.GridSpec, $S.SpecBrush, $S.SpecBrushType, $S.SpecAmt, $S.SpecErase, $S.SpecLine, $S.SpecClear, $S.SpecBlur, $S.SpecSmear, $S.SpecInvert, $S.SpecFlipT, $S.SpecFlipF, $S.SpecGrain, $S.SpecThresh, $S.SpecUp, $S.SpecDown, $S.SpecHz, $S.SpecParts, $S.SpecAddStack, $S.SpecLoad, $S.SpecFromSmp, $S.SpecInst, $S.SpecAud, $S.SpecStopB, $S.SpecTrack, $S.SpecPrompt, $S.SpecAi, $S.SpecStatus))
 
@@ -9744,7 +9747,7 @@ function Show-AudioStudio {
     # Automation painting controls
     $S.AutoGrid = New-Object HbStudio.SpectralGrid 160, 64; $S.AutoSet = New-Object HbStudio.SpectralSettings; $script:AutoUi = $S
     $S.AutoPic = New-Object Windows.Forms.PictureBox; $S.AutoPic.SetBounds(4, 24, 640, 256); $S.AutoPic.BackColor = [Drawing.Color]::Black; $S.AutoPic.BorderStyle = 'FixedSingle'; $S.AutoPic.Cursor = 'Cross'
-    $tAuto.Controls.Add((Lbl 'The canvas spans the whole track/song. Pick a parameter, paint a shape, then Write to Lane. Bottom = low value, top = high value.' 4 4 640))
+    $tAuto.Controls.Add((Lbl 'Paint a parameter curve: bottom = low value, top = high value.' 4 4 500))
     
     # Effect selection for automation
     $tAuto.Controls.Add((Lbl 'Target' 950 8 50))
@@ -9752,28 +9755,28 @@ function Show-AudioStudio {
     $tAuto.Controls.Add($S.AutoTarget)
     $S.AutoTrackName = Lbl 'Track: (none)' 1270 6 190
     $tAuto.Controls.Add($S.AutoTrackName)
-    $S.AutoModule = Combo @('Synth Filter', 'Synth Drive/Crush', 'Synth FM/Unison', 'Synth LFO', 'Track FX Filter', 'Track FX Drive/Crush', 'Track FX Ring', 'Track FX Chorus', 'Track FX Delay', 'Track FX Reverb', 'Track FX Phaser/Flanger', 'Track FX Tape', 'Track FX Plate/Vinyl', 'Track FX Compressor', 'Track FX EQ/Width', 'Track Mixer') 1050 30 180 26; $S.AutoModule.SelectedIndex = 0
-    $tAuto.Controls.Add((Lbl 'Effect module' 950 34 94))
+    $S.AutoModule = Combo @('Synth Filter', 'Synth Drive/Crush', 'Synth FM/Unison', 'Synth LFO', 'Track FX Filter', 'Track FX Drive/Crush', 'Track FX Ring', 'Track FX Chorus', 'Track FX Delay', 'Track FX Reverb', 'Track FX Phaser/Flanger', 'Track FX Tape', 'Track FX Plate/Vinyl', 'Track FX Compressor', 'Track FX EQ/Width', 'Track Mixer') 1000 30 260 26; $S.AutoModule.SelectedIndex = 0
+    $tAuto.Controls.Add((Lbl 'FX' 950 34 44))
     $tAuto.Controls.Add($S.AutoModule)
-    $S.AutoParam = Combo @('Cutoff', 'Resonance', 'Filter Env') 1280 30 180 26
-    $tAuto.Controls.Add((Lbl 'Parameter' 1200 34 74))
+    $S.AutoParam = Combo @('Cutoff', 'Resonance', 'Filter Env') 1316 30 154 26
+    $tAuto.Controls.Add((Lbl 'Param' 1260 34 56))
     $tAuto.Controls.Add($S.AutoParam)
     $S.AutoEffect = Combo @('Filter Cutoff', 'Filter Resonance', 'Drive', 'Delay Mix', 'Reverb Wet', 'LFO Rate', 'LFO Depth', 'FM Amount', 'Unison', 'Noise Level') 950 70 180 26; $S.AutoEffect.SelectedIndex = 0; $S.AutoEffect.Visible = $false
     
     # Brush selection for automation
-    $S.AutoBrush = Combo @('Hard', 'Soft', 'Smooth', 'Streak', 'Gradient', 'Smudge', 'Smear') 1050 78 180 26; $S.AutoBrush.SelectedIndex = 0
-    $tAuto.Controls.Add((Lbl 'Brush type' 950 82 94))
+    $S.AutoBrush = Combo @('Hard', 'Soft', 'Smooth', 'Streak', 'Gradient', 'Smudge', 'Smear') 1000 78 260 26; $S.AutoBrush.SelectedIndex = 0
+    $tAuto.Controls.Add((Lbl 'Brush' 950 82 46))
     $tAuto.Controls.Add($S.AutoBrush)
-    $tAuto.Controls.Add((Lbl 'Value map' 1200 82 74)); $S.AutoMap = Combo @('Exact shape', 'Smooth curve', 'Quantize steps', 'Linear ramp') 1280 78 180 26; $S.AutoMap.SelectedIndex = 1
+    $tAuto.Controls.Add((Lbl 'Map' 1260 82 56)); $S.AutoMap = Combo @('Exact shape', 'Smooth curve', 'Quantize steps', 'Linear ramp') 1316 78 154 26; $S.AutoMap.SelectedIndex = 1
     $tAuto.Controls.Add($S.AutoMap)
     
     # Brush size
     $tAuto.Controls.Add((Lbl 'Brush size' 950 112 80)); $S.AutoBrushSize = Num 3 1 20 0.5 1 1030 108 52
     # Z axis: the brightness (density) of the painted column, not just its vertical position.
-    $tAuto.Controls.Add((Lbl 'Z axis' 1200 112 74))
-    $S.AutoZ = Combo @('Depth (scale value)', 'Direct value', 'Off (position only)') 1280 108 180 26; $S.AutoZ.SelectedIndex = 0
+    $tAuto.Controls.Add((Lbl 'Z axis' 1260 112 56))
+    $S.AutoZ = Combo @('Depth (scale value)', 'Direct value', 'Off (position only)') 1316 108 154 26; $S.AutoZ.SelectedIndex = 0
     $tAuto.Controls.Add($S.AutoZ)
-    $tAuto.Controls.Add((Lbl 'Z depth' 1200 166 74)); $S.AutoZDepth = Num 1 0 1 0.05 1 1280 162 70
+    $tAuto.Controls.Add((Lbl 'Z depth' 1260 166 60)); $S.AutoZDepth = Num 1 0 1 0.05 1 1320 162 70
     
     # Automation painting controls
     $S.AutoPaint = Btn 'Write to Lane' 950 130 120 28 $true
@@ -9865,14 +9868,14 @@ function Show-AudioStudio {
     $tabs.TabPages.Add($tAuto)
 
     # ---- MIDI input tab ---------------------------------------------------------------------------------------
-    $tMidi = New-Object Windows.Forms.TabPage; $tMidi.Text = 'MIDI In'; $tMidi.BackColor = $dk.Panel; $tMidi.ForeColor = $dk.Text; $tMidi.AutoScroll = $true
+    $tMidi = New-Object Windows.Forms.TabPage; $tMidi.Text = 'MIDI In'; $tMidi.BackColor = $dk.Panel; $tMidi.ForeColor = $dk.Text; $tMidi.AutoScroll = $false
     $tabs.TabPages.Add($tMidi)
     $S.MidiPort = $null; $S.MidiRec = $false; $S.MidiNotes = @{}; $S.MidiStart = [long]0; $S.MidiTake = New-Object Collections.ArrayList
     $S.MidiDevice = Combo @('(no MIDI inputs found)') 8 8 330 $true
     $S.MidiRefresh = Btn 'Refresh devices' 344 6 122
-    $S.MidiConnect = Btn 'Connect' 472 6 92 $true
+    $S.MidiConnect = Btn 'Connect' 472 6 92 28 $true
     $S.MidiStatus = Lbl 'Not connected. Choose an input and press Connect.' 8 36 900
-    $S.MidiRecord = Btn 'Start recording' 8 62 132 $true
+    $S.MidiRecord = Btn 'Start recording' 8 62 132 28 $true
     $S.MidiStop = Btn 'Stop' 146 62 70
     $S.MidiClear = Btn 'Clear take' 222 62 96
     $S.MidiTarget = Lbl 'Target: selected track' 330 68 420
@@ -9979,40 +9982,40 @@ function Show-AudioStudio {
     Refresh-MidiDevices
 
     # ---- Sampler tab: import, waveform selection, auto-slice and chop --------------------------------------------
-    $tSamp = New-Object Windows.Forms.TabPage; $tSamp.Text = 'Sampler'; $tSamp.BackColor = $dk.Panel; $tSamp.ForeColor = $dk.Text; $tSamp.AutoScroll = $true
+    $tSamp = New-Object Windows.Forms.TabPage; $tSamp.Text = 'Sampler'; $tSamp.BackColor = $dk.Panel; $tSamp.ForeColor = $dk.Text; $tSamp.AutoScroll = $false
     $tabs.TabPages.Add($tSamp)
     $S.SmpBuffer = $null; $S.SmpTitle = ''; $S.SmpSlices = New-Object Collections.ArrayList
-    $S.SmpImport = Btn 'Import WAV...' 8 6 124 $true
+    $S.SmpImport = Btn 'Import WAV...' 8 6 124 28 $true
     $S.SmpFromTrack = Btn 'Load selected track sample' 138 6 186
     $S.SmpSave = Btn 'Save WAV...' 330 6 110
     $S.SmpToTrack = Btn 'Send to new sampler track' 446 6 180
     $S.SmpName = Lbl 'No sample loaded. Import a WAV or load the selected track sample.' 8 36 1000
-    $S.SmpWave = New-Object HbStudio.WaveView; $S.SmpWave.SetBounds(8, 58, 1160, 180)
-    $S.SmpSel = Lbl 'Selection: none - drag across the waveform to select.' 8 244 360
-    $S.SmpPlay = Btn 'Play all' 376 240 84
-    $S.SmpPlaySel = Btn 'Play selection' 466 240 104
-    $S.SmpFull = Btn 'Select all' 576 240 84
-    $S.SmpNorm = Btn 'Normalize' 666 240 88
-    $S.SmpRev = Btn 'Reverse' 760 240 76
-    $S.SmpTrim = Btn 'Trim silence' 842 240 96
-    $S.SmpRootN = Num 60 0 127 1 0 1004 238 58
-    $S.SmpChopHdr = Lbl 'Chop & slice' 8 278 120
-    $S.SmpSens = Num 0.5 0 1 0.05 2 92 274 64
-    $S.SmpMin = Num 60 5 2000 5 0 214 274 76
-    $S.SmpAuto = Btn 'Auto-slice at onsets' 298 272 150
-    $S.SmpNParts = Num 4 2 64 1 0 458 274 54
-    $S.SmpChopN = Btn 'Chop into N parts' 518 272 132
-    $S.SmpAddSel = Btn 'Add selection as slice' 656 272 156
-    $S.SmpToTracks = Btn 'Slices to tracks' 818 272 120
-    $S.SmpList = Sty (New-Object Windows.Forms.ListBox); $S.SmpList.SetBounds(8, 312, 640, 170); $S.SmpList.Font = New-Object Drawing.Font('Consolas', 9)
-    $S.SmpAud = Btn 'Audition slice' 660 312 124
-    $S.SmpExport = Btn 'Export slices...' 660 346 124
-    $S.SmpClear = Btn 'Clear slices' 660 380 124
+    $S.SmpWave = New-Object HbStudio.WaveView; $S.SmpWave.SetBounds(8, 58, 1160, 130)
+    $S.SmpSel = Lbl 'Selection: none - drag across the waveform to select.' 8 194 360
+    $S.SmpPlay = Btn 'Play all' 376 190 84
+    $S.SmpPlaySel = Btn 'Play selection' 466 190 104
+    $S.SmpFull = Btn 'Select all' 576 190 84
+    $S.SmpNorm = Btn 'Normalize' 666 190 88
+    $S.SmpRev = Btn 'Reverse' 760 190 76
+    $S.SmpTrim = Btn 'Trim silence' 842 190 96
+    $S.SmpRootN = Num 60 0 127 1 0 986 190 58
+    $S.SmpChopHdr = Lbl 'Chop & slice' 8 222 120
+    $S.SmpSens = Num 0.5 0 1 0.05 2 92 218 64
+    $S.SmpMin = Num 60 5 2000 5 0 220 218 70
+    $S.SmpAuto = Btn 'Auto-slice at onsets' 296 216 150
+    $S.SmpNParts = Num 4 2 64 1 0 488 218 50
+    $S.SmpChopN = Btn 'Chop into N parts' 544 216 132
+    $S.SmpAddSel = Btn 'Add selection as slice' 682 216 156
+    $S.SmpToTracks = Btn 'Slices to tracks' 844 216 120
+    $S.SmpList = Sty (New-Object Windows.Forms.ListBox); $S.SmpList.SetBounds(8, 268, 640, 68); $S.SmpList.Font = New-Object Drawing.Font('Consolas', 9)
+    $S.SmpAud = Btn 'Audition slice' 660 268 124
+    $S.SmpExport = Btn 'Export slices...' 660 298 124
+    $S.SmpClear = Btn 'Clear slices' 660 328 124
     $tSamp.Controls.AddRange(@($S.SmpImport, $S.SmpFromTrack, $S.SmpSave, $S.SmpToTrack, $S.SmpName, $S.SmpWave, $S.SmpSel,
-        $S.SmpPlay, $S.SmpPlaySel, $S.SmpFull, $S.SmpNorm, $S.SmpRev, $S.SmpTrim, (Lbl 'Root note' 940 244 60), $S.SmpRootN,
-        $S.SmpChopHdr, (Lbl 'Sensitivity' 8 280 78), $S.SmpSens, (Lbl 'Min slice ms' 162 280 50), $S.SmpMin,
-        $S.SmpAuto, (Lbl 'Parts' 434 280 26), $S.SmpNParts, $S.SmpChopN, $S.SmpAddSel, $S.SmpToTracks,
-        (Lbl 'Slices' 8 296 60), $S.SmpList, $S.SmpAud, $S.SmpExport, $S.SmpClear))
+        $S.SmpPlay, $S.SmpPlaySel, $S.SmpFull, $S.SmpNorm, $S.SmpRev, $S.SmpTrim, (Lbl 'Root' 944 194 40), $S.SmpRootN,
+        $S.SmpChopHdr, (Lbl 'Sensitivity' 8 224 82), $S.SmpSens, (Lbl 'Min ms' 162 224 54), $S.SmpMin,
+        $S.SmpAuto, (Lbl 'Parts' 452 224 34), $S.SmpNParts, $S.SmpChopN, $S.SmpAddSel, $S.SmpToTracks,
+        (Lbl 'Slices' 8 250 60), $S.SmpList, $S.SmpAud, $S.SmpExport, $S.SmpClear))
     function Get-SmpSelStart { return [int]$S.SmpWave.SelStart }
     function Get-SmpSelEnd { return [int]$S.SmpWave.SelEnd }
     function Update-SmpSelLabel {
@@ -10413,7 +10416,7 @@ function Show-AudioStudio {
         if ($sel -ge 0 -and $sel -lt $S.BusTrackList.Items.Count) { $S.BusTrackList.SelectedIndex = $sel }
     }
     function Update-BusKnobs {
-        $S.BusModCaption.Text = 'Modules - Bus ' + [char](65 + $S.CurBus)
+        $S.BusModCaption.Text = 'Bus ' + [char](65 + $S.CurBus) + ' FX - add nodes in the graph'
         $bus = $S.Proj.Buses[$S.CurBus]
         $cur = [EventHandler]{ $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; foreach ($b in $S.BusModBtns) { Set-ModBtnStyle $b (Get-FxModuleOn $S.Proj.Buses[$S.CurBus].Fx $b.Tag) } }
         [HbStudio.KnobPanel]::Build($bus.Fx, $S.BusKnobHost, $cur, $dk.Panel, $dk.Text, $dk.Accent)
@@ -11780,7 +11783,7 @@ $sdoc
 
     # ---- Mix tab: sidechain and other mix rules, plus an AI mix/master engineer ----------------------------------------------
     $S.MixList = New-LabList 4 24 360 188; $S.GridMix = New-LabGrid 372 330
-    $tMix.Controls.Add((Lbl 'Mix rules (run top to bottom on the tracks before they are summed and mastered)' 4 4 360))
+    $tMix.Controls.Add((Lbl 'Mix rules (top to bottom)' 4 4 360))
     $S.MixAdd = Btn 'Add rule' 4 218 70; $S.MixDup = Btn 'Duplicate' 78 218 76; $S.MixRem = Btn 'Remove' 158 218 66; $S.MixClear = Btn 'Clear all' 228 218 70
     $S.MixKick = Btn 'Sidechain everything to kick' 4 248 200
     $S.MixPlay = Btn 'Play mix (rules on)' 210 248 130; $S.MixStopB = Btn 'Stop' 344 248 50
@@ -11916,32 +11919,32 @@ Source and Target must use words from the track names listed below (case does no
     # ---- Bus / FX tab: shared FX buses with module racks, faders live on the left panel -------------------------
     $tBusFx = New-Object Windows.Forms.TabPage; $tBusFx.Text = 'Bus / FX'; $tBusFx.BackColor = $dk.Panel; $tBusFx.ForeColor = $dk.Text; $tabs.TabPages.Add($tBusFx)
     $S.CurBus = 0; $S.BusTab = $tBusFx
-    $capBuses = Lbl 'Shared FX buses (tracks send into a bus; the bus processes the sum)' 8 6 520 18; $capBuses.ForeColor = $dk.Accent; $tBusFx.Controls.Add($capBuses)
+    $capBuses = Lbl 'Shared FX buses (tracks send in; the bus processes the sum)' 8 6 520 18; $capBuses.ForeColor = $dk.Accent; $tBusFx.Controls.Add($capBuses)
     $tBusFx.Controls.Add((Lbl 'Edit bus:' 8 34 56 24))
     $S.BusEditBtns = @()
     for ($i = 0; $i -lt 4; $i++) { $b = Btn ([char](65 + $i)) (66 + $i * 48) 26 28; $b.Tag = $i; $tBusFx.Controls.Add($b); $S.BusEditBtns += $b }
     $S.BusEnableChecks = @()
-    $y = 72
+    $y = 62
     for ($i = 0; $i -lt 4; $i++) {
         $n = [char](65 + $i)
         $ck = New-Object Windows.Forms.CheckBox; $ck.Text = 'Bus ' + $n + ' enabled'; $ck.Checked = $true; $ck.SetBounds(8, $y, 130, 20); $ck.ForeColor = $dk.Text; $ck.Tag = $i; $tBusFx.Controls.Add($ck); $S.BusEnableChecks += $ck
         $y += 24
     }
-    $capAssign = Lbl 'Assign tracks to a bus' 8 176 240 18; $capAssign.ForeColor = $dk.Accent; $tBusFx.Controls.Add($capAssign)
-    $S.BusTrackList = New-LabList 8 196 234 78
-    $tBusFx.Controls.Add((Lbl 'Selected track >' 8 280 110 18))
+    $capAssign = Lbl 'Assign tracks to a bus' 8 164 240 18; $capAssign.ForeColor = $dk.Accent; $tBusFx.Controls.Add($capAssign)
+    $S.BusTrackList = New-LabList 8 182 234 70
+    $tBusFx.Controls.Add((Lbl 'Selected track >' 8 258 110 18))
     $S.BusAssignSel = @()
     $ax = 8
-    foreach ($a in @(@('None', 0), @('A', 1), @('B', 2), @('C', 3), @('D', 4))) { $b = Btn $a[0] $ax 298 42 24; $b.Tag = $a[1]; $tBusFx.Controls.Add($b); $S.BusAssignSel += $b; $ax += 46 }
-    $tBusFx.Controls.Add((Lbl 'All tracks >' 8 330 90 18))
+    foreach ($a in @(@('None', 0), @('A', 1), @('B', 2), @('C', 3), @('D', 4))) { $b = Btn $a[0] $ax 276 42 24; $b.Tag = $a[1]; $tBusFx.Controls.Add($b); $S.BusAssignSel += $b; $ax += 46 }
+    $tBusFx.Controls.Add((Lbl 'All tracks >' 8 306 90 18))
     $S.BusAssignAll = @()
     $ax = 8
-    foreach ($a in @(@('None', 0), @('A', 1), @('B', 2), @('C', 3), @('D', 4))) { $b = Btn $a[0] $ax 348 42 24; $b.Tag = $a[1]; $tBusFx.Controls.Add($b); $S.BusAssignAll += $b; $ax += 46 }
+    foreach ($a in @(@('None', 0), @('A', 1), @('B', 2), @('C', 3), @('D', 4))) { $b = Btn $a[0] $ax 324 42 24; $b.Tag = $a[1]; $tBusFx.Controls.Add($b); $S.BusAssignAll += $b; $ax += 46 }
     $S.BusTrackList.Add_SelectedIndexChanged({ if (-not $S.Loading -and $S.BusTrackList.SelectedIndex -ge 0) { $S.TrackList.SelectedIndex = $S.BusTrackList.SelectedIndex } })
     foreach ($b in $S.BusAssignSel) { $b.Add_Click({ param($snd, $e) $t = Get-CurTrack; if (-not $t) { return }; $t.Bus = [int]$snd.Tag; $S.Loading = $true; $S.TBus.SelectedIndex = $t.Bus; $S.Loading = $false; $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Refresh-Tracks $S.TrackList.SelectedIndex }) }
     foreach ($b in $S.BusAssignAll) { $b.Add_Click({ param($snd, $e) $v = [int]$snd.Tag; foreach ($t in $S.Proj.Tracks) { $t.Bus = $v }; $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Refresh-Tracks $S.TrackList.SelectedIndex }) }
-    $S.BusModCaption = Lbl 'Modules - Bus A' 264 6 300 18; $S.BusModCaption.ForeColor = $dk.Accent; $tBusFx.Controls.Add($S.BusModCaption)
-    $tBusFx.Controls.Add((Lbl 'Toggle effect modules on the selected bus' 264 26 360 16))
+    $S.BusModCaption = Lbl 'Bus FX are added in the Patch graph' 264 26 340 18; $S.BusModCaption.ForeColor = $dk.Accent; $tBusFx.Controls.Add($S.BusModCaption)
+    $tBusFx.Controls.Add((Lbl 'Presets fill this bus chain; edit its effects on the graph nodes' 264 46 360 16))
     $S.BusModBtns = @()
     $modDefs2 = @('Filter', 'Drive', 'Crush', 'Ring', 'Stutter', 'Chorus', 'Delay', 'Reverb', 'Phaser', 'Flanger', 'TapeStop', 'TapeDelay', 'Plate', 'Vinyl', 'Comp', 'EQ')
     $mx = 264; $my = 46
@@ -12002,7 +12005,7 @@ Source and Target must use words from the track names listed below (case does no
     $S.DrGo = Btn 'Program drums' 8 122 150 28 $true
     $S.DrStatus = New-Object Windows.Forms.Label; $S.DrStatus.SetBounds(168, 124, 480, 30); $S.DrStatus.ForeColor = $dk.Muted
     $S.DrStatus.Text = 'Describe the beat (e.g. "broken 7/8 jungle with a ghost-note snare"). Edit the result on the piano roll afterwards.'
-    $tWrite.Controls.AddRange(@((Lbl 'DRUMS' 8 10 44), $S.DrStyle, (Lbl 'Density' 290 10 46), $S.DrDens, (Lbl 'Weird' 394 10 42), $S.DrWeird, (Lbl 'Bars' 494 10 34), $S.DrBars, $S.DrPrompt, $S.DrMode, $S.DrNew, $S.DrTempo, $S.DrGo, $S.DrStatus))
+    $tWrite.Controls.AddRange(@((Lbl 'DRUMS' 8 10 48), $S.DrStyle, (Lbl 'Density' 290 10 46), $S.DrDens, (Lbl 'Weird' 394 10 42), $S.DrWeird, (Lbl 'Bars' 494 10 34), $S.DrBars, $S.DrPrompt, $S.DrMode, $S.DrNew, $S.DrTempo, $S.DrGo, $S.DrStatus))
 
     $S.MeRole = Combo @($melRoles.Keys) 756 6 130; $S.MeRole.SelectedIndex = 0
     $S.MeStyle = Combo @($melStyles.Keys) 892 6 230; $S.MeStyle.SelectedIndex = 0
@@ -12357,15 +12360,15 @@ Source and Target must use words from the track names listed below (case does no
     $S.SdGo.Add_Click({ Invoke-DesignAllSounds })
 
     # ---- Instruments tab -----------------------------------------------------------------------------------------------
-    $tInst.Controls.Add((Lbl 'Saved instruments (patches, morphs, spectral sounds, samples)' 4 4 300))
+    $tInst.Controls.Add((Lbl 'Saved instruments' 4 4 300))
     $S.InstList = New-LabList 4 24 262 210
     $S.InstDel = Btn 'Delete' 4 240 64 26; $S.InstRefresh = Btn 'Refresh' 72 240 64 26; $S.InstFolder = Btn 'Open folder' 140 240 90 26
     $tInst.Controls.Add((Lbl 'Name' 278 28 44)); $S.InstName = Sty (New-Object Windows.Forms.TextBox); $S.InstName.SetBounds(326, 24, 200, 24)
     $tInst.Controls.Add((Lbl 'Role' 278 58 44)); $S.InstRole = Combo $script:StudioInstrumentRoles 326 54 140; $S.InstRole.SelectedIndex = 0
     $tInst.Controls.Add((Lbl 'Octave' 278 88 44)); $S.InstOct = Num 0 0 8 1 0 326 84 60; $tInst.Controls.Add((Lbl '0 = automatic' 392 88 90))
-    $tInst.Controls.Add((Lbl 'Root note' 278 118 48)); $S.InstRoot = Num 60 0 127 1 0 326 114 60; $tInst.Controls.Add((Lbl 'for spectral voices' 392 118 120))
+    $tInst.Controls.Add((Lbl 'Root' 278 118 48)); $S.InstRoot = Num 60 0 127 1 0 326 114 60; $tInst.Controls.Add((Lbl 'for spectral voices' 392 118 120))
     $S.InstGate = New-Object Windows.Forms.CheckBox; $S.InstGate.Text = 'Gate sampler voices to note length'; $S.InstGate.Checked = $true; $S.InstGate.SetBounds(278, 142, 250, 22)
-    $tInst.Controls.Add((Lbl 'Your notes for the AI (character, when to use it)' 278 168 260))
+    $tInst.Controls.Add((Lbl 'Notes for the AI' 278 168 260))
     $S.InstNotes = Sty (New-Object Windows.Forms.TextBox); $S.InstNotes.Multiline = $true; $S.InstNotes.ScrollBars = 'Vertical'; $S.InstNotes.SetBounds(278, 188, 250, 46)
     $S.InstUpdate = Btn 'Update details' 278 240 120 26 $true
     $tInst.Controls.Add((Lbl 'Save into the library (uses the name box)' 544 4 300))
@@ -12843,7 +12846,7 @@ Rules: prefer the user's saved instruments when one fits the goal. Use design_so
 
     # ---- Composer tab: chord lab, full-song composer and the song-model bridge ---------------------------------------------------------
     $S.ChordHint = ''; $S.CpCancel = $false
-    $tComp.Controls.Add((Lbl 'CHORD LAB' 8 4 90)); $tComp.Controls.Add((Lbl 'Roman numerals (relative to the key) or chord names. "|" separates bars; two chords in one bar share it.' 100 4 560))
+    $tComp.Controls.Add((Lbl 'CHORD LAB' 8 4 90)); $tComp.Controls.Add((Lbl 'Roman numerals or chord names. "|" separates bars.' 100 4 420))
     $S.ProgText = Sty (New-Object Windows.Forms.TextBox); $S.ProgText.SetBounds(8, 26, 650, 24); $S.ProgText.Text = 'i VI III VII'
     $S.ChVoicing = Combo @('open', 'close', 'spread', 'power', 'shell') 60 56 90; $S.ChVoicing.SelectedIndex = 0
     $S.ChComp = Combo @('sustain', 'half', 'offbeat', 'pulse8', 'synco', 'stab') 214 56 90; $S.ChComp.SelectedIndex = 0
@@ -12858,7 +12861,7 @@ Rules: prefer the user's saved instruments when one fits the goal. Use design_so
     $S.ChInfo = Lbl 'Reads as:' 8 186 650; $S.ChInfo.Height = 56; $S.CpStatus = Lbl 'Describe the music on the Drums & melody tab, then press Compose full song.' 8 246 650
     $tComp.Controls.AddRange(@($S.ChWriteChords, $S.ChWriteBass, $S.ChWriteArp, $S.ChAll, $S.ChAi, $S.ChAsk, $S.ChDetect, $S.ChHarm, $S.ChNew, $S.ChInfo, $S.CpStatus))
 
-    $tComp.Controls.Add((Lbl 'COMPOSE A FULL SONG' 676 4 200)); $tComp.Controls.Add((Lbl 'Uses the description and direction on the Drums & melody tab: harmony per section, melody, drums, chords, bass, arps, sounds, arrangement, mix and master.' 676 22 690))
+    $tComp.Controls.Add((Lbl 'COMPOSE A FULL SONG' 676 4 200)); $tComp.Controls.Add((Lbl 'Uses the Drums & melody direction: harmony, melody, drums, sounds, mix and master.' 676 22 690))
     $S.CpMelody = New-Object Windows.Forms.CheckBox; $S.CpMelody.Text = 'Write the melody (AI, over the chords)'; $S.CpMelody.Checked = $true; $S.CpMelody.SetBounds(676, 44, 330, 22)
     $S.CpRegen = New-Object Windows.Forms.CheckBox; $S.CpRegen.Text = 'New drum pattern for every section'; $S.CpRegen.Checked = $true; $S.CpRegen.SetBounds(1020, 44, 340, 22)
     $S.CpSounds = New-Object Windows.Forms.CheckBox; $S.CpSounds.Text = 'Design the chord, bass and arp sounds (AI)'; $S.CpSounds.Checked = $true; $S.CpSounds.SetBounds(676, 68, 330, 22)
@@ -12872,11 +12875,11 @@ Rules: prefer the user's saved instruments when one fits the goal. Use design_so
     $S.CpGen = Btn 'Generate with song model' 676 206 210; $S.CpAnalyze = Btn 'Analyze audio file...' 892 206 170; $S.CpCancelBtn = Btn 'Cancel' 1068 206 70
     $S.CpStems = New-Object Windows.Forms.CheckBox; $S.CpStems.Text = 'Split into stems'; $S.CpStems.Checked = $true; $S.CpStems.SetBounds(676, 238, 130, 22)
     $S.CpHarm = New-Object Windows.Forms.CheckBox; $S.CpHarm.Text = 'Detected chords to chord + bass tracks'; $S.CpHarm.Checked = $true; $S.CpHarm.SetBounds(812, 238, 300, 22)
-    $S.CpRebuild = New-Object Windows.Forms.CheckBox; $S.CpRebuild.Text = 'Rebuild melody, drums and bass as editable tracks from the stems'; $S.CpRebuild.Checked = $true; $S.CpRebuild.SetBounds(676, 262, 690, 22)
+    $S.CpRebuild = New-Object Windows.Forms.CheckBox; $S.CpRebuild.Text = 'Rebuild melody, drums and bass as editable tracks from the stems'; $S.CpRebuild.Checked = $true; $S.CpRebuild.SetBounds(676, 268, 690, 22)
     # Rebuilding editable parts needs the stems; keep the two checkboxes in step.
     $S.CpRebuild.Add_CheckedChanged({ if ($S.CpRebuild.Checked) { $S.CpStems.Checked = $true } })
     $S.CpStems.Add_CheckedChanged({ if (-not $S.CpStems.Checked) { $S.CpRebuild.Checked = $false } })
-    $tComp.Controls.Add((Lbl 'Lyrics (blank = instrumental)' 1146 160 216)); $S.CpLyrics = Sty (New-Object Windows.Forms.TextBox); $S.CpLyrics.Multiline = $true; $S.CpLyrics.ScrollBars = 'Vertical'; $S.CpLyrics.SetBounds(1146, 180, 216, 84)
+    $tComp.Controls.Add((Lbl 'Lyrics (blank = instrumental)' 1146 174 216)); $S.CpLyrics = Sty (New-Object Windows.Forms.TextBox); $S.CpLyrics.Multiline = $true; $S.CpLyrics.ScrollBars = 'Vertical'; $S.CpLyrics.SetBounds(1146, 192, 216, 70)
     $tComp.Controls.AddRange(@($S.CpMelody, $S.CpRegen, $S.CpSounds, $S.CpMix, $S.CpMaster, $S.CpAdapt, $S.CpUseModel, $S.CpGo, $S.CpArrange, $S.CpMixBtn, $S.CpModel, $S.CpDur, $S.CpGen, $S.CpAnalyze, $S.CpCancelBtn, $S.CpStems, $S.CpHarm, $S.CpRebuild, $S.CpLyrics))
 
     function CpSet([string]$m) { $S.CpStatus.Text = $m; Status $m; [Windows.Forms.Application]::DoEvents() }
@@ -13279,7 +13282,7 @@ Rules: prefer the user's saved instruments when one fits the goal. Use design_so
     $S.PrStatus = Lbl 'Pick a style, then Compose full song (Composer tab). Saved styles appear here with a * in front.' 8 164 430; $S.PrStatus.Height = 100
     $tProd.Controls.AddRange(@($S.PrStyle, $S.PrStyleInfo, $S.PrApply, $S.PrSaveStyle, $S.PrDelStyle, $S.PrStatus))
     $tProd.Controls.Add((Lbl 'ADVANCED COMPOSITION' 450 4 300))
-    $S.PrColor = New-Object Windows.Forms.CheckBox; $S.PrColor.Text = 'Harmonic colour: 7ths, 9ths, secondary dominants, turnarounds'; $S.PrColor.Checked = $true; $S.PrColor.SetBounds(450, 26, 370, 22); $S.PrColorAmt = Num 5 1 10 1 0 826 24 46
+    $S.PrColor = New-Object Windows.Forms.CheckBox; $S.PrColor.Text = 'Harmonic colour: 7ths, 9ths, dominants'; $S.PrColor.Checked = $true; $S.PrColor.SetBounds(450, 26, 370, 22); $S.PrColorAmt = Num 5 1 10 1 0 826 24 46
     $S.PrMod = New-Object Windows.Forms.CheckBox; $S.PrMod.Text = 'Key change for the last chorus or drop (semitones up)'; $S.PrMod.Checked = $true; $S.PrMod.SetBounds(450, 52, 370, 22); $S.PrModShift = Num 2 1 7 1 0 826 50 46
     $S.PrMotif = New-Object Windows.Forms.CheckBox; $S.PrMotif.Text = 'Motif lead melody (rule-based phrases, works without AI)'; $S.PrMotif.Checked = $true; $S.PrMotif.SetBounds(450, 78, 400, 22)
     $S.PrCounter = New-Object Windows.Forms.CheckBox; $S.PrCounter.Text = 'Counter-melody under the lead'; $S.PrCounter.Checked = $true; $S.PrCounter.SetBounds(450, 104, 400, 22)
@@ -13289,7 +13292,7 @@ Rules: prefer the user's saved instruments when one fits the goal. Use design_so
     $S.CompSource = $null; $S.RefFeatures = $null; $S.LastQuality = $null; $S.VoiceDev = @{}
     $S.PrDevelop = New-Object Windows.Forms.CheckBox; $S.PrDevelop.Text = 'Sounds develop with the song (synth parameters follow the sections)'; $S.PrDevelop.Checked = $true; $S.PrDevelop.SetBounds(8, 270, 430, 22)
     $tProd.Controls.Add($S.PrDevelop)
-    $S.PrCxLbl = Lbl 'Complexity of melody, beats and harmony (1 simple - 10 elaborate)' 450 212 370; $S.PrCx = Num 7 1 10 1 0 826 208 46
+    $S.PrCxLbl = Lbl 'Complexity (1 simple - 10 elaborate)' 450 212 370; $S.PrCx = Num 7 1 10 1 0 826 208 46
     $S.PrQuality = New-Object Windows.Forms.CheckBox; $S.PrQuality.Text = 'Quality pass after composing (listen, compare, fix)'; $S.PrQuality.Checked = $true; $S.PrQuality.SetBounds(450, 234, 430, 22)
     $S.PrRef = New-Object Windows.Forms.CheckBox; $S.PrRef.Text = 'Compare with a song-model render (slow, needs a model)'; $S.PrRef.Checked = $false; $S.PrRef.SetBounds(450, 258, 430, 22)
     $tProd.Controls.AddRange(@($S.PrColor, $S.PrColorAmt, $S.PrMod, $S.PrModShift, $S.PrMotif, $S.PrCounter, $S.PrTrans, $S.PrAuto, $S.PrAutoAmt, $S.PrAfter, $S.PrCxLbl, $S.PrCx, $S.PrQuality, $S.PrRef))
@@ -14100,6 +14103,70 @@ Rules: prefer the user's saved instruments when one fits the goal. Use design_so
         $timer.Stop(); Stop-Studio
     })
     $f.Add_Shown({ Sync-Project; Refresh-Tracks 0; Refresh-SongUi; Update-FfmpegLabel; Update-ScLabel; Update-AiModels; $S.Roll.UpdateScroll(); $S.Roll.ScrollToPitch(48); $S.Roll.Focus(); Status 'Ready. Space = play/stop; Roll: click add, drag edge = length, right-click erase; Drums: C2 kick, D2 snare, D#2 clap, F#2 hat, A#2 open hat.'; $S.Dirty = $false })
+
+    # ---- responsive anchors: grow the editors with the window and the resizer handles -------------------------
+    function Initialize-UiLayout {
+    function Set-UiAnchor($ctl, [string]$edges) { try { if ($ctl) { $ctl.Anchor = $edges } } catch { } }
+    Set-UiAnchor $S.TrackList 'Top,Left,Right'
+    Set-UiAnchor $S.TName 'Top,Left,Right'
+    Set-UiAnchor $S.TInstrument 'Top,Left,Right'
+    Set-UiAnchor $S.TPreset 'Top,Left,Right'
+    Set-UiAnchor $S.TSample 'Top,Left,Right'
+    Set-UiAnchor $S.TBus 'Top,Left,Right'
+    foreach ($row in $S.BusRows) { Set-UiAnchor $row.Fader 'Top,Left,Right' }
+    Set-UiAnchor $S.AiOut 'Top,Left,Right,Bottom'
+    Set-UiAnchor $S.AiStatus 'Top,Left,Right'
+    Set-UiAnchor $S.ScCode 'Top,Left,Bottom'
+    Set-UiAnchor $S.LabPrompt 'Top,Right'
+    Set-UiAnchor $S.GridPatch 'Top,Left,Bottom'
+    Set-UiAnchor $S.GridFx 'Top,Left,Bottom'
+    Set-UiAnchor $S.LabStatus 'Top,Left,Right'
+    Set-UiAnchor $S.PatList 'Top,Left,Bottom'
+    Set-UiAnchor $S.SongList 'Top,Left,Bottom'
+    Set-UiAnchor $S.PresetList 'Top,Left,Bottom'
+    Set-UiAnchor $S.SongPrompt 'Top,Right'
+    Set-UiAnchor $S.SongAiStatus 'Top,Right'
+    Set-UiAnchor $S.GridMaster 'Top,Left,Bottom'
+    Set-UiAnchor $S.MReport 'Top,Left,Bottom'
+    Set-UiAnchor $S.MPrompt 'Top,Left,Right'
+    Set-UiAnchor $S.GridSpec 'Top,Left,Bottom'
+    Set-UiAnchor $S.SpecPrompt 'Top,Left,Right'
+    Set-UiAnchor $S.SpecStatus 'Top,Left,Right'
+    Set-UiAnchor $S.GridMeta 'Top,Left,Bottom'
+    Set-UiAnchor $S.MetaPrompt 'Top,Left,Right'
+    Set-UiAnchor $S.MetaStatus 'Top,Left,Right'
+    Set-UiAnchor $S.MixList 'Top,Left,Bottom'
+    Set-UiAnchor $S.GridMix 'Top,Left,Bottom'
+    Set-UiAnchor $S.MixPrompt 'Top,Left,Right'
+    Set-UiAnchor $S.MixOut 'Top,Left,Right,Bottom'
+    Set-UiAnchor $S.MixStatus 'Top,Left,Right'
+    Set-UiAnchor $S.KnobHost 'Top,Left,Right,Bottom'
+    Set-UiAnchor $S.MePrompt 'Top,Right'
+    Set-UiAnchor $S.Brief 'Top,Left,Right'
+    Set-UiAnchor $S.BrStatus 'Top,Right'
+    Set-UiAnchor $S.SdStatus 'Top,Right'
+    Set-UiAnchor $S.InstProfile 'Top,Right,Bottom'
+    Set-UiAnchor $S.AgentGoal 'Top,Left'
+    Set-UiAnchor $S.AgentOut 'Top,Right,Bottom'
+    Set-UiAnchor $S.AgentStatus 'Top,Left'
+    Set-UiAnchor $S.ChInfo 'Top,Left'
+    Set-UiAnchor $S.CpStatus 'Top,Left'
+    Set-UiAnchor $S.CpLyrics 'Top,Right'
+    Set-UiAnchor $S.PrReport 'Top,Right,Bottom'
+    Set-UiAnchor $S.AutoPic 'Top,Left'
+    Set-UiAnchor $S.AutoBrushPalette 'Top,Left'
+    Set-UiAnchor $S.AutoStatus 'Top,Left'
+    Set-UiAnchor $S.BusKnobHost 'Top,Left,Right,Bottom'
+    Set-UiAnchor $S.MidiLog 'Top,Left,Right,Bottom'
+    Set-UiAnchor $S.MidiStatus 'Top,Left,Right'
+    Set-UiAnchor $S.SmpWave 'Top,Left,Right'
+    Set-UiAnchor $S.SmpName 'Top,Left,Right'
+    Set-UiAnchor $S.SmpSel 'Top,Left,Right'
+    Set-UiAnchor $S.SmpList 'Top,Left,Bottom'
+    foreach ($tp in $tabs.TabPages) { try { $tp.AutoScrollMinSize = New-Object Drawing.Size(0, 0); $tp.AutoScroll = $true; $tp.AutoScrollPosition = New-Object Drawing.Point(0, 0) } catch { } }
+    }
+    $tabs.Add_SelectedIndexChanged({ try { $tp = $tabs.SelectedTab; if ($tp) { $tp.AutoScrollPosition = New-Object Drawing.Point(0, 0) } } catch { } })
+    $f.Add_Shown({ Initialize-UiLayout })
 
     $S.Roll.Proj = $S.Proj
     $S.Patch.Proj = $S.Proj

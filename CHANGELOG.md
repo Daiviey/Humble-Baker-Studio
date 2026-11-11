@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.15 — 2026-11-10
+
+- UI layout pass: fixed accent buttons that collapsed to 1 px (MIDI **Connect** and **Start recording**, Sampler **Import WAV**).
+- Fixed tab auto-scroll offsets that made labels drift over their fields.
+- Reworked the Sampler, MIDI In, Automation Painting, Bus / FX, Composer and Spectral layouts so controls no longer overlap or sit below the visible tab.
+- Added responsive anchors: logs, property grids, text boxes, lists and the Knobs/Bus knob areas now grow with the window and the bottom resizer.
+- Shortened or clarified clipped labels, and removed redundant Spectral palette/visualise controls.
+
 ## 1.0.14 — 2026-11-10
 
 - Gave the app icon a rounded-square app-tile shape with transparent corners and a subtle inner highlight.
