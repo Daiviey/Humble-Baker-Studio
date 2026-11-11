@@ -382,6 +382,21 @@ public class Fx {
         NonLinVerbMix = 0; NonLinVerbSize = 0.7; NonLinVerbDrive = 0.6; NonLinVerbGate = 0.3;
         MSCompMix = 0; MSCompThresh = -20; MSCompRatio = 3; MSCompRelease = 120;
         MBDistMix = 0; MBDistLow = 0.3; MBDistMid = 0.6; MBDistHigh = 0.4;
+        SpecGateMix = 0; SpecGateThresh = 0.02; SpecGateBands = 6;
+        SpecBlurMix = 0; SpecBlurAmount = 0.5; SpecBlurSpread = 0.6;
+        SpecDelayMix = 0; SpecDelayTime = 260; SpecDelayFb = 0.4; SpecDelaySpread = 0.6;
+        ConvMix = 0; ConvSize = 0.6; ConvDamp = 0.45; ConvPre = 20;
+        TankMix = 0; TankDecay = 0.6; TankTone = 0.5; TankDrip = 0.4;
+        TuneMix = 0; TuneSpeed = 0.5; TuneScale = 0; TuneMinHz = 70;
+        OctUpMix = 0; OctUpTone = 0.5;
+        ChordMix = 0; ChordType = 0; ChordSpread = 0.3;
+        UpCompMix = 0; UpCompThresh = -30; UpCompRatio = 2; UpCompRange = 18;
+        TranGateMix = 0; TranGateThresh = -28; TranGateHold = 80; TranGateRelease = 120;
+        ShuffleMix = 0; ShuffleLow = 0.5; ShuffleHigh = 1.5; ShuffleFreq = 180;
+        MonoMix = 0; MonoFreq = 120; MonoWidth = 0.5;
+        PhaseMix = 0; PhaseFreq = 800; PhaseAmount = 0.5;
+        LoopMix = 0; LoopLength = 500; LoopSpeed = 1; LoopFb = 0.2;
+        StutterGateMix = 0; StutterGateRate = 8; StutterGateDiv = 4; StutterGateChance = 0.35;
     }
     [Category("1 Filter"), Description("Filter type: off, lowpass, highpass, bandpass.")] public FilterMode Filter { get; set; }
     [Category("1 Filter"), Description("Cutoff in Hz."), Rng(30, 16000)] public double Cutoff { get; set; }
@@ -628,6 +643,59 @@ public class Fx {
     [Category("27 Drive / Amp"), Description("Multiband distortion low drive."), Rng(0, 1)] public double MBDistLow { get; set; }
     [Category("27 Drive / Amp"), Description("Multiband distortion mid drive."), Rng(0, 1)] public double MBDistMid { get; set; }
     [Category("27 Drive / Amp"), Description("Multiband distortion high drive."), Rng(0, 1)] public double MBDistHigh { get; set; }
+    [Category("32 Spectral"), Description("Spectral gate mix (0 = off)."), Rng(0, 1)] public double SpecGateMix { get; set; }
+    [Category("32 Spectral"), Description("Spectral gate threshold."), Rng(0.001, 0.5)] public double SpecGateThresh { get; set; }
+    [Category("32 Spectral"), Description("Spectral gate band count."), Rng(2, 8)] public double SpecGateBands { get; set; }
+    [Category("32 Spectral"), Description("Spectral blur mix (0 = off)."), Rng(0, 1)] public double SpecBlurMix { get; set; }
+    [Category("32 Spectral"), Description("Spectral blur amount."), Rng(0, 1)] public double SpecBlurAmount { get; set; }
+    [Category("32 Spectral"), Description("Spectral blur stereo spread."), Rng(0, 1)] public double SpecBlurSpread { get; set; }
+    [Category("32 Spectral"), Description("Spectral delay mix (0 = off)."), Rng(0, 1)] public double SpecDelayMix { get; set; }
+    [Category("32 Spectral"), Description("Spectral delay time in ms."), Rng(20, 900)] public double SpecDelayTime { get; set; }
+    [Category("32 Spectral"), Description("Spectral delay feedback."), Rng(0, 0.9)] public double SpecDelayFb { get; set; }
+    [Category("32 Spectral"), Description("Spectral delay band spread."), Rng(0, 1)] public double SpecDelaySpread { get; set; }
+    [Category("33 Convolution / Spring"), Description("Convolution reverb mix (0 = off)."), Rng(0, 1)] public double ConvMix { get; set; }
+    [Category("33 Convolution / Spring"), Description("Convolution reverb size."), Rng(0, 1)] public double ConvSize { get; set; }
+    [Category("33 Convolution / Spring"), Description("Convolution reverb damping."), Rng(0, 1)] public double ConvDamp { get; set; }
+    [Category("33 Convolution / Spring"), Description("Convolution pre-delay in ms."), Rng(0, 120)] public double ConvPre { get; set; }
+    [Category("33 Convolution / Spring"), Description("Tank reverb mix (0 = off)."), Rng(0, 1)] public double TankMix { get; set; }
+    [Category("33 Convolution / Spring"), Description("Tank reverb decay."), Rng(0, 1)] public double TankDecay { get; set; }
+    [Category("33 Convolution / Spring"), Description("Tank reverb tone."), Rng(0, 1)] public double TankTone { get; set; }
+    [Category("33 Convolution / Spring"), Description("Tank reverb drip."), Rng(0, 1)] public double TankDrip { get; set; }
+    [Category("34 Pitch / Harmony"), Description("Auto-tune mix (0 = off)."), Rng(0, 1)] public double TuneMix { get; set; }
+    [Category("34 Pitch / Harmony"), Description("Auto-tune correction speed."), Rng(0, 1)] public double TuneSpeed { get; set; }
+    [Category("34 Pitch / Harmony"), Description("Auto-tune scale: 0 chromatic, 1 major, 2 minor."), Rng(0, 2)] public double TuneScale { get; set; }
+    [Category("34 Pitch / Harmony"), Description("Auto-tune minimum frequency in Hz."), Rng(40, 300)] public double TuneMinHz { get; set; }
+    [Category("34 Pitch / Harmony"), Description("Octave-up mix (0 = off)."), Rng(0, 1)] public double OctUpMix { get; set; }
+    [Category("34 Pitch / Harmony"), Description("Octave-up tone."), Rng(0, 1)] public double OctUpTone { get; set; }
+    [Category("34 Pitch / Harmony"), Description("Chord generator mix (0 = off)."), Rng(0, 1)] public double ChordMix { get; set; }
+    [Category("34 Pitch / Harmony"), Description("Chord type: 0 major, 1 minor, 2 fifth, 3 sus4."), Rng(0, 3)] public double ChordType { get; set; }
+    [Category("34 Pitch / Harmony"), Description("Chord voice spread."), Rng(0, 1)] public double ChordSpread { get; set; }
+    [Category("35 Dynamics"), Description("Upward compressor mix (0 = off)."), Rng(0, 1)] public double UpCompMix { get; set; }
+    [Category("35 Dynamics"), Description("Upward compressor threshold in dB."), Rng(-60, 0)] public double UpCompThresh { get; set; }
+    [Category("35 Dynamics"), Description("Upward compressor ratio."), Rng(1, 8)] public double UpCompRatio { get; set; }
+    [Category("35 Dynamics"), Description("Maximum upward gain in dB."), Rng(0, 36)] public double UpCompRange { get; set; }
+    [Category("35 Dynamics"), Description("Transient gate mix (0 = off)."), Rng(0, 1)] public double TranGateMix { get; set; }
+    [Category("35 Dynamics"), Description("Transient gate threshold in dB."), Rng(-60, 0)] public double TranGateThresh { get; set; }
+    [Category("35 Dynamics"), Description("Transient gate hold in ms."), Rng(1, 500)] public double TranGateHold { get; set; }
+    [Category("35 Dynamics"), Description("Transient gate release in ms."), Rng(10, 1000)] public double TranGateRelease { get; set; }
+    [Category("36 Stereo / Phase"), Description("Stereo shuffler mix (0 = off)."), Rng(0, 1)] public double ShuffleMix { get; set; }
+    [Category("36 Stereo / Phase"), Description("Low-frequency side width."), Rng(0, 2)] public double ShuffleLow { get; set; }
+    [Category("36 Stereo / Phase"), Description("High-frequency side width."), Rng(0, 2)] public double ShuffleHigh { get; set; }
+    [Category("36 Stereo / Phase"), Description("Stereo shuffler crossover in Hz."), Rng(40, 800)] public double ShuffleFreq { get; set; }
+    [Category("36 Stereo / Phase"), Description("Mono maker mix (0 = off)."), Rng(0, 1)] public double MonoMix { get; set; }
+    [Category("36 Stereo / Phase"), Description("Mono maker crossover in Hz."), Rng(20, 500)] public double MonoFreq { get; set; }
+    [Category("36 Stereo / Phase"), Description("Mono maker side width above crossover."), Rng(0, 2)] public double MonoWidth { get; set; }
+    [Category("36 Stereo / Phase"), Description("Phase aligner mix (0 = off)."), Rng(0, 1)] public double PhaseMix { get; set; }
+    [Category("36 Stereo / Phase"), Description("Phase aligner frequency in Hz."), Rng(80, 8000)] public double PhaseFreq { get; set; }
+    [Category("36 Stereo / Phase"), Description("Phase aligner amount."), Rng(0, 1)] public double PhaseAmount { get; set; }
+    [Category("37 Loops / Glitch"), Description("Tape loop mix (0 = off)."), Rng(0, 1)] public double LoopMix { get; set; }
+    [Category("37 Loops / Glitch"), Description("Tape loop length in ms."), Rng(50, 2000)] public double LoopLength { get; set; }
+    [Category("37 Loops / Glitch"), Description("Tape loop speed."), Rng(0.25, 2)] public double LoopSpeed { get; set; }
+    [Category("37 Loops / Glitch"), Description("Tape loop feedback."), Rng(0, 0.95)] public double LoopFb { get; set; }
+    [Category("37 Loops / Glitch"), Description("Stutter gate mix (0 = off)."), Rng(0, 1)] public double StutterGateMix { get; set; }
+    [Category("37 Loops / Glitch"), Description("Stutter gate rate in Hz."), Rng(0.5, 30)] public double StutterGateRate { get; set; }
+    [Category("37 Loops / Glitch"), Description("Stutter gate divisions."), Rng(2, 16)] public double StutterGateDiv { get; set; }
+    [Category("37 Loops / Glitch"), Description("Stutter gate chance."), Rng(0, 1)] public double StutterGateChance { get; set; }
     [Category("28 Modulation"), Description("Tape flutter mix (0 = off)."), Rng(0, 1)] public double FlutterMix { get; set; }
     [Category("28 Modulation"), Description("Tape flutter rate in Hz."), Rng(0.05, 8)] public double FlutterRate { get; set; }
     [Category("28 Modulation"), Description("Tape flutter depth."), Rng(0, 1)] public double FlutterDepth { get; set; }
@@ -720,7 +788,10 @@ public class Fx {
                 || OverdriveMix > 0 || MetalMix > 0 || CabMix > 0 || MBDistMix > 0
                 || FlutterMix > 0 || DimMix > 0 || EnvPhaserMix > 0 || EnvFlangeMix > 0
                 || ChopMix > 0 || BarberMix > 0 || HalfSpeedMix > 0 || PitchEchoMix > 0 || FreezeMix > 0
-                || RevDelayMix > 0 || EchoVerbMix > 0 || BloomMix > 0 || NonLinVerbMix > 0 || VocoderMix > 0;
+                || RevDelayMix > 0 || EchoVerbMix > 0 || BloomMix > 0 || NonLinVerbMix > 0 || VocoderMix > 0
+                || SpecGateMix > 0 || SpecBlurMix > 0 || SpecDelayMix > 0 || ConvMix > 0 || TankMix > 0
+                || TuneMix > 0 || OctUpMix > 0 || ChordMix > 0 || UpCompMix > 0 || TranGateMix > 0
+                || ShuffleMix > 0 || MonoMix > 0 || PhaseMix > 0 || LoopMix > 0 || StutterGateMix > 0;
         }
     }
 }
@@ -1771,6 +1842,21 @@ public static class KnobPanel {
             else if (m == "bloomverb") { s.Add("BloomMix"); s.Add("BloomSize"); s.Add("BloomThresh"); s.Add("BloomAttack"); }
             else if (m == "nonlinverb") { s.Add("NonLinVerbMix"); s.Add("NonLinVerbSize"); s.Add("NonLinVerbDrive"); s.Add("NonLinVerbGate"); }
             else if (m == "vocoder") { s.Add("VocoderMix"); s.Add("VocoderBands"); s.Add("VocoderRelease"); s.Add("VocoderCarrier"); }
+            else if (m == "specgate") { s.Add("SpecGateMix"); s.Add("SpecGateThresh"); s.Add("SpecGateBands"); }
+            else if (m == "specblur") { s.Add("SpecBlurMix"); s.Add("SpecBlurAmount"); s.Add("SpecBlurSpread"); }
+            else if (m == "specdelay") { s.Add("SpecDelayMix"); s.Add("SpecDelayTime"); s.Add("SpecDelayFb"); s.Add("SpecDelaySpread"); }
+            else if (m == "convreverb") { s.Add("ConvMix"); s.Add("ConvSize"); s.Add("ConvDamp"); s.Add("ConvPre"); }
+            else if (m == "tankreverb") { s.Add("TankMix"); s.Add("TankDecay"); s.Add("TankTone"); s.Add("TankDrip"); }
+            else if (m == "autotune") { s.Add("TuneMix"); s.Add("TuneSpeed"); s.Add("TuneScale"); s.Add("TuneMinHz"); }
+            else if (m == "octaveup") { s.Add("OctUpMix"); s.Add("OctUpTone"); }
+            else if (m == "chordgen") { s.Add("ChordMix"); s.Add("ChordType"); s.Add("ChordSpread"); }
+            else if (m == "upcomp") { s.Add("UpCompMix"); s.Add("UpCompThresh"); s.Add("UpCompRatio"); s.Add("UpCompRange"); }
+            else if (m == "trangate") { s.Add("TranGateMix"); s.Add("TranGateThresh"); s.Add("TranGateHold"); s.Add("TranGateRelease"); }
+            else if (m == "shuffle") { s.Add("ShuffleMix"); s.Add("ShuffleLow"); s.Add("ShuffleHigh"); s.Add("ShuffleFreq"); }
+            else if (m == "monomaker") { s.Add("MonoMix"); s.Add("MonoFreq"); s.Add("MonoWidth"); }
+            else if (m == "phasealign") { s.Add("PhaseMix"); s.Add("PhaseFreq"); s.Add("PhaseAmount"); }
+            else if (m == "tapeloop") { s.Add("LoopMix"); s.Add("LoopLength"); s.Add("LoopSpeed"); s.Add("LoopFb"); }
+            else if (m == "stuttergate") { s.Add("StutterGateMix"); s.Add("StutterGateRate"); s.Add("StutterGateDiv"); s.Add("StutterGateChance"); }
             s.Add("Gain");
         }
         return s;
@@ -2589,7 +2675,11 @@ public class PatchGraphControl : Control {
         new[] { "Dimension", "dimension" }, new[] { "Envelope phaser", "envphaser" }, new[] { "Envelope flanger", "envflanger" }, new[] { "Chopper", "chopper" },
         new[] { "Barber-pole", "barberpole" }, new[] { "Half speed", "halfspeed" }, new[] { "Pitch echo", "pitchecho" }, new[] { "Spectral freeze", "spectralfreeze" },
         new[] { "Reverse delay", "revdelay" }, new[] { "Echo-verb", "echoverb" }, new[] { "Bloom reverb", "bloomverb" }, new[] { "Non-linear verb", "nonlinverb" },
-        new[] { "Vocoder", "vocoder" }
+        new[] { "Vocoder", "vocoder" },
+        new[] { "Spectral gate", "specgate" }, new[] { "Spectral blur", "specblur" }, new[] { "Spectral delay", "specdelay" }, new[] { "Convolution reverb", "convreverb" },
+        new[] { "Tank reverb", "tankreverb" }, new[] { "Auto-tune", "autotune" }, new[] { "Octave up", "octaveup" }, new[] { "Chord generator", "chordgen" },
+        new[] { "Upward compressor", "upcomp" }, new[] { "Transient gate", "trangate" }, new[] { "Stereo shuffler", "shuffle" }, new[] { "Mono maker", "monomaker" },
+        new[] { "Phase aligner", "phasealign" }, new[] { "Tape loop", "tapeloop" }, new[] { "Stutter gate", "stuttergate" }
     };
     public static PatchNode NewFxNode(string type, int x, int y) {
         PatchNode n = new PatchNode(); n.Kind = "fx"; n.Type = type; n.Label = type.ToUpperInvariant(); n.X = x; n.Y = y;
@@ -2693,6 +2783,21 @@ public class PatchGraphControl : Control {
             case "bloomverb": fx.BloomMix = 0.5; fx.BloomSize = 0.8; fx.BloomThresh = -40; fx.BloomAttack = 0.15; break;
             case "nonlinverb": fx.NonLinVerbMix = 0.4; fx.NonLinVerbSize = 0.7; fx.NonLinVerbDrive = 0.6; fx.NonLinVerbGate = 0.3; break;
             case "vocoder": fx.VocoderMix = 0.6; fx.VocoderBands = 8; fx.VocoderRelease = 80; fx.VocoderCarrier = 0; break;
+            case "specgate": fx.SpecGateMix = 0.6; fx.SpecGateThresh = 0.02; fx.SpecGateBands = 6; break;
+            case "specblur": fx.SpecBlurMix = 0.5; fx.SpecBlurAmount = 0.5; fx.SpecBlurSpread = 0.6; break;
+            case "specdelay": fx.SpecDelayMix = 0.4; fx.SpecDelayTime = 260; fx.SpecDelayFb = 0.4; fx.SpecDelaySpread = 0.6; break;
+            case "convreverb": fx.ConvMix = 0.35; fx.ConvSize = 0.6; fx.ConvDamp = 0.45; fx.ConvPre = 20; break;
+            case "tankreverb": fx.TankMix = 0.4; fx.TankDecay = 0.6; fx.TankTone = 0.5; fx.TankDrip = 0.4; break;
+            case "autotune": fx.TuneMix = 0.6; fx.TuneSpeed = 0.5; fx.TuneScale = 0; fx.TuneMinHz = 70; break;
+            case "octaveup": fx.OctUpMix = 0.45; fx.OctUpTone = 0.5; break;
+            case "chordgen": fx.ChordMix = 0.4; fx.ChordType = 0; fx.ChordSpread = 0.3; break;
+            case "upcomp": fx.UpCompMix = 0.5; fx.UpCompThresh = -30; fx.UpCompRatio = 2; fx.UpCompRange = 18; break;
+            case "trangate": fx.TranGateMix = 0.6; fx.TranGateThresh = -28; fx.TranGateHold = 80; fx.TranGateRelease = 120; break;
+            case "shuffle": fx.ShuffleMix = 0.6; fx.ShuffleLow = 0.5; fx.ShuffleHigh = 1.5; fx.ShuffleFreq = 180; break;
+            case "monomaker": fx.MonoMix = 0.6; fx.MonoFreq = 120; fx.MonoWidth = 0.5; break;
+            case "phasealign": fx.PhaseMix = 0.5; fx.PhaseFreq = 800; fx.PhaseAmount = 0.5; break;
+            case "tapeloop": fx.LoopMix = 0.5; fx.LoopLength = 500; fx.LoopSpeed = 1; fx.LoopFb = 0.2; break;
+            case "stuttergate": fx.StutterGateMix = 0.6; fx.StutterGateRate = 8; fx.StutterGateDiv = 4; fx.StutterGateChance = 0.35; break;
         }
         return n;
     }
@@ -3959,6 +4064,21 @@ public static class FxProc {
         if (fx.BloomMix > 0) BloomVerbFx(fx, a, b);
         if (fx.NonLinVerbMix > 0) NonLinVerbFx(fx, a, b);
         if (fx.VocoderMix > 0) VocoderFx(fx, a, b);
+        if (fx.SpecGateMix > 0) SpectralGateFx(fx, a, b);
+        if (fx.SpecBlurMix > 0) SpectralBlurFx(fx, a, b);
+        if (fx.SpecDelayMix > 0) SpectralDelayFx(fx, a, b);
+        if (fx.ConvMix > 0) ConvReverbFx(fx, a, b);
+        if (fx.TankMix > 0) TankReverbFx(fx, a, b);
+        if (fx.TuneMix > 0) AutoTuneFx(fx, a, b);
+        if (fx.OctUpMix > 0) OctaveUpFx(fx, a, b);
+        if (fx.ChordMix > 0) ChordGenFx(fx, a, b);
+        if (fx.UpCompMix > 0) UpwardCompFx(fx, a, b);
+        if (fx.TranGateMix > 0) TransientGateFx(fx, a, b);
+        if (fx.ShuffleMix > 0) StereoShuffleFx(fx, a, b);
+        if (fx.MonoMix > 0) MonoMakerFx(fx, a, b);
+        if (fx.PhaseMix > 0) PhaseAlignFx(fx, a, b);
+        if (fx.LoopMix > 0) TapeLoopFx(fx, a, b);
+        if (fx.StutterGateMix > 0) StutterGateFx(fx, a, b);
         if (fx.PitchShift != 0) PitchShift(fx, a, b);
         if (fx.TapeWow > 0) Wow(fx, a, b);
         if (fx.TapeStop > 0) TapeStopFx(fx, a, b, spb);
@@ -4844,6 +4964,253 @@ public static class FxProc {
             }
             wet *= 1.5;
             a[i] = (float)(a[i] * (1 - mix) + wet * mix); b[i] = (float)(b[i] * (1 - mix) + wet * mix);
+        }
+    }
+    static void SpectralGateFx(Fx fx, float[] a, float[] b) {
+        int n = a.Length, bands = Math.Max(2, Math.Min(8, (int)Math.Round(fx.SpecGateBands)));
+        double mix = Math.Max(0, Math.Min(1, fx.SpecGateMix)), thr = Math.Max(0.001, fx.SpecGateThresh);
+        double[] wetA = new double[n], wetB = new double[n];
+        for (int k = 0; k < bands; k++) {
+            double t = bands > 1 ? (double)k / (bands - 1) : 0.5;
+            double fc = Math.Max(80, Math.Min(SR / 5.0, 120 * Math.Pow(2, t * 6))), ff = 2 * Math.Sin(Math.PI * fc / SR), damp = 0.4;
+            double loA = 0, bdA = 0, loB = 0, bdB = 0, env = 0, atk = 1 - Math.Exp(-1.0 / (0.003 * SR)), rel = 1 - Math.Exp(-1.0 / (0.08 * SR));
+            for (int i = 0; i < n; i++) {
+                double hiA = a[i] - loA - damp * bdA; bdA += ff * hiA; loA += ff * bdA;
+                double hiB = b[i] - loB - damp * bdB; bdB += ff * hiB; loB += ff * bdB;
+                double x = Math.Max(Math.Abs(bdA), Math.Abs(bdB)); env += (x > env ? atk : rel) * (x - env);
+                double g = env > thr ? 1 : env / thr;
+                wetA[i] += bdA * g; wetB[i] += bdB * g;
+            }
+        }
+        double scale = 1.5 / bands;
+        for (int i = 0; i < n; i++) { a[i] = (float)(a[i] * (1 - mix) + wetA[i] * scale * mix); b[i] = (float)(b[i] * (1 - mix) + wetB[i] * scale * mix); }
+    }
+    static void SpectralBlurFx(Fx fx, float[] a, float[] b) {
+        int n = a.Length, len = Math.Max(256, (int)(SR * 0.08)); float[] da = new float[len], db = new float[len]; int pos = 0;
+        double mix = Math.Max(0, Math.Min(1, fx.SpecBlurMix)), amt = Math.Max(0, Math.Min(1, fx.SpecBlurAmount)), spread = Math.Max(0, Math.Min(1, fx.SpecBlurSpread));
+        double lpA = 0, lpB = 0, c = Math.Exp(-2 * Math.PI * (2200 + 6000 * amt) / SR);
+        for (int i = 0; i < n; i++) {
+            double lfo = 0.5 + 0.5 * Math.Sin(2 * Math.PI * (0.15 + 0.9 * amt) * i / SR);
+            int d1 = Math.Max(1, (int)((0.004 + 0.025 * amt * lfo) * SR));
+            int d2 = Math.Max(1, (int)((0.007 + 0.03 * amt * (1 - lfo)) * SR));
+            int r1 = pos - d1; if (r1 < 0) r1 += len; int r2 = pos - d2; if (r2 < 0) r2 += len;
+            double yA = da[r1] * 0.6 + da[r2] * 0.4, yB = db[r2] * 0.6 + db[r1] * 0.4;
+            da[pos] = (float)(a[i] + yB * spread * 0.25); db[pos] = (float)(b[i] + yA * spread * 0.25); pos++; if (pos >= len) pos = 0;
+            lpA = (1 - c) * yA + c * lpA; lpB = (1 - c) * yB + c * lpB;
+            a[i] = (float)(a[i] * (1 - mix) + (lpA * 0.7 + a[i] * 0.3) * mix);
+            b[i] = (float)(b[i] * (1 - mix) + (lpB * 0.7 + b[i] * 0.3) * mix);
+        }
+    }
+    static void SpectralDelayFx(Fx fx, float[] a, float[] b) {
+        int n = a.Length, d = Math.Max(16, (int)(fx.SpecDelayTime * 0.001 * SR));
+        int[] taps = { Math.Max(2, d / 2), d, Math.Min(n - 1, (int)(d * 1.5)) };
+        float[][] da = new float[taps.Length][], db = new float[taps.Length][];
+        for (int k = 0; k < taps.Length; k++) { da[k] = new float[Math.Max(4, taps[k])]; db[k] = new float[Math.Max(4, taps[k])]; }
+        double mix = Math.Max(0, Math.Min(1, fx.SpecDelayMix)), fb = Math.Max(0, Math.Min(0.9, fx.SpecDelayFb)), spread = Math.Max(0, Math.Min(1, fx.SpecDelaySpread));
+        double lpA = 0, lpB = 0, c = Math.Exp(-2 * Math.PI * 2400 / SR);
+        for (int i = 0; i < n; i++) {
+            double wa = 0, wb = 0;
+            for (int k = 0; k < da.Length; k++) {
+                int idx = i % da[k].Length;
+                double xa = da[k][idx], xb = db[k][idx];
+                da[k][idx] = (float)(a[i] + xa * fb); db[k][idx] = (float)(b[i] + xb * fb);
+                double g = 1.0 / (k + 1);
+                wa += xa * g; wb += xb * g;
+            }
+            lpA = (1 - c) * wa + c * lpA; lpB = (1 - c) * wb + c * lpB;
+            a[i] = (float)(a[i] * (1 - mix) + (wa * (1 - spread) + lpA * spread) * mix);
+            b[i] = (float)(b[i] * (1 - mix) + (wb * (1 - spread) + lpB * spread) * mix);
+        }
+    }
+    static void ConvReverbFx(Fx fx, float[] a, float[] b) {
+        int n = a.Length, taps = 24;
+        double mix = Math.Max(0, Math.Min(1, fx.ConvMix)), size = Math.Max(0, Math.Min(1, fx.ConvSize)), damp = Math.Max(0, Math.Min(1, fx.ConvDamp));
+        int pre = Math.Max(0, (int)(fx.ConvPre * 0.001 * SR));
+        int maxDelay = Math.Max(64, pre + (int)((0.08 + 0.55 * size) * SR));
+        float[] da = new float[maxDelay], db = new float[maxDelay]; int pos = 0;
+        Random r = new Random(1234 + (int)(size * 1000));
+        int[] tapDelay = new int[taps]; double[] gainA = new double[taps], gainB = new double[taps];
+        for (int k = 0; k < taps; k++) {
+            tapDelay[k] = Math.Max(1, (int)(pre + (0.02 + 0.9 * r.NextDouble()) * (0.08 + 0.55 * size) * SR));
+            double dec = Math.Exp(-(tapDelay[k] / (double)SR) / (0.05 + 0.55 * size));
+            gainA[k] = dec * (0.6 + 0.8 * r.NextDouble()) * (1 - damp * 0.5);
+            gainB[k] = dec * (0.6 + 0.8 * r.NextDouble()) * (1 - damp * 0.5);
+        }
+        double c = Math.Exp(-2 * Math.PI * (600 + 5000 * (1 - damp)) / SR), lpA = 0, lpB = 0;
+        for (int i = 0; i < n; i++) {
+            double wa = 0, wb = 0;
+            for (int k = 0; k < taps; k++) {
+                int idx = pos - tapDelay[k]; if (idx < 0) idx += maxDelay;
+                wa += da[idx] * gainA[k]; wb += db[idx] * gainB[k];
+            }
+            lpA = (1 - c) * wa + c * lpA; lpB = (1 - c) * wb + c * lpB;
+            da[pos] = a[i]; db[pos] = b[i]; pos++; if (pos >= maxDelay) pos = 0;
+            a[i] = (float)(a[i] * (1 - mix) + lpA * 0.35 * mix);
+            b[i] = (float)(b[i] * (1 - mix) + lpB * 0.35 * mix);
+        }
+    }
+    static void TankReverbFx(Fx fx, float[] a, float[] b) {
+        int n = a.Length; double mix = Math.Max(0, Math.Min(1, fx.TankMix)), decay = Math.Max(0, Math.Min(1, fx.TankDecay)), tone = Math.Max(0, Math.Min(1, fx.TankTone)), drip = Math.Max(0, Math.Min(1, fx.TankDrip));
+        int[] lens = { Math.Max(64, (int)(SR * (0.021 + 0.008 * decay))), Math.Max(64, (int)(SR * (0.033 + 0.012 * decay))), Math.Max(64, (int)(SR * (0.047 + 0.015 * decay))) };
+        float[][] da = new float[lens.Length][], db = new float[lens.Length][];
+        for (int k = 0; k < lens.Length; k++) { da[k] = new float[lens[k]]; db[k] = new float[lens[k]]; }
+        double fb = 0.55 + 0.4 * decay, c = Math.Exp(-2 * Math.PI * (900 + 6000 * tone) / SR), lpA = 0, lpB = 0;
+        for (int i = 0; i < n; i++) {
+            double wa = 0, wb = 0;
+            for (int k = 0; k < lens.Length; k++) {
+                int idx = i % lens[k]; double xa = da[k][idx], xb = db[k][idx];
+                da[k][idx] = (float)(a[i] + xb * fb * 0.6); db[k][idx] = (float)(b[i] + xa * fb * 0.6);
+                wa += xa; wb += xb;
+            }
+            double dripA = drip * 0.02 * Math.Sin(2 * Math.PI * 2400 * i / SR) * Math.Exp(-(i % 4096) / 800.0);
+            lpA = (1 - c) * wa + c * lpA; lpB = (1 - c) * wb + c * lpB;
+            a[i] = (float)(a[i] * (1 - mix) + (lpA / lens.Length + dripA) * mix);
+            b[i] = (float)(b[i] * (1 - mix) + (lpB / lens.Length + dripA) * mix);
+        }
+    }
+    static void AutoTuneFx(Fx fx, float[] a, float[] b) {
+        int n = a.Length, len = Math.Max(1024, SR * 2); float[] da = new float[len], db = new float[len]; int w = 0; double rp = 0, ratio = 1, prevRatio = 1;
+        double mix = Math.Max(0, Math.Min(1, fx.TuneMix)), speed = Math.Max(0, Math.Min(1, fx.TuneSpeed)), minHz = Math.Max(40, fx.TuneMinHz);
+        int block = 2048;
+        for (int start = 0; start < n; start += block) {
+            int end = Math.Min(n, start + block), count = end - start;
+            double best = 0; int bestLag = 0, maxLag = Math.Min(count - 1, (int)(SR / minHz)), minLag = Math.Max(2, (int)(SR / 1200));
+            for (int lag = minLag; lag <= maxLag; lag++) {
+                double s = 0;
+                for (int i = start; i < end - lag; i++) s += a[i] * a[i + lag];
+                if (s > best) { best = s; bestLag = lag; }
+            }
+            if (bestLag > 0 && best > 1e-6) {
+                double hz = SR / (double)bestLag, midi = 69 + 12 * Math.Log(hz / 440.0, 2), target;
+                int sc = (int)Math.Round(fx.TuneScale);
+                if (sc == 0) target = Math.Round(midi);
+                else {
+                    int[] major = { 0, 2, 4, 5, 7, 9, 11 }, minor = { 0, 2, 3, 5, 7, 8, 10 };
+                    int[] scale = sc == 2 ? minor : major; int pc = ((int)Math.Round(midi) % 12 + 12) % 12; int bestPc = scale[0], bd = 99;
+                    foreach (int s in scale) { int d = Math.Abs(s - pc); if (d < bd) { bd = d; bestPc = s; } }
+                    int baseNote = (int)Math.Floor((midi - pc) / 12.0) * 12 + bestPc; target = baseNote;
+                }
+                ratio = Math.Pow(2, (target - midi) / 12.0);
+            }
+            double sm = 0.02 + 0.9 * speed;
+            for (int i = start; i < end; i++) {
+                prevRatio += (ratio - prevRatio) * sm;
+                int ri = (int)rp; if (ri >= len) ri %= len; double fr = rp - Math.Floor(rp); int ri2 = (ri + 1) % len;
+                double ya = da[ri] * (1 - fr) + da[ri2] * fr, yb = db[ri] * (1 - fr) + db[ri2] * fr;
+                da[w] = a[i]; db[w] = b[i]; w++; if (w >= len) w = 0;
+                rp += prevRatio; while (rp >= len) rp -= len;
+                a[i] = (float)(a[i] * (1 - mix) + ya * mix); b[i] = (float)(b[i] * (1 - mix) + yb * mix);
+            }
+        }
+    }
+    static void OctaveUpFx(Fx fx, float[] a, float[] b) {
+        int n = a.Length, len = Math.Max(1024, SR * 2); float[] da = new float[len], db = new float[len]; int w = 0; double rp = 0;
+        double mix = Math.Max(0, Math.Min(1, fx.OctUpMix)), tone = Math.Max(0, Math.Min(1, fx.OctUpTone));
+        double c = Math.Exp(-2 * Math.PI * (1200 + 9000 * tone) / SR), lpA = 0, lpB = 0;
+        for (int i = 0; i < n; i++) {
+            int ri = (int)rp; if (ri >= len) ri %= len; double fr = rp - Math.Floor(rp); int ri2 = (ri + 1) % len;
+            double ya = da[ri] * (1 - fr) + da[ri2] * fr, yb = db[ri] * (1 - fr) + db[ri2] * fr;
+            da[w] = a[i]; db[w] = b[i]; w++; if (w >= len) w = 0;
+            rp += 2.0; while (rp >= len) rp -= len;
+            lpA = (1 - c) * ya + c * lpA; lpB = (1 - c) * yb + c * lpB;
+            a[i] = (float)(a[i] * (1 - mix) + lpA * mix); b[i] = (float)(b[i] * (1 - mix) + lpB * mix);
+        }
+    }
+    static void ChordGenFx(Fx fx, float[] a, float[] b) {
+        int n = a.Length, len = Math.Max(1024, SR * 2);
+        int ct = Math.Max(0, Math.Min(3, (int)Math.Round(fx.ChordType)));
+        int[] intervals = ct == 0 ? new[] { 4, 7 } : ct == 1 ? new[] { 3, 7 } : ct == 2 ? new[] { 7, 7 } : new[] { 5, 7 };
+        float[][] da = new float[2][], db = new float[2][]; int[] w = new int[2]; double[] rp = new double[2];
+        for (int k = 0; k < 2; k++) { da[k] = new float[len]; db[k] = new float[len]; }
+        double mix = Math.Max(0, Math.Min(1, fx.ChordMix)), spread = Math.Max(0, Math.Min(1, fx.ChordSpread));
+        for (int i = 0; i < n; i++) {
+            double wa = 0, wb = 0;
+            for (int k = 0; k < 2; k++) {
+                int ri = (int)rp[k]; if (ri >= len) ri %= len; double fr = rp[k] - Math.Floor(rp[k]); int ri2 = (ri + 1) % len;
+                double ya = da[k][ri] * (1 - fr) + da[k][ri2] * fr, yb = db[k][ri] * (1 - fr) + db[k][ri2] * fr;
+                da[k][w[k]] = a[i]; db[k][w[k]] = b[i]; w[k]++; if (w[k] >= len) w[k] = 0;
+                double ratio = Math.Pow(2, intervals[k] / 12.0);
+                rp[k] += ratio; while (rp[k] >= len) rp[k] -= len;
+                wa += (k == 0 ? ya * (1 - spread * 0.5) : ya * spread); wb += (k == 0 ? yb * (1 - spread * 0.5) : yb * spread);
+            }
+            a[i] = (float)(a[i] * (1 - mix) + wa * 0.55 * mix); b[i] = (float)(b[i] * (1 - mix) + wb * 0.55 * mix);
+        }
+    }
+    static void UpwardCompFx(Fx fx, float[] a, float[] b) {
+        int n = a.Length; double mix = Math.Max(0, Math.Min(1, fx.UpCompMix)), thr = Math.Pow(10, fx.UpCompThresh / 20.0), ratio = Math.Max(1, fx.UpCompRatio), maxDb = Math.Max(0, fx.UpCompRange);
+        double atk = 1 - Math.Exp(-1.0 / (0.005 * SR)), rel = 1 - Math.Exp(-1.0 / (0.1 * SR)), env = 0, gain = 1;
+        for (int i = 0; i < n; i++) {
+            double x = Math.Max(Math.Abs(a[i]), Math.Abs(b[i])); env += (x > env ? atk : rel) * (x - env);
+            double target = env > 1e-6 && env < thr ? Math.Min(Math.Pow(10, maxDb / 20.0), Math.Pow(thr / env, 1 - 1 / ratio)) : 1;
+            gain += (target - gain) * (target > gain ? atk : rel);
+            double g = 1 - mix + mix * gain; a[i] = (float)(a[i] * g); b[i] = (float)(b[i] * g);
+        }
+    }
+    static void TransientGateFx(Fx fx, float[] a, float[] b) {
+        int n = a.Length; double mix = Math.Max(0, Math.Min(1, fx.TranGateMix)), thr = Math.Pow(10, fx.TranGateThresh / 20.0);
+        int hold = Math.Max(1, (int)(fx.TranGateHold * 0.001 * SR)); double rel = 1 - Math.Exp(-1.0 / (Math.Max(10, fx.TranGateRelease) * 0.001 * SR));
+        double atk = 1 - Math.Exp(-1.0 / (0.001 * SR)), env = 0, gate = 0; int held = 0;
+        for (int i = 0; i < n; i++) {
+            double x = Math.Max(Math.Abs(a[i]), Math.Abs(b[i])); env += (x > env ? atk : rel) * (x - env);
+            if (env > thr) { gate = 1; held = hold; } else if (held > 0) held--; else gate += (0 - gate) * rel;
+            double g = 1 - mix + mix * gate; a[i] = (float)(a[i] * g); b[i] = (float)(b[i] * g);
+        }
+    }
+    static void StereoShuffleFx(Fx fx, float[] a, float[] b) {
+        int n = a.Length; double mix = Math.Max(0, Math.Min(1, fx.ShuffleMix)), loW = Math.Max(0, Math.Min(2, fx.ShuffleLow)), hiW = Math.Max(0, Math.Min(2, fx.ShuffleHigh));
+        double c = Math.Exp(-2 * Math.PI * Math.Max(40, fx.ShuffleFreq) / SR), lpA = 0;
+        for (int i = 0; i < n; i++) {
+            double mid = (a[i] + b[i]) * 0.5, side = (a[i] - b[i]) * 0.5;
+            lpA = (1 - c) * side + c * lpA;
+            double lowSide = lpA, highSide = side - lowSide;
+            double outSide = lowSide * loW + highSide * hiW;
+            a[i] = (float)(a[i] * (1 - mix) + (mid + outSide) * mix);
+            b[i] = (float)(b[i] * (1 - mix) + (mid - outSide) * mix);
+        }
+    }
+    static void MonoMakerFx(Fx fx, float[] a, float[] b) {
+        int n = a.Length; double mix = Math.Max(0, Math.Min(1, fx.MonoMix)), width = Math.Max(0, Math.Min(2, fx.MonoWidth));
+        double c = Math.Exp(-2 * Math.PI * Math.Max(20, fx.MonoFreq) / SR), lpA = 0;
+        for (int i = 0; i < n; i++) {
+            double mid = (a[i] + b[i]) * 0.5, side = (a[i] - b[i]) * 0.5;
+            lpA = (1 - c) * side + c * lpA;
+            double lowSide = lpA, highSide = side - lowSide;
+            double outSide = highSide * width;
+            a[i] = (float)(a[i] * (1 - mix) + (mid + outSide) * mix);
+            b[i] = (float)(b[i] * (1 - mix) + (mid - outSide) * mix);
+        }
+    }
+    static void PhaseAlignFx(Fx fx, float[] a, float[] b) {
+        int n = a.Length; double mix = Math.Max(0, Math.Min(1, fx.PhaseMix)), amount = Math.Max(0, Math.Min(1, fx.PhaseAmount));
+        double t = Math.Tan(Math.PI * Math.Max(80, Math.Min(8000, fx.PhaseFreq)) / SR), c = (t - 1) / (t + 1), za1 = 0, zb1 = 0, za2 = 0, zb2 = 0;
+        for (int i = 0; i < n; i++) {
+            double xa = a[i], xb = b[i];
+            double ya1 = c * xa + za1; za1 = xa - c * ya1; double ya2 = c * ya1 + za2; za2 = ya1 - c * ya2;
+            double yb1 = c * xb + zb1; zb1 = xb - c * yb1; double yb2 = c * yb1 + zb2; zb2 = yb1 - c * yb2;
+            double oa = xa * (1 - amount) + ya2 * amount, ob = xb * (1 - amount) + yb2 * amount;
+            a[i] = (float)(xa * (1 - mix) + oa * mix); b[i] = (float)(xb * (1 - mix) + ob * mix);
+        }
+    }
+    static void TapeLoopFx(Fx fx, float[] a, float[] b) {
+        int n = a.Length, len = Math.Max(64, (int)(fx.LoopLength * 0.001 * SR)); float[] da = new float[len], db = new float[len]; int w = 0; double rp = 0;
+        double mix = Math.Max(0, Math.Min(1, fx.LoopMix)), speed = Math.Max(0.25, Math.Min(2, fx.LoopSpeed)), fb = Math.Max(0, Math.Min(0.95, fx.LoopFb));
+        for (int i = 0; i < n; i++) {
+            int ri = (int)rp; if (ri >= len) ri %= len; double fr = rp - Math.Floor(rp); int ri2 = (ri + 1) % len;
+            double ya = da[ri] * (1 - fr) + da[ri2] * fr, yb = db[ri] * (1 - fr) + db[ri2] * fr;
+            da[w] = (float)(a[i] + ya * fb); db[w] = (float)(b[i] + yb * fb); w++; if (w >= len) w = 0;
+            rp += speed; while (rp >= len) rp -= len;
+            a[i] = (float)(a[i] * (1 - mix) + ya * mix); b[i] = (float)(b[i] * (1 - mix) + yb * mix);
+        }
+    }
+    static void StutterGateFx(Fx fx, float[] a, float[] b) {
+        int n = a.Length; double mix = Math.Max(0, Math.Min(1, fx.StutterGateMix)), chance = Math.Max(0, Math.Min(1, fx.StutterGateChance));
+        int div = Math.Max(2, Math.Min(16, (int)Math.Round(fx.StutterGateDiv)));
+        int hold = Math.Max(64, (int)(SR / Math.Max(0.5, fx.StutterGateRate) / div));
+        Random r = new Random(901); bool open = true; int remain = hold;
+        for (int i = 0; i < n; i++) {
+            if (remain <= 0) { open = r.NextDouble() < chance; remain = hold; }
+            remain--; double g = 1 - mix + mix * (open ? 1 : 0);
+            a[i] = (float)(a[i] * g); b[i] = (float)(b[i] * g);
         }
     }
     static void GateFx(Fx fx, float[] a, float[] b) {

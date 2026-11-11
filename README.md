@@ -22,7 +22,7 @@ powershell -ExecutionPolicy Bypass -File ".\Humble Baker Studio.ps1"
 |---|---|
 | [Manual](docs/MANUAL.md) | every window, tab, tool, button and workflow |
 | [SuperCollider tutorial](docs/SUPERCOLLIDER.md) | using SC in the Studio, SynthDefs, patterns, buses, MIDI/OSC, debugging, cited SC docs |
-| [Effect Reference](docs/EFFECTS.md) | all 98 effects, every control, range and description |
+| [Effect Reference](docs/EFFECTS.md) | all 113 effects, every control, range and description |
 | [Synth Patch Reference](docs/SYNTH.md) | every synth parameter |
 | [Settings Reference](docs/SETTINGS.md) | mastering, mix rules, spectral and meta settings |
 
@@ -54,7 +54,7 @@ No installer is required: the build is portable. FFmpeg and SuperCollider are di
 - **Piano roll** with scales, snap, velocity, note lengths, and per-track drums/melody parts.
 - **Synth engine**: subtractive, FM, additive, wavetable, vowel, Karplus-Strong pluck, modal bells, noise, filters, drive, bitcrush.
 - **Drums** with multiple kits and per-kit character.
-- **Patch graph**: tracks, FX modules, buses, groups, master out; **all 98 effects are added as graph nodes**, and shared FX nodes process all tracks routed through them.
+- **Patch graph**: tracks, FX modules, buses, groups, master out; **all 113 effects are added as graph nodes**, and shared FX nodes process all tracks routed through them.
 - **MIDI input**: connect a controller, watch a live note/CC log, record quantized notes into the selected track, and optionally monitor incoming notes through that track.
 - **Sampler tab**: WAV import, draggable waveform selection, normalize/reverse/trim, auto-slice at onsets, equal chop, add selection as a slice, audition and export slices, and turn slices into sampler tracks.
 - **Automation painting**:

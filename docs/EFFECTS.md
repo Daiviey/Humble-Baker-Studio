@@ -1,6 +1,6 @@
 # Effect Reference
 
-Humble Baker Studio ships **98 effects**. Every effect is a Patch-graph node: right-click the Patch graph and choose **Add / Insert FX module**. There is no rack or quick-add path.
+Humble Baker Studio ships **113 effects**. Every effect is a Patch-graph node: right-click the Patch graph and choose **Add / Insert FX module**. There is no rack or quick-add path.
 
 ## How effects run
 
@@ -834,4 +834,134 @@ Humble Baker Studio ships **98 effects**. Every effect is a Patch-graph node: ri
 | `VocoderBands` | 4 - 12 | Vocoder band count. |
 | `VocoderRelease` | 10 - 500 | Vocoder envelope release in ms. |
 | `VocoderCarrier` | 0 - 1 | Vocoder carrier (0 = noise, 1 = saw). |
+
+## Spectral, convolution and performance pack (v1.0.19)
+
+### Spectral gate (`specgate`)
+
+| Control | Range | Description |
+|---|---|---|
+| `SpecGateMix` | 0 - 1 | Spectral gate mix (0 = off). |
+| `SpecGateThresh` | 0.001 - 0.5 | Spectral gate threshold. |
+| `SpecGateBands` | 2 - 8 | Spectral gate band count. |
+
+### Spectral blur (`specblur`)
+
+| Control | Range | Description |
+|---|---|---|
+| `SpecBlurMix` | 0 - 1 | Spectral blur mix (0 = off). |
+| `SpecBlurAmount` | 0 - 1 | Spectral blur amount. |
+| `SpecBlurSpread` | 0 - 1 | Spectral blur stereo spread. |
+
+### Spectral delay (`specdelay`)
+
+| Control | Range | Description |
+|---|---|---|
+| `SpecDelayMix` | 0 - 1 | Spectral delay mix (0 = off). |
+| `SpecDelayTime` | 20 - 900 | Spectral delay time in ms. |
+| `SpecDelayFb` | 0 - 0.9 | Spectral delay feedback. |
+| `SpecDelaySpread` | 0 - 1 | Spectral delay band spread. |
+
+### Convolution reverb (`convreverb`)
+
+| Control | Range | Description |
+|---|---|---|
+| `ConvMix` | 0 - 1 | Convolution reverb mix (0 = off). |
+| `ConvSize` | 0 - 1 | Convolution reverb size. |
+| `ConvDamp` | 0 - 1 | Convolution reverb damping. |
+| `ConvPre` | 0 - 120 | Convolution pre-delay in ms. |
+
+### Tank reverb (`tankreverb`)
+
+| Control | Range | Description |
+|---|---|---|
+| `TankMix` | 0 - 1 | Tank reverb mix (0 = off). |
+| `TankDecay` | 0 - 1 | Tank reverb decay. |
+| `TankTone` | 0 - 1 | Tank reverb tone. |
+| `TankDrip` | 0 - 1 | Tank reverb drip. |
+
+### Auto-tune (`autotune`)
+
+| Control | Range | Description |
+|---|---|---|
+| `TuneMix` | 0 - 1 | Auto-tune mix (0 = off). |
+| `TuneSpeed` | 0 - 1 | Auto-tune correction speed. |
+| `TuneScale` | 0 - 2 | Auto-tune scale: 0 chromatic, 1 major, 2 minor. |
+| `TuneMinHz` | 40 - 300 | Auto-tune minimum frequency in Hz. |
+
+### Octave up (`octaveup`)
+
+| Control | Range | Description |
+|---|---|---|
+| `OctUpMix` | 0 - 1 | Octave-up mix (0 = off). |
+| `OctUpTone` | 0 - 1 | Octave-up tone. |
+
+### Chord generator (`chordgen`)
+
+| Control | Range | Description |
+|---|---|---|
+| `ChordMix` | 0 - 1 | Chord generator mix (0 = off). |
+| `ChordType` | 0 - 3 | Chord type: 0 major, 1 minor, 2 fifth, 3 sus4. |
+| `ChordSpread` | 0 - 1 | Chord voice spread. |
+
+### Upward compressor (`upcomp`)
+
+| Control | Range | Description |
+|---|---|---|
+| `UpCompMix` | 0 - 1 | Upward compressor mix (0 = off). |
+| `UpCompThresh` | -60 - 0 | Upward compressor threshold in dB. |
+| `UpCompRatio` | 1 - 8 | Upward compressor ratio. |
+| `UpCompRange` | 0 - 36 | Maximum upward gain in dB. |
+
+### Transient gate (`trangate`)
+
+| Control | Range | Description |
+|---|---|---|
+| `TranGateMix` | 0 - 1 | Transient gate mix (0 = off). |
+| `TranGateThresh` | -60 - 0 | Transient gate threshold in dB. |
+| `TranGateHold` | 1 - 500 | Transient gate hold in ms. |
+| `TranGateRelease` | 10 - 1000 | Transient gate release in ms. |
+
+### Stereo shuffler (`shuffle`)
+
+| Control | Range | Description |
+|---|---|---|
+| `ShuffleMix` | 0 - 1 | Stereo shuffler mix (0 = off). |
+| `ShuffleLow` | 0 - 2 | Low-frequency side width. |
+| `ShuffleHigh` | 0 - 2 | High-frequency side width. |
+| `ShuffleFreq` | 40 - 800 | Stereo shuffler crossover in Hz. |
+
+### Mono maker (`monomaker`)
+
+| Control | Range | Description |
+|---|---|---|
+| `MonoMix` | 0 - 1 | Mono maker mix (0 = off). |
+| `MonoFreq` | 20 - 500 | Mono maker crossover in Hz. |
+| `MonoWidth` | 0 - 2 | Mono maker side width above crossover. |
+
+### Phase aligner (`phasealign`)
+
+| Control | Range | Description |
+|---|---|---|
+| `PhaseMix` | 0 - 1 | Phase aligner mix (0 = off). |
+| `PhaseFreq` | 80 - 8000 | Phase aligner frequency in Hz. |
+| `PhaseAmount` | 0 - 1 | Phase aligner amount. |
+
+### Tape loop (`tapeloop`)
+
+| Control | Range | Description |
+|---|---|---|
+| `LoopMix` | 0 - 1 | Tape loop mix (0 = off). |
+| `LoopLength` | 50 - 2000 | Tape loop length in ms. |
+| `LoopSpeed` | 0.25 - 2 | Tape loop speed. |
+| `LoopFb` | 0 - 0.95 | Tape loop feedback. |
+
+### Stutter gate (`stuttergate`)
+
+| Control | Range | Description |
+|---|---|---|
+| `StutterGateMix` | 0 - 1 | Stutter gate mix (0 = off). |
+| `StutterGateRate` | 0.5 - 30 | Stutter gate rate in Hz. |
+| `StutterGateDiv` | 2 - 16 | Stutter gate divisions. |
+| `StutterGateChance` | 0 - 1 | Stutter gate chance. |
 

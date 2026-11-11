@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.19 — 2026-11-11
+
+- Added 15 effects (113 total): Spectral Gate, Spectral Blur, Spectral Delay, Convolution Reverb, Tank Reverb, Auto-Tune, Octave Up, Chord Generator, Upward Compressor, Transient Gate, Stereo Shuffler, Mono Maker, Phase Aligner, Tape Loop and Stutter Gate.
+- All 113 catalog entries create active nodes and pass the NaN/Inf tone test.
+- Regenerated the effect reference with all 113 modules and 365 effect parameters.
+
 ## 1.0.18 — 2026-11-11
 
 - Added `docs/SUPERCOLLIDER.md`: an in-depth SuperCollider tutorial covering the Studio bridge, the generated `.scd`, SynthDefs, Pattern/Pbind sequencing, buses and routing, effects, live coding, rendering, MIDI/OSC and debugging.

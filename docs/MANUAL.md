@@ -1,8 +1,8 @@
 # Humble Baker Studio - Manual
 
-Version 1.0.18. This manual covers every window, tab, tool, effect slot and option in the app. For the full parameter tables see:
+Version 1.0.19. This manual covers every window, tab, tool, effect slot and option in the app. For the full parameter tables see:
 
-- [Effect Reference](EFFECTS.md) - all 98 effects with every control, range and description
+- [Effect Reference](EFFECTS.md) - all 113 effects with every control, range and description
 - [Synth Patch Reference](SYNTH.md) - every synth parameter
 - [Settings Reference](SETTINGS.md) - mastering, mix rules, spectral and meta settings
 
@@ -13,7 +13,7 @@ Version 1.0.18. This manual covers every window, tab, tool, effect slot and opti
 Humble Baker Studio is a pattern-based electronic music studio:
 
 - piano-roll sequencing with scales, drums and per-track effects
-- a modular **Patch graph** where tracks, buses, groups and **all 98 effects** live as nodes
+- a modular **Patch graph** where tracks, buses, groups and **all 113 effects** live as nodes
 - a subtractive/FM/additive/pluck/modal synth plus sampler, morph, spectral and drum engines
 - automation painting, mixing rules, mastering, MIDI and SuperCollider export
 - local-AI assistants for notes, sounds, mixing, mastering and whole songs
@@ -168,7 +168,7 @@ Switch with **Patch graph** in the centre bar. The graph is the only place effec
 ### Nodes
 
 - **Track** nodes carry a track's notes and sound.
-- **FX** nodes are the 98 effects.
+- **FX** nodes are the 113 effects.
 - **Bus** nodes are gain/pan sums.
 - **Group** nodes are group masters created from selected modules.
 - **Master Out** is the final output.
@@ -200,7 +200,7 @@ Bus, group and track FX nodes process the sum of everything routed into them. To
 
 ### Adding effects
 
-Right-click the graph -> **Add FX module** -> choose any of the 98 effects. The node label shows the effect. Select it to edit **only that effect's parameters** in the inspector/knobs. See [EFFECTS.md](EFFECTS.md) for every module and control.
+Right-click the graph -> **Add FX module** -> choose any of the 113 effects. The node label shows the effect. Select it to edit **only that effect's parameters** in the inspector/knobs. See [EFFECTS.md](EFFECTS.md) for every module and control.
 
 ---
 
@@ -745,7 +745,7 @@ If an AI action fails:
 
 ## 14. Reference index
 
-- [Effect Reference](EFFECTS.md) - 98 modules, all controls and ranges
+- [Effect Reference](EFFECTS.md) - 113 modules, all controls and ranges
 - [Synth Patch Reference](SYNTH.md) - 89 patch parameters
 - [Settings Reference](SETTINGS.md) - mastering, mix rules, spectral, meta synth
 - [SuperCollider tutorial](SUPERCOLLIDER.md) - SC setup, SynthDefs, patterns, buses and citations

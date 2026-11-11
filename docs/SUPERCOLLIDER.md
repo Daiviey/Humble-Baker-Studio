@@ -373,7 +373,7 @@ SynthDef(\hbMySampler, { |out = 0, buf = 0, freq = 440, rootfreq = 261.63,
 
 ### 6.5 Effects in the generated script
 
-The SC exporter does **not** translate the 98 Patch-graph effect modules. It generates a
+The SC exporter does **not** translate the 113 Patch-graph effect modules. It generates a
 SynthDef from the legacy track `Fx` fields, and only for the subset implemented by
 `Get-StudioFxSynthDef` [app]: filter, wavefolder, drive, downsampling, bit crush, ring
 modulation, chorus, delay, reverb and output gain. The global `hbfx` is a stereo delay [app].
