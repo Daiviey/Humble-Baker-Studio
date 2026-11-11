@@ -7,14 +7,15 @@ GitHub release assets are not stored in the file tree. Use the links below or op
 
 | Version | Downloads | Notes |
 |---|---|---|
-| **v0.1.1** | [Portable exe](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.1.1/Humble-Baker-Studio-CSharp-0.1.1-win-x64.exe) · [Zip](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.1.1/Humble-Baker-Studio-CSharp-0.1.1-win-x64.zip) · [SHA-256](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.1.1/SHA256SUMS.txt) | UI polish: menu bar, cards, live decks, settings and AI layouts. Self-contained; no .NET install. |
+| **v0.1.2** | [Portable exe](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.1.2/Humble-Baker-Studio-CSharp-0.1.2-win-x64.exe) · [SHA-256](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.1.2/SHA256SUMS.txt) | Auto-wires the patch graph on first open, with an empty-state hint. Includes the v0.1.1 UI polish. |
+| v0.1.1 | [Release page](https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/csharp-port-v0.1.1) | UI polish: menu bar, cards, live decks, settings and AI layouts. |
 | v0.1.0 | [Release page](https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/csharp-port-v0.1.0) | First complete C# port with the two-deck live mixer. |
 
 C# source: [`src/`](src) · build guide: [README-CSHARP.md](README-CSHARP.md) · port status: [docs/PORT.md](docs/PORT.md).
 
 The portable exe is also committed in the repository at [`CSharp-Port/Humble Baker Studio.exe`](CSharp-Port/Humble%20Baker%20Studio.exe).
 
-A copy of the latest C# build is also kept locally in `Z:\LocalAI\Repo\release\csharp-v0.1.1\`
+A copy of the latest C# build is also kept locally in `Z:\LocalAI\Repo\release\csharp-v0.1.2\`
 and as `Z:\LocalAI\Repo\release\Humble-Baker-Studio-CSharp-v0.1.1.zip`.
 
 ## PowerShell studio (stable)
