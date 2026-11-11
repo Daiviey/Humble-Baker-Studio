@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.5 — 2026-11-10
+
+- Sample-library instruments (foley, percussion, orchestral/guitar hits) now default to **Pitch (key)** mode, so piano-roll notes transpose them.
+- One-shot and Loop modes remain selectable in the track panel/Sound Lab for existing tracks.
+
 ## 1.0.4 — 2026-11-10
 
 - Fixed false “FFmpeg could not encode” errors when the output file was actually written.

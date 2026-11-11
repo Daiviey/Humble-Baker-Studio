@@ -5578,10 +5578,9 @@ function Set-StudioTrackFromInstrument($Track, $Inst) {
     } else {
         $Track.Sample = Get-StudioInstrumentSample $Inst; $Track.Synth = 'sample'
         $Track.SampleRoot = $(if ($null -ne $Inst.root) { [int]$Inst.root } else { 60 }); $Track.SampleGate = [bool]$Inst.gate
-        # Library hits are recorded one-shots. Default them to One-shot so playing notes away from the
-        # recorded root does not stretch a 1-second hit into a slow, tape-like smear. Pitch/loop remain
-        # selectable in the Sound Lab.
-        $Track.SampleMode = $(if ($null -ne $Inst.sampleMode) { [int]$Inst.sampleMode } elseif ([bool]$Inst.sampleFile) { 1 } else { 0 })
+        # Library hits can be used as playable instruments. Default to Pitch (key) so piano-roll
+        # notes transpose the sample; One-shot and Loop remain selectable in the Sound Lab/track panel.
+        $Track.SampleMode = $(if ($null -ne $Inst.sampleMode) { [int]$Inst.sampleMode } else { 0 })
     }
     if ($Inst.fx) { [void](Set-StudioObjectFromJson $Track.Fx $Inst.fx) }
 }
