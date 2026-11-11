@@ -11535,7 +11535,19 @@ Rules: prefer the user's saved instruments when one fits the goal. Use design_so
         $y += 40
         & $add (Lbl 'Format' 16 $y 70); $fmtKeys = @($script:StudioFormats.Keys | ForEach-Object { [string]$_ }); $cbFormat = Combo $fmtKeys 110 $y 220; $cbFormat.SelectedItem = [string]$s.Format; if ($cbFormat.SelectedIndex -lt 0) { $cbFormat.SelectedIndex = 0 }; & $add $cbFormat
         $y += 36
-        & $add (Lbl 'Sample rate' 16 $y 85); $cbRate = Combo @('44100', '48000', '96000') 110 $y 100; $cbRate.SelectedItem = [string]$s.SampleRate; if ($cbRate.SelectedIndex -lt 0) { $cbRate.SelectedIndex = 0 }; & $add $cbRate
+        $fmt0 = $script:StudioFormats[[string]$cbFormat.SelectedItem]
+        $rates0 = if ($fmt0.Ext -eq 'mp3' -or $fmt0.Ext -eq 'opus') { @('44100', '48000') } else { @('44100', '48000', '96000') }
+        & $add (Lbl 'Sample rate' 16 $y 85); $cbRate = Combo $rates0 110 $y 100; $cbRate.SelectedItem = [string]$s.SampleRate; if ($cbRate.SelectedIndex -lt 0) { $cbRate.SelectedIndex = $rates0.Count - 1 }; & $add $cbRate
+        $cbFormat.Add_SelectedIndexChanged({
+            try {
+                $f2 = $script:StudioFormats[[string]$cbFormat.SelectedItem]
+                $allowed = if ($f2.Ext -eq 'mp3' -or $f2.Ext -eq 'opus') { @('44100', '48000') } else { @('44100', '48000', '96000') }
+                $prev = [string]$cbRate.SelectedItem
+                $cbRate.Items.Clear(); foreach ($r in $allowed) { [void]$cbRate.Items.Add($r) }
+                $idx = [array]::IndexOf([string[]]$allowed, $prev)
+                $cbRate.SelectedIndex = $(if ($idx -ge 0) { $idx } else { $allowed.Count - 1 })
+            } catch { }
+        })
         & $add (Lbl 'Channels' 260 $y 70); $cbCh = Combo @('Stereo', 'Mono') 340 $y 100; $cbCh.SelectedIndex = $(if ($s.Mono) { 1 } else { 0 }); & $add $cbCh
         $y += 40
         & $add (Lbl 'Pattern exports loop seamlessly; Loop count repeats it. Song export uses the arrangement.' 16 $y 480)
@@ -11566,11 +11578,13 @@ Rules: prefer the user's saved instruments when one fits the goal. Use design_so
         } else { Show-StudioExportDialog }
         if (-not $opt) { return }
         $fn = [string]$opt.Format; $fmt = $script:StudioFormats[$fn]; if (-not $fmt) { return }
+        $sr = [int]$opt.SampleRate; $rateNote = ''
+        if (($fmt.Ext -eq 'mp3' -or $fmt.Ext -eq 'opus') -and $sr -gt 48000) { $sr = 48000; $rateNote = " (limited to 48 kHz for $($fmt.Ext))" }
         try {
             Sync-Project
             $song = [bool]$opt.Song
             if ($song -and $S.Proj.Song.Count -eq 0) { Show-StudioMsg 'The song is empty. Build an arrangement on the Song tab or choose Current pattern.'; return }
-            $needFf = ($fmt.Ext -ne 'wav' -or $fmt.Args -or [int]$opt.SampleRate -ne 44100 -or [bool]$opt.Mono)
+            $needFf = ($fmt.Ext -ne 'wav' -or $fmt.Args -or $sr -ne 44100 -or [bool]$opt.Mono)
             $ff = $null
             if ($needFf) {
                 $ff = Find-StudioFfmpeg
@@ -11596,21 +11610,21 @@ Rules: prefer the user's saved instruments when one fits the goal. Use design_so
                 }
             } finally { $p.Bpm = $oldBpm; $p.Click = $oldClick }
             [HbStudio.ExportDsp]::NormalizeFade($pcm, [bool]$opt.Normalize, [double]$opt.NormDb, [int]$opt.FadeIn, [int]$opt.FadeOut, 44100)
-            $direct = ($fmt.Ext -eq 'wav' -and -not $fmt.Args -and [int]$opt.SampleRate -eq 44100 -and -not [bool]$opt.Mono)
+            $direct = ($fmt.Ext -eq 'wav' -and -not $fmt.Args -and $sr -eq 44100 -and -not [bool]$opt.Mono)
             if ($direct) { [HbStudio.Dsp]::WriteWav($d.FileName, $pcm) }
             else {
                 $tmp = Join-Path $env:TEMP ('hb-studio-export-' + [guid]::NewGuid().ToString('N') + '.wav')
                 try {
                     [HbStudio.Dsp]::WriteWav($tmp, $pcm)
                     Set-MasterStatus "Encoding $fn..."
-                    $extra = "-ar $([int]$opt.SampleRate)"
+                    $extra = "-ar $sr"
                     if ([bool]$opt.Mono) { $extra += ' -ac 1' }
                     if ($fmt.Ext -eq 'wav' -and -not $fmt.Args) { $extra += ' -c:a pcm_s16le' }
                     Convert-StudioAudio $ff $tmp $d.FileName $fn $extra
                 } finally { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
             }
-            Log ("Exported $($d.FileName) ($loops loop(s), $fn, $($opt.SampleRate) Hz)");
-            Set-MasterStatus ('Exported ' + (Split-Path $d.FileName -Leaf) + "  ($loops loop(s), $fn)")
+            Log ("Exported $($d.FileName) ($loops loop(s), $fn, $sr Hz$rateNote)");
+            Set-MasterStatus ('Exported ' + (Split-Path $d.FileName -Leaf) + "  ($loops loop(s), $fn$rateNote)")
             try { if (Get-Command Add-AudioPlaylistFiles -ErrorAction SilentlyContinue) { [void](Add-AudioPlaylistFiles @($d.FileName)) } } catch { }
             if (-not $script:StudioExportPath) { Start-Process explorer.exe -ArgumentList "/select,`"$($d.FileName)`"" }
         } catch { try { Add-Content -LiteralPath $exportLog -Value ('[{0}] ERROR {1}' -f (Get-Date), $_.Exception.ToString()) } catch { }; Log ('Export failed: ' + $_.Exception.Message); Set-MasterStatus ('Export failed: ' + $_.Exception.Message); Show-StudioMsg ('Export failed: ' + $_.Exception.Message) }

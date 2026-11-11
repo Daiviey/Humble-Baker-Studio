@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.3 — 2026-11-10
+
+- MP3 and Opus exports now limit the sample rate to 48 kHz, preventing the libmp3lame/libopus encoder error.
+- Added a safety clamp in the export path for invalid rate/format combinations.
+
 ## 1.0.2 — 2026-11-10
 
 - Rebuilt the main app and Studio executables from the current sources.
