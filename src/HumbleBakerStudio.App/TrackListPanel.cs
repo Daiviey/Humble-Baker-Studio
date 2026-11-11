@@ -138,15 +138,28 @@ internal sealed class TrackListPanel : UserControl
             e.Graphics.FillRectangle(stripe, e.Bounds.Left, e.Bounds.Top + 4, 3, e.Bounds.Height - 8);
         }
 
-        var nameRect = new Rectangle(e.Bounds.Left + 10, e.Bounds.Top + 4, e.Bounds.Width - 70, 19);
+        using (var dot = new SolidBrush(SynthColor(t.Synth)))
+            e.Graphics.FillRectangle(dot, e.Bounds.Left + 8, e.Bounds.Top + 12, 4, e.Bounds.Height - 24);
+        var nameRect = new Rectangle(e.Bounds.Left + 18, e.Bounds.Top + 4, e.Bounds.Width - 78, 19);
         TextRenderer.DrawText(e.Graphics, t.Name, Theme.UiBold, nameRect, Theme.Text, TextFormatFlags.Left | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding);
-        string sub = t.Synth + (t.Synth == "drums" ? " · " + t.DrumKit : t.Patch != null ? " · patch" : "") + $" · {t.Notes.Count} notes";
-        var subRect = new Rectangle(e.Bounds.Left + 10, e.Bounds.Top + 22, e.Bounds.Width - 70, 16);
+        string sub = t.Synth + (t.Synth == "drums" ? " · " + t.DrumKit : t.Patch != null ? " · patch" : "") + $" · {t.Vol * 100:0}% · {t.Notes.Count} notes";
+        var subRect = new Rectangle(e.Bounds.Left + 18, e.Bounds.Top + 22, e.Bounds.Width - 78, 16);
         TextRenderer.DrawText(e.Graphics, sub, Theme.Small, subRect, Theme.Muted, TextFormatFlags.Left | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding);
 
         DrawBadge(e.Graphics, new Rectangle(e.Bounds.Right - 50, e.Bounds.Top + 11, 20, 18), "M", t.Mute, Theme.AccentWarm);
         DrawBadge(e.Graphics, new Rectangle(e.Bounds.Right - 24, e.Bounds.Top + 11, 20, 18), "S", t.Solo, Theme.Good);
     }
+
+    private static Color SynthColor(string synth) => synth switch
+    {
+        "drums" => Theme.AccentWarm,
+        "pad" => Color.FromArgb(186, 140, 255),
+        "pluck" => Color.FromArgb(120, 220, 200),
+        "patch" => Theme.Accent,
+        "sample" => Color.FromArgb(240, 200, 110),
+        "noise" => Theme.Muted,
+        _ => Theme.Good
+    };
 
     private static void DrawBadge(Graphics g, Rectangle r, string text, bool on, Color color)
     {
