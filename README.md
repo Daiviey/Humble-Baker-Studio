@@ -49,6 +49,12 @@ powershell -ExecutionPolicy Bypass -File ".\Humble Baker Studio.ps1"
 
 No installer is required: the build is portable. FFmpeg and SuperCollider are discovered from the app folder or the standard install locations.
 
+## C# port (alpha)
+
+A native .NET port of the studio lives in `src/` and is documented in [README-CSHARP.md](README-CSHARP.md) and [docs/PORT.md](docs/PORT.md). It reads and writes the same `*.hbstudio.json` projects and includes the two-deck Live performance window.
+
+Prebuilt portable build: [C# port v0.1.0](https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/csharp-port-v0.1.0) (self-contained Windows x64 exe, no .NET install required).
+
 ## Features
 
 - **Piano roll** with scales, snap, velocity, note lengths, and per-track drums/melody parts.
