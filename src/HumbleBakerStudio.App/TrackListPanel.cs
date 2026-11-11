@@ -75,6 +75,7 @@ internal sealed class TrackListPanel : UserControl
 
     private void AddTrack()
     {
+        _host.BeginEdit("tracks");
         var t = ProjectStore.NewTrack("Track " + (_host.Project.Tracks.Count + 1), "acid");
         _host.Project.Tracks.Add(t);
         _host.NotifyTracksChanged(t);
@@ -84,6 +85,7 @@ internal sealed class TrackListPanel : UserControl
     {
         var src = _host.SelectedTrack;
         if (src == null) return;
+        _host.BeginEdit("tracks");
         var t = ProjectStore.NewTrack(src.Name + " copy", src.Synth);
         t.Vol = src.Vol; t.Pan = src.Pan; t.Cutoff = src.Cutoff; t.Res = src.Res; t.EnvAmt = src.EnvAmt;
         t.Atk = src.Atk; t.Rel = src.Rel; t.Crush = src.Crush; t.Bus = src.Bus; t.DrumKit = src.DrumKit;
@@ -99,6 +101,7 @@ internal sealed class TrackListPanel : UserControl
         if (t == null || _host.Project.Tracks.Count <= 1) return;
         if (MessageBox.Show(this, $"Delete track \"{t.Name}\"?", "Tracks", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
             return;
+        _host.BeginEdit("tracks");
         int i = _host.Project.Tracks.IndexOf(t);
         _host.Project.Tracks.Remove(t);
         foreach (var pattern in _host.Project.Patterns) pattern.RemoveTrack(i);
@@ -111,8 +114,8 @@ internal sealed class TrackListPanel : UserControl
         if (i < 0 || i >= _host.Project.Tracks.Count) return;
         var t = _host.Project.Tracks[i];
         int w = _list.ClientSize.Width;
-        if (e.X >= w - 52 && e.X < w - 26) { t.Mute = !t.Mute; MarkChanged(t); }
-        else if (e.X >= w - 26) { t.Solo = !t.Solo; MarkChanged(t); }
+        if (e.X >= w - 52 && e.X < w - 26) { _host.BeginEdit("tracks"); t.Mute = !t.Mute; MarkChanged(t); }
+        else if (e.X >= w - 26) { _host.BeginEdit("tracks"); t.Solo = !t.Solo; MarkChanged(t); }
     }
 
     private void MarkChanged(Track t)

@@ -25,7 +25,7 @@ internal sealed class GraphTab : UserControl
         Controls.Add(_graph);
         Controls.Add(bar);
 
-        _graph.GraphChanged += (_, _) => _host.MarkDirty();
+        _graph.GraphChanged += (_, _) => { _host.BeginEdit("graph"); _host.MarkDirty(); };
         _graph.SelectionChanged += (_, _) => UpdateInfo();
     }
 
@@ -43,6 +43,7 @@ internal sealed class GraphTab : UserControl
 
     private void AutoPatch()
     {
+        _host.BeginEdit("graph");
         PatchGraphControl.AutoPatch(_host.Project);
         _graph.Proj = _host.Project;
         _graph.FrameAll();
@@ -52,6 +53,7 @@ internal sealed class GraphTab : UserControl
 
     private void AddTrackNodes()
     {
+        _host.BeginEdit("graph");
         foreach (var t in _host.Project.Tracks)
             PatchGraphControl.AddTrackNode(_host.Project, t);
         _graph.Proj = _host.Project;

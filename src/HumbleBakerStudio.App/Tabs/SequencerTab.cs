@@ -71,18 +71,20 @@ internal sealed class SequencerTab : UserControl
             UpdateInfo();
             _host.MarkDirty();
         };
-        _roll.BeginEdit += (_, _) => { };
+        _roll.BeginEdit += (_, _) => _host.BeginEdit("notes");
         _roll.SpaceRequested += (_, _) => _host.TogglePlayback();
 
         _name.TextChanged += (_, _) =>
         {
             if (_syncing || _host.SelectedTrack == null) return;
+            _host.BeginEdit("track");
             _host.SelectedTrack.Name = _name.Text.Trim();
             _host.MarkDirty();
         };
         _synth.SelectedIndexChanged += (_, _) =>
         {
             if (_syncing || _host.SelectedTrack == null) return;
+            _host.BeginEdit("track");
             var t = _host.SelectedTrack;
             t.Synth = (string)_synth.SelectedItem!;
             if (t.Synth == "patch" && t.Patch == null) t.Patch = new Patch();
@@ -92,6 +94,7 @@ internal sealed class SequencerTab : UserControl
         _kit.SelectedIndexChanged += (_, _) =>
         {
             if (_syncing || _host.SelectedTrack == null) return;
+            _host.BeginEdit("track");
             _host.SelectedTrack.DrumKit = (string)_kit.SelectedItem!;
             _host.MarkDirty();
         };
@@ -106,8 +109,8 @@ internal sealed class SequencerTab : UserControl
         {
             _roll.Grid = _grid.SelectedIndex switch { 0 => 1.0, 1 => 0.5, 2 => 0.25, _ => 0.125 };
         };
-        _mute.CheckedChanged += (_, _) => { if (!_syncing && _host.SelectedTrack != null) { _host.SelectedTrack.Mute = _mute.Checked; _host.MarkDirty(); _host.NotifyTracksChanged(); } };
-        _solo.CheckedChanged += (_, _) => { if (!_syncing && _host.SelectedTrack != null) { _host.SelectedTrack.Solo = _solo.Checked; _host.MarkDirty(); _host.NotifyTracksChanged(); } };
+        _mute.CheckedChanged += (_, _) => { if (!_syncing && _host.SelectedTrack != null) { _host.BeginEdit("track"); _host.SelectedTrack.Mute = _mute.Checked; _host.MarkDirty(); _host.NotifyTracksChanged(); } };
+        _solo.CheckedChanged += (_, _) => { if (!_syncing && _host.SelectedTrack != null) { _host.BeginEdit("track"); _host.SelectedTrack.Solo = _solo.Checked; _host.MarkDirty(); _host.NotifyTracksChanged(); } };
     }
 
     private static Control Spacer() => new Panel { Height = 8, Width = 8, BackColor = Theme.Panel };
@@ -160,11 +163,13 @@ internal sealed class SequencerTab : UserControl
         _roll.Invalidate();
     }
 
+    public double PlayheadBeat => _roll.Playhead;
     public void SetPlayhead(double beat) { _roll.Playhead = beat; _roll.Invalidate(); }
 
     private void ApplyKey()
     {
         if (_syncing) return;
+        _host.BeginEdit("key");
         _host.Project.Key = Math.Max(0, _root.SelectedIndex);
         _host.Project.Scale = _scale.SelectedItem as string ?? "minor";
         _roll.Root = _host.Project.Key;
@@ -186,6 +191,7 @@ internal sealed class SequencerTab : UserControl
     {
         var t = _host.SelectedTrack;
         if (t == null) return;
+        _host.BeginEdit("quantize");
         double g = _roll.Grid;
         foreach (var n in t.Notes) n.Start = Math.Round(n.Start / g) * g;
         _roll.Invalidate();
@@ -197,6 +203,7 @@ internal sealed class SequencerTab : UserControl
         var t = _host.SelectedTrack;
         if (t == null || t.Notes.Count == 0) return;
         if (MessageBox.Show(this, $"Remove all {t.Notes.Count} notes from \"{t.Name}\"?", "Clear notes", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+        _host.BeginEdit("clear notes");
         t.Notes.Clear();
         _roll.Invalidate();
         _host.MarkDirty();

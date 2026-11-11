@@ -85,6 +85,7 @@ internal sealed class MixerTab : UserControl
         vol.ValueChanged += (_, _) =>
         {
             if (_building) return;
+            _host.BeginEdit("mix");
             t.Vol = vol.Value / 100.0;
             volLabel.Text = "Vol " + t.Vol.ToString("0.00");
             _host.MarkDirty();
@@ -104,14 +105,15 @@ internal sealed class MixerTab : UserControl
         pan.ValueChanged += (_, _) =>
         {
             if (_building) return;
+            _host.BeginEdit("mix");
             t.Pan = pan.Value / 100.0;
             panLabel.Text = PanText(t.Pan);
             _host.MarkDirty();
         };
 
         var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 30, WrapContents = false };
-        var mute = Theme.Button("M", (_, _) => { t.Mute = !t.Mute; _host.MarkDirty(); _host.NotifyTracksChanged(); });
-        var solo = Theme.Button("S", (_, _) => { t.Solo = !t.Solo; _host.MarkDirty(); _host.NotifyTracksChanged(); });
+        var mute = Theme.Button("M", (_, _) => { _host.BeginEdit("mix"); t.Mute = !t.Mute; _host.MarkDirty(); _host.NotifyTracksChanged(); });
+        var solo = Theme.Button("S", (_, _) => { _host.BeginEdit("mix"); t.Solo = !t.Solo; _host.MarkDirty(); _host.NotifyTracksChanged(); });
         mute.BackColor = t.Mute ? Theme.AccentWarm : Theme.PanelAlt;
         solo.BackColor = t.Solo ? Theme.Good : Theme.PanelAlt;
         mute.Width = solo.Width = 38;
@@ -125,6 +127,7 @@ internal sealed class MixerTab : UserControl
         bus.SelectedIndexChanged += (_, _) =>
         {
             if (_building) return;
+            _host.BeginEdit("mix");
             t.Bus = bus.SelectedIndex;
             _host.MarkDirty();
         };
@@ -203,6 +206,7 @@ internal sealed class MixerTab : UserControl
 
     private void AddTrack()
     {
+        _host.BeginEdit("tracks");
         var t = ProjectStore.NewTrack("Track " + (_host.Project.Tracks.Count + 1), "acid");
         _host.Project.Tracks.Add(t);
         _host.NotifyTracksChanged(t);
@@ -213,6 +217,7 @@ internal sealed class MixerTab : UserControl
         // Render once, estimate each track's contribution, then nudge volumes toward a common target.
         try
         {
+            _host.BeginEdit("mix");
             var project = _host.Project;
             var result = Task.Run(() =>
             {

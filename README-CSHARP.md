@@ -4,10 +4,12 @@ An experimental, native .NET port of Humble Baker Studio. The shipped PowerShell
 working; this tree is the clean-room restructuring of it into a typed, testable Windows
 application.
 
-**Status: usable alpha.** The project model, synthesis engine, 113-effect DSP, mixing,
-mastering, piano roll, project format, WAV export and local-AI helpers are in place.
-A few of the original studio's specialist tabs (SuperCollider live sessions, spectral
-painting, song-model import) are not ported yet. See `docs/PORT.md` for the exact matrix.
+**Status: feature-complete alpha.** The project model, synthesis engine, 113-effect DSP,
+mixing, mastering, piano roll, project format, WAV export and local-AI helpers are in place,
+together with the sample lab, MIDI recording, spectral/meta synth, arrangement editor, undo/redo,
+SuperCollider export and a dual-deck live performance window. Remaining gaps are the
+SuperCollider live session/OSC bridge and full effect-graph parity in the SC export.
+See `docs/PORT.md` for the exact matrix.
 
 ![Sequencer](docs/screenshot-sequencer.png)
 
@@ -48,6 +50,20 @@ Pass `-FrameworkDependent` to produce a small build that uses an installed .NET 
 | `tests/HumbleBakerStudio.Audio.Tests` | Render, determinism, project round-trip, WAV and MIDI tests. |
 | `tools/extract-engine.ps1` | One-way bootstrap that produced `Engine/` from the PowerShell source. Not part of the build. |
 | `docs/PORT.md` | What is ported, what is left, and the design decisions. |
+
+## Live performance
+
+Open **Live** in the toolbar for a two-deck performance window that holds two independent
+projects at once:
+
+- Load any project into deck A or B (or snapshot the current one with **From main**).
+- Equal-power crossfader, per-deck gain and a one-knob LP/HP filter.
+- **Sync** matches tempo by playback rate; **Queue** advances to the next project when a song ends.
+- **Cue** sends a deck to a second Windows output for headphone pre-listening. Pick the device
+  in **Cue out**; with `(none)`, cue stays silent.
+- Decks render once on load, then mix live at 1024-frame blocks, so transitions are seamless.
+
+![Live performance](docs/screenshot-live.png)
 
 ## Runtime dependencies
 

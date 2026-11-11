@@ -14,6 +14,7 @@ internal sealed class MainForm : Form
     private readonly OllamaClient _ollama;
     private readonly AiTools _ai;
     private readonly System.Windows.Forms.Timer _playTimer = new() { Interval = 33 };
+    private readonly UndoHistory _undo = new();
 
     private Project _project;
     private Track? _selected;
@@ -23,6 +24,8 @@ internal sealed class MainForm : Form
 
     private readonly TabControl _tabs = new() { Dock = DockStyle.Fill };
     private readonly SequencerTab _sequencer;
+    private readonly ToolsTab _toolsTab;
+    private readonly ArrangementTab _arrangementTab;
     private readonly TracksTab _tracksTab;
     private readonly EffectsTab _effectsTab;
     private readonly SynthTab _synthTab;
@@ -42,11 +45,12 @@ internal sealed class MainForm : Form
     private readonly Label _position = new() { AutoSize = true, ForeColor = Theme.Muted, Margin = new Padding(10, 9, 3, 3) };
     private readonly Label _title = new() { AutoSize = true, ForeColor = Theme.Text, Font = Theme.UiBold, Margin = new Padding(10, 8, 3, 3) };
     private readonly TrackListPanel _trackList;
+    private LiveWindow? _liveWindow;
 
     public MainForm()
     {
         Text = "Humble Baker Studio";
-        MinimumSize = new Size(1100, 700);
+        MinimumSize = new Size(1180, 700);
         Size = new Size(1440, 900);
         StartPosition = FormStartPosition.CenterScreen;
         AutoScaleMode = AutoScaleMode.Dpi;
@@ -65,6 +69,8 @@ internal sealed class MainForm : Form
 
         _trackList = new TrackListPanel(this);
         _sequencer = new SequencerTab(this);
+        _toolsTab = new ToolsTab(this);
+        _arrangementTab = new ArrangementTab(this);
         _tracksTab = new TracksTab(this);
         _effectsTab = new EffectsTab(this);
         _synthTab = new SynthTab(this);
@@ -87,15 +93,22 @@ internal sealed class MainForm : Form
 
         FormClosing += OnClosing;
         KeyDown += OnKeyDown;
-        Shown += (_, _) => _sequencer.ScrollToContent();
+        Shown += (_, _) =>
+        {
+            _sequencer.ScrollToContent();
+            if (Environment.GetEnvironmentVariable("HBS_OPEN_LIVE") == "1") OpenLiveWindow();
+        };
 
         RefreshFromProject(keepSelection: true);
         _trackList.Select(0);
+        _undo.Reset(_project);
         SetStatus("Ready");
 
         // Small hook for screenshots and smoke tests; harmless in normal use.
         var startTab = Environment.GetEnvironmentVariable("HBS_START_TAB");
         if (!string.IsNullOrWhiteSpace(startTab)) SelectTabByContent(startTab);
+        var subTab = Environment.GetEnvironmentVariable("HBS_START_SUBTAB");
+        if (!string.IsNullOrWhiteSpace(subTab)) _toolsTab.Select(subTab);
     }
 
     protected override void OnHandleCreated(EventArgs e)
@@ -159,6 +172,8 @@ internal sealed class MainForm : Form
         top.Controls.Add(Theme.Button("New", (_, _) => NewProject()));
         top.Controls.Add(Theme.Button("Open", (_, _) => OpenProject()));
         top.Controls.Add(Theme.Button("Save", (_, _) => SaveProject(false)));
+        top.Controls.Add(Theme.Button("Undo", (_, _) => Undo()));
+        top.Controls.Add(Theme.Button("Redo", (_, _) => Redo()));
         top.Controls.Add(Separator());
         top.Controls.Add(Theme.Label("BPM"));
         top.Controls.Add(_bpm);
@@ -173,18 +188,21 @@ internal sealed class MainForm : Form
         top.Controls.Add(_master);
         top.Controls.Add(Theme.Button("Export…", (_, _) => ExportProject()));
         top.Controls.Add(Separator());
+        top.Controls.Add(Theme.Button("Live", (_, _) => OpenLiveWindow(), true));
         top.Controls.Add(Theme.Button("AI", (_, _) => SelectTab(_aiTab)));
         top.Controls.Add(Theme.Button("Settings", (_, _) => SelectTab(_settingsTab)));
 
         _bpm.ValueChanged += (_, _) =>
         {
             if (_refreshing || _bpm.Value <= 0) return;
+            BeginEdit("tempo");
             _project.Bpm = (double)_bpm.Value;
             MarkDirty();
         };
         _bars.ValueChanged += (_, _) =>
         {
             if (_refreshing) return;
+            BeginEdit("bars");
             _project.Bars = (int)_bars.Value;
             _sequencer.RefreshRoll();
             MarkDirty();
@@ -201,12 +219,14 @@ internal sealed class MainForm : Form
         flow.Controls.Add(_title);
         bottom.Controls.Add(flow);
 
-        var sidebar = new Panel { Dock = DockStyle.Left, Width = 248, BackColor = Theme.Panel, Padding = new Padding(6) };
+        var sidebar = new Panel { Dock = DockStyle.Left, Width = 230, BackColor = Theme.Panel, Padding = new Padding(6) };
         _trackList.Dock = DockStyle.Fill;
         sidebar.Controls.Add(_trackList);
 
         _tabs.Dock = DockStyle.Fill;
         _tabs.TabPages.Add(Page("Sequencer", _sequencer));
+        _tabs.TabPages.Add(Page("Tools", _toolsTab));
+        _tabs.TabPages.Add(Page("Arrangement", _arrangementTab));
         _tabs.TabPages.Add(Page("Tracks", _tracksTab));
         _tabs.TabPages.Add(Page("Effects", _effectsTab));
         _tabs.TabPages.Add(Page("Synth", _synthTab));
@@ -272,6 +292,8 @@ internal sealed class MainForm : Form
 
             _trackList.Rebuild();
             _sequencer.SetProject(_project, _selected);
+            _toolsTab.RefreshView();
+            _arrangementTab.RefreshView();
             _tracksTab.RefreshView();
             _effectsTab.RefreshView();
             _synthTab.RefreshView();
@@ -296,6 +318,7 @@ internal sealed class MainForm : Form
         _effectsTab.RefreshView();
         _synthTab.RefreshView();
         _mixerTab.RefreshTrack();
+        _toolsTab.RefreshView();
         _graphTab.RefreshView();
     }
 
@@ -317,7 +340,62 @@ internal sealed class MainForm : Form
         _sequencer.RefreshRoll();
     }
 
+    /// <summary>Records the state before a user edit. Safe to call repeatedly during a drag.</summary>
+    public void BeginEdit(string label) => _undo.Record(_project, label);
+
+    public void ResetHistory() => _undo.Reset(_project);
+
+    public void Undo()
+    {
+        int index = _selected != null ? Math.Max(0, _project.Tracks.IndexOf(_selected)) : 0;
+        var restored = _undo.Undo(_project);
+        if (restored == null) { SetStatus("Nothing to undo"); return; }
+        _project = restored;
+        _selected = null;
+        RefreshFromProject();
+        _trackList.Select(Math.Clamp(index, 0, Math.Max(0, _project.Tracks.Count - 1)));
+        _dirty = true;
+        RefreshTitle();
+        SetStatus("Undo");
+    }
+
+    public void Redo()
+    {
+        int index = _selected != null ? Math.Max(0, _project.Tracks.IndexOf(_selected)) : 0;
+        var restored = _undo.Redo(_project);
+        if (restored == null) { SetStatus("Nothing to redo"); return; }
+        _project = restored;
+        _selected = null;
+        RefreshFromProject();
+        _trackList.Select(Math.Clamp(index, 0, Math.Max(0, _project.Tracks.Count - 1)));
+        _dirty = true;
+        RefreshTitle();
+        SetStatus("Redo");
+    }
+
+    public void RefreshTitle()
+    {
+        _title.Text = (_projectPath != null ? Path.GetFileNameWithoutExtension(_projectPath) : "Untitled") + (_dirty ? " •" : "");
+        Text = "Humble Baker Studio" + (_projectPath != null ? " — " + Path.GetFileName(_projectPath) : "");
+    }
+
+    public void OpenLiveWindow()
+    {
+        if (_liveWindow == null || _liveWindow.IsDisposed)
+        {
+            _liveWindow = new LiveWindow(this);
+            _liveWindow.FormClosed += (_, _) => _liveWindow = null;
+            _liveWindow.Show(this);
+        }
+        else
+        {
+            _liveWindow.Activate();
+            _liveWindow.BringToFront();
+        }
+    }
+
     public void SetStatus(string text) => _status.Text = text;
+    public double PlayheadBeat => _sequencer.PlayheadBeat;
     public void SetPosition(string text) => _position.Text = text;
     public void SetProject(Project project, string? path)
     {
@@ -326,6 +404,7 @@ internal sealed class MainForm : Form
         _dirty = false;
         RefreshFromProject();
         _trackList.Select(0);
+        ResetHistory();
     }
 
     // ---- project files ---------------------------------------------------
@@ -339,6 +418,7 @@ internal sealed class MainForm : Form
         _dirty = false;
         RefreshFromProject();
         _trackList.Select(0);
+        ResetHistory();
         SetStatus("New project");
     }
 
@@ -363,6 +443,7 @@ internal sealed class MainForm : Form
             _settings.Save();
             RefreshFromProject();
             _trackList.Select(0);
+            ResetHistory();
             SetStatus("Opened " + Path.GetFileName(dlg.FileName));
         }
         catch (Exception ex)
@@ -503,6 +584,7 @@ internal sealed class MainForm : Form
 
     private void OnClosing(object? sender, FormClosingEventArgs e)
     {
+        try { _liveWindow?.Close(); } catch { }
         StopPlayback();
         if (!ConfirmDiscard())
         {
@@ -524,6 +606,16 @@ internal sealed class MainForm : Form
         else if (e.Control && e.KeyCode == Keys.S)
         {
             SaveProject(e.Shift);
+            e.Handled = true;
+        }
+        else if (e.Control && e.KeyCode == Keys.Z)
+        {
+            Undo();
+            e.Handled = true;
+        }
+        else if (e.Control && e.KeyCode == Keys.Y)
+        {
+            Redo();
             e.Handled = true;
         }
         else if (e.Control && e.KeyCode == Keys.O)

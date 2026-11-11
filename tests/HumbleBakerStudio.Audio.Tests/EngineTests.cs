@@ -184,3 +184,201 @@ public class EngineTests
         }
     }
 }
+
+public class UndoHistoryTests
+{
+    [Fact]
+    public void UndoAndRedo_RestoreProjectState()
+    {
+        var p = ProjectStore.CreateDefault();
+        var undo = new UndoHistory();
+        undo.Reset(p);
+
+        p.Bpm = 180;
+        undo.Record(p, "tempo");
+        p.Tracks[0].Name = "Kit";
+        undo.Record(p, "rename");
+
+        Assert.True(undo.CanUndo);
+        var once = undo.Undo(p)!;
+        Assert.NotEqual("Kit", once.Tracks[0].Name);   // the rename is undone first
+        Assert.Equal(180, once.Bpm, 3);
+
+        var twice = undo.Undo(once)!;
+        Assert.Equal(124, twice.Bpm, 3);               // then the tempo change
+
+        Assert.True(undo.CanRedo);
+        var forward = undo.Redo(twice)!;
+        Assert.Equal(180, forward.Bpm, 3);
+    }
+
+    [Fact]
+    public void Record_CoalescesRapidEditsWithTheSameLabel()
+    {
+        var p = ProjectStore.CreateDefault();
+        var undo = new UndoHistory { CoalesceMilliseconds = 5000 };
+        undo.Reset(p);
+
+        for (int i = 0; i < 20; i++)
+        {
+            p.Tracks[0].Vol = i / 20.0;
+            undo.Record(p, "volume");
+        }
+
+        var restored = undo.Undo(p)!;
+        Assert.Equal(0.9, restored.Tracks[0].Vol, 3); // original default for the drum track
+        Assert.False(undo.CanUndo);                    // one gesture, one step
+    }
+
+    [Fact]
+    public void Reset_ClearsHistory()
+    {
+        var p = ProjectStore.CreateDefault();
+        var undo = new UndoHistory();
+        undo.Reset(p);
+        p.Bpm = 99;
+        undo.Record(p, "tempo");
+        Assert.True(undo.CanUndo);
+        undo.Reset(p);
+        Assert.False(undo.CanUndo);
+        Assert.False(undo.CanRedo);
+    }
+}
+
+public class SuperColliderExportTests
+{
+    [Fact]
+    public void Script_ContainsVoicesPatternsAndClock()
+    {
+        var p = ProjectStore.CreateDefault();
+        p.Tracks[1].Notes.Add(new Note(36, 0, 0.25, 100));
+        p.Tracks[1].Notes.Add(new Note(43, 1, 0.25, 100));
+        var dir = Path.Combine(Path.GetTempPath(), "hbs-sc-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var script = SuperColliderExport.ToScript(p, song: false, dir, out int samples);
+            Assert.Equal(0, samples);
+            Assert.Contains(@"SynthDef(\hbvoice", script);
+            Assert.Contains(@"SynthDef(\hbkick", script);
+            Assert.Contains("Pbind(", script);
+            Assert.Contains("TempoClock(", script);
+            Assert.Contains("~hbplay", script);
+            Assert.Contains(@"\instrument, Pseq", script);
+        }
+        finally
+        {
+            if (Directory.Exists(dir)) Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public void SampleTrack_WritesBufferAndReferencesIt()
+    {
+        var p = ProjectStore.CreateDefault();
+        var t = ProjectStore.NewTrack("Sample", "sample");
+        t.Sample = Enumerable.Repeat(0.1f, 5000).ToArray();
+        t.Notes.Add(new Note(60, 0, 1, 100));
+        p.Tracks.Add(t);
+        var dir = Path.Combine(Path.GetTempPath(), "hbs-sc-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var script = SuperColliderExport.ToScript(p, song: false, dir, out int samples);
+            Assert.Equal(1, samples);
+            Assert.True(File.Exists(Path.Combine(dir, "sample-3.wav")));
+            Assert.Contains("Buffer.read", script);
+            Assert.Contains(@"\hbsamp", script);
+        }
+        finally
+        {
+            if (Directory.Exists(dir)) Directory.Delete(dir, true);
+        }
+    }
+}
+
+public class LiveMixerTests
+{
+    private static LiveDeck Deck(double value, int frames = 1000, double bpm = 120)
+    {
+        var d = new LiveDeck();
+        var buf = Enumerable.Repeat((float)value, frames).ToArray();
+        d.SetBuffer("test", "", buf, buf, bpm, "A minor", songMode: false);
+        d.Playing = true;
+        return d;
+    }
+
+    [Fact]
+    public void Crossfader_BlendsDecksWithEqualPower()
+    {
+        var mix = new LiveMixer { Crossfade = 0, MasterGain = 1, CueLevel = 1 };
+        mix.A.SetBuffer("a", "", Enumerable.Repeat(0.4f, 1000).ToArray(), Enumerable.Repeat(0.4f, 1000).ToArray(), 120, "", false);
+        mix.B.SetBuffer("b", "", Enumerable.Repeat(0.2f, 1000).ToArray(), Enumerable.Repeat(0.2f, 1000).ToArray(), 120, "", false);
+        mix.A.Playing = mix.B.Playing = true;
+
+        var ml = new float[100]; var mr = new float[100]; var cl = new float[100]; var cr = new float[100];
+        mix.Fill(ml, mr, cl, cr, 100);
+        Assert.Equal(0.4, ml[0], 3);
+        Assert.Equal(0.4, mr[0], 3);
+
+        mix.Crossfade = 1;
+        mix.Fill(ml, mr, cl, cr, 100);
+        Assert.Equal(0.2, ml[0], 3);
+    }
+
+    [Fact]
+    public void CueBus_IsIndependentOfTheCrossfader()
+    {
+        var mix = new LiveMixer { Crossfade = 1, MasterGain = 1, CueLevel = 0.5 };
+        mix.A.SetBuffer("a", "", Enumerable.Repeat(0.4f, 1000).ToArray(), Enumerable.Repeat(0.4f, 1000).ToArray(), 120, "", false);
+        mix.A.Playing = true;
+        mix.A.Cue = true;
+
+        var ml = new float[100]; var mr = new float[100]; var cl = new float[100]; var cr = new float[100];
+        mix.Fill(ml, mr, cl, cr, 100);
+        Assert.Equal(0, ml[0], 3);       // A is fully faded out of master
+        Assert.Equal(0.2, cl[0], 3);     // but still audible in cue
+    }
+
+    [Fact]
+    public void Deck_LoopsAndAdvancesByRate()
+    {
+        var d = Deck(0.3, frames: 500);
+        d.Rate = 2;
+        var l = new float[600]; var r = new float[600];
+        d.Render(l, r, 0, 600);
+        Assert.True(d.Playing);
+        // 600 rendered frames at rate 2 = 1200 source frames, wraps once around 500.
+        Assert.InRange(d.PositionSeconds * Dsp.SR, 199, 201);
+    }
+
+    [Fact]
+    public void Deck_SongModeStopsAtTheEnd()
+    {
+        var d = Deck(0.3, frames: 100);
+        d.Loop = false;
+        var l = new float[200]; var r = new float[200];
+        d.Render(l, r, 0, 200);
+        Assert.True(d.Ended);
+        Assert.False(d.Playing);
+    }
+
+    [Fact]
+    public void Sync_MatchesTempo()
+    {
+        var mix = new LiveMixer();
+        mix.A.Bpm = 120;
+        mix.B.Bpm = 150;
+        mix.Sync(mix.B);
+        Assert.Equal(0.8, mix.B.Rate, 3);
+    }
+
+    [Fact]
+    public void Filter_StaysFinite()
+    {
+        var d = Deck(0.5, frames: 2000);
+        d.Filter = -1;
+        var l = new float[500]; var r = new float[500];
+        d.Render(l, r, 0, 500);
+        Assert.All(l, v => Assert.True(float.IsFinite(v)));
+        Assert.All(r, v => Assert.True(float.IsFinite(v)));
+    }
+}

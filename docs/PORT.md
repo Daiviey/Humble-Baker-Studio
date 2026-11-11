@@ -35,13 +35,17 @@ files alone on purpose.
 | MIDI export | Done (engine) |
 | Local AI melodies/drums/patch design/mix advice (Ollama) | Done |
 | Settings, sample-library discovery | Done |
-| Undo/redo | Not yet |
-| Sample import and slicing UI | Not yet (engine support exists) |
-| SuperCollider live sessions, `.scd` export, OSC | Not yet |
-| Spectral painting / meta-synth / transcriber UI | Not yet (engine classes exist) |
-| Song-model (ACE-Step) import | Not yet |
-| MIDI input recording | Not yet (engine `MidiInPort` exists) |
-| Project templates, marker editing UI | Not yet |
+| Undo/redo | Done (snapshot history, coalesced gestures, Ctrl+Z/Y) |
+| Sample import, waveform editing and slicing UI | Done (normalize, reverse, trim, onset/equal slicing, export slices) |
+| SuperCollider `.scd` export | Done (voices, drums, sample buffers, per-track patterns, global delay/reverb, song flattening) |
+| Spectral painting / meta-synth | Done (paintable grid, settings, render to WAV or sample track; four-corner meta synth) |
+| Song import and transcription | Done (audio track + monophonic melody + drum hits + section markers) |
+| MIDI input recording | Done (device selection, live log, quantized recording into the selected track) |
+| Marker and song arrangement editing | Done (patterns, song order, repeats, markers) |
+| Live performance mode | Done (two independent decks, crossfader, cue bus, sync) |
+| SuperCollider live sessions and OSC bridge | Not yet (export only) |
+| Full effect-graph parity in the SC export | Approximate (global delay/reverb + per-voice filter) |
+| MIDI note monitoring through the track voice | Not yet |
 
 ## Architecture
 
@@ -65,11 +69,27 @@ files alone on purpose.
 - The extracted engine exposes more features than the current UI shows. They remain reachable
   from future tabs without changing the audio library.
 
+## Live performance mode
+
+Open **Live** in the toolbar. The window is independent of the editor and holds two complete
+projects at once:
+
+- **Deck A / Deck B** each load any `*.hbstudio.json` (or take a snapshot of the current
+  project with **From main**), render it in the background, and loop or play the song.
+- **Crossfader** uses an equal-power curve. **Gain** and a one-knob **filter** (low-pass to
+  high-pass) are per deck.
+- **Sync** matches a deck to the other by adjusting its playback rate (BPM ratio).
+- **Cue** routes a deck to the headphone bus. Choose a second output in **Cue out** for real
+  split-cue monitoring; with `(none)` cue stays silent. **Cue on master** is for testing.
+- **Queue** on each deck holds a list of projects; the deck advances automatically when a
+  song ends and the queue has a next item.
+- Playback is rendered once when a track loads, then mixed live at 1024-frame blocks. Loading
+  a long song takes as long as an offline render; transitions themselves are instant.
+
 ## Next steps
 
-1. Undo/redo and a proper edit history (the model is plain C#, so this is straightforward).
-2. Sample import, waveform selection and slicing UI (engine already provides `WavIn` and
-   `SampleSlicer`).
-3. SuperCollider bridge and `.scd` export (port `Get-StudioSc*` helpers).
-4. MIDI input recording and a drum grid editor.
-5. Spectral/meta-synth editors.
+1. SuperCollider live sessions and the OSC bridge (the `.scd` export is in place).
+2. Full effect-graph parity in the SuperCollider export.
+3. MIDI note monitoring through the selected track voice while recording.
+4. Drum grid editor and a dedicated sampler instrument view.
+5. Undo history visualisation (the snapshot stack already records labels).

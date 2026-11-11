@@ -31,36 +31,51 @@ internal static class Theme
             {
                 tabs.BackColor = Panel;
                 tabs.ForeColor = Text;
+                Apply(c);
             }
-            if (c is TextBoxBase tb)
+            else if (c is TextBoxBase tb)
             {
                 tb.BackColor = PanelAlt;
                 tb.ForeColor = Text;
                 tb.BorderStyle = BorderStyle.FixedSingle;
+                continue;
             }
-            if (c is ListBox or CheckedListBox)
+            else if (c is SimpleList sl)
+            {
+                sl.BackColor = PanelAlt;
+                sl.ForeColor = Text;
+                continue;
+            }
+            else if (c is ListBox or CheckedListBox)
             {
                 c.BackColor = PanelAlt;
                 c.ForeColor = Text;
+                continue;
             }
-            if (c is NumericUpDown nud)
+            else if (c is NumericUpDown nud)
             {
                 nud.BackColor = PanelAlt;
                 nud.ForeColor = Text;
                 nud.BorderStyle = BorderStyle.FixedSingle;
+                continue;
             }
-            if (c is ComboBox cb)
+            else if (c is ComboBox cb)
             {
                 cb.BackColor = PanelAlt;
                 cb.ForeColor = Text;
                 cb.FlatStyle = FlatStyle.Flat;
+                continue;
             }
-            if (c is ScrollBar sb)
+            else if (c is ScrollBar sb)
             {
                 sb.BackColor = PanelAlt;
                 sb.ForeColor = Text;
+                continue;
             }
-            Apply(c);
+            else
+            {
+                Apply(c);
+            }
         }
     }
 
@@ -109,9 +124,8 @@ internal static class Theme
     public static void StyleTabs(TabControl tabs)
     {
         tabs.DrawMode = TabDrawMode.OwnerDrawFixed;
-        tabs.ItemSize = new Size(98, 30);
-        tabs.SizeMode = TabSizeMode.Fixed;
-        tabs.Padding = new Point(0, 0);
+        tabs.SizeMode = TabSizeMode.Normal;
+        tabs.Padding = new Point(12, 4);
         tabs.DrawItem += (_, e) =>
         {
             var g = e.Graphics;

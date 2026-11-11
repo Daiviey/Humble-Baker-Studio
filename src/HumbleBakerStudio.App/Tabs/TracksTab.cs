@@ -149,6 +149,7 @@ internal sealed class TracksTab : UserControl
     private void Apply(Action<Track> change)
     {
         if (_syncing || _host.SelectedTrack == null) return;
+        _host.BeginEdit("track");
         change(_host.SelectedTrack);
         _host.MarkDirty();
         _host.NotifyTracksChanged();

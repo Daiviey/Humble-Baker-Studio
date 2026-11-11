@@ -52,6 +52,7 @@ internal sealed class MasterTab : UserControl
             KnobPanel.Build(m, _knobs, (_, _) =>
             {
                 if (_building) return;
+                _host.BeginEdit("master");
                 _state.Text = m.Enabled ? "Master chain: on" : "Master chain: off";
                 _host.MarkDirty();
             }, Theme.Back, Theme.Text, Theme.Accent);
@@ -108,6 +109,7 @@ internal sealed class MasterTab : UserControl
                         return;
                     }
                     Copy(t.Result, project.Master);
+                    _host.BeginEdit("master");
                     _host.MarkDirty();
                     RefreshView();
                     _state.Text = "Auto master: applied";
@@ -127,6 +129,7 @@ internal sealed class MasterTab : UserControl
         {
             _state.Text = "AI: thinking…";
             var project = _host.Project;
+            _host.BeginEdit("master");
             var (advice, applied) = await _host.Ai.AdviseMasterAsync(project, project.Master, CancellationToken.None);
             _report.Text = advice + (applied > 0 ? $"\n\nApplied {applied} suggested setting(s)." : "\n\nNo settings were changed.");
             _host.MarkDirty();
@@ -142,6 +145,7 @@ internal sealed class MasterTab : UserControl
 
     private void Reset()
     {
+        _host.BeginEdit("master");
         var fresh = new MasterSettings();
         Copy(fresh, _host.Project.Master);
         _host.MarkDirty();

@@ -61,6 +61,7 @@ internal sealed class SynthTab : UserControl
             KnobPanel.Build(t.Patch, _knobs, (_, _) =>
             {
                 if (_building) return;
+                _host.BeginEdit("synth");
                 _host.MarkDirty();
             }, Theme.Back, Theme.Text, Theme.Accent);
             _knobs.AutoScrollPosition = new Point(0, 0);
@@ -77,6 +78,7 @@ internal sealed class SynthTab : UserControl
         if (t == null) return;
         if (t.Synth != "patch")
         {
+            _host.BeginEdit("synth");
             var patch = new Patch();
             // Carry over the simple track controls so the sound does not jump.
             patch.Cutoff = t.Cutoff;
@@ -98,6 +100,7 @@ internal sealed class SynthTab : UserControl
     {
         var t = _host.SelectedTrack;
         if (t?.Patch == null) return;
+        _host.BeginEdit("synth");
         PropIO.Randomize(t.Patch, amount, Environment.TickCount);
         _host.MarkDirty();
         RefreshView();
@@ -107,6 +110,7 @@ internal sealed class SynthTab : UserControl
     {
         var t = _host.SelectedTrack;
         if (t == null) return;
+        _host.BeginEdit("synth");
         t.Patch = new Patch();
         _host.MarkDirty();
         RefreshView();

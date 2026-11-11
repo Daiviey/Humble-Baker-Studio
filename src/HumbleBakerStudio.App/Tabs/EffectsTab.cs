@@ -49,6 +49,7 @@ internal sealed class EffectsTab : UserControl
             KnobPanel.Build(t.Fx, _knobs, (_, _) =>
             {
                 if (_building) return;
+                _host.BeginEdit("effects");
                 _chainState.Text = "Chain: " + (t.Fx.Active ? "active" : "off");
                 _host.MarkDirty();
             }, Theme.Back, Theme.Text, Theme.Accent);
@@ -64,6 +65,7 @@ internal sealed class EffectsTab : UserControl
     {
         var t = _host.SelectedTrack;
         if (t == null) return;
+        _host.BeginEdit("effects");
         PropIO.Randomize(t.Fx, amount, Environment.TickCount);
         _host.MarkDirty();
         RefreshView();
@@ -73,6 +75,7 @@ internal sealed class EffectsTab : UserControl
     {
         var t = _host.SelectedTrack;
         if (t == null) return;
+        _host.BeginEdit("effects");
         t.Fx = new Fx();
         _host.MarkDirty();
         RefreshView();
@@ -82,6 +85,7 @@ internal sealed class EffectsTab : UserControl
     {
         var src = _host.SelectedTrack;
         if (src == null) return;
+        _host.BeginEdit("effects");
         foreach (var t in _host.Project.Tracks)
             if (!ReferenceEquals(t, src)) CopyFx(src.Fx, t.Fx);
         _host.MarkDirty();
@@ -91,6 +95,7 @@ internal sealed class EffectsTab : UserControl
     private void ResetAll()
     {
         if (MessageBox.Show(this, "Reset the effects chain on every track?", "Effects", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+        _host.BeginEdit("effects");
         foreach (var t in _host.Project.Tracks) t.Fx = new Fx();
         _host.MarkDirty();
         _host.NotifyTracksChanged();

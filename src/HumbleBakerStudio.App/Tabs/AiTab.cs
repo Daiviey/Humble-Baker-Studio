@@ -147,6 +147,7 @@ internal sealed class AiTab : UserControl
                 : await _host.Ai.GenerateNotesAsync(_host.Project, track, _style.Text, (int)_bars.Value, _cts.Token);
 
             if (notes.Count == 0) { Log("The model returned no notes."); return; }
+            _host.BeginEdit("ai");
             if (_replace.Checked) track.Notes.Clear();
             track.Notes.AddRange(notes);
             Log($"Added {notes.Count} notes to \"{track.Name}\" ({(drums ? "drums" : "melodic")}).");
@@ -179,6 +180,7 @@ internal sealed class AiTab : UserControl
         {
             track.Patch ??= new Patch();
             if (track.Synth != "patch") track.Synth = "patch";
+            _host.BeginEdit("ai");
             await _host.Ai.DesignPatchAsync(track.Patch, _style.Text, _cts.Token);
             Log("Patch updated for \"" + track.Name + "\".");
             _host.MarkDirty();

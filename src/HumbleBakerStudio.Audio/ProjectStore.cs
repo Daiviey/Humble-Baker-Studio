@@ -87,9 +87,10 @@ public static class ProjectStore
         return t;
     }
 
-    public static Project Load(string path)
+    public static Project Load(string path) => LoadFromJson(File.ReadAllText(path));
+
+    public static Project LoadFromJson(string text)
     {
-        var text = File.ReadAllText(path);
         var root = JsonNode.Parse(text, documentOptions: new JsonDocumentOptions
         {
             AllowTrailingCommas = true,
@@ -221,7 +222,7 @@ public static class ProjectStore
         return p;
     }
 
-    public static void Save(Project p, string path)
+    public static string SaveToJson(Project p)
     {
         var root = new JsonObject
         {
@@ -304,9 +305,14 @@ public static class ProjectStore
             }).ToArray())
         };
 
+        return root.ToJsonString(Pretty);
+    }
+
+    public static void Save(Project p, string path)
+    {
         var dir = Path.GetDirectoryName(Path.GetFullPath(path));
         if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-        File.WriteAllText(path, root.ToJsonString(Pretty));
+        File.WriteAllText(path, SaveToJson(p));
     }
 
     // ---- helpers ---------------------------------------------------------
