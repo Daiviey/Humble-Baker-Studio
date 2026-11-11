@@ -20,63 +20,107 @@ internal sealed class SettingsTab : UserControl
         _host = host;
         BackColor = Theme.Back;
 
-        var rows = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true, Padding = new Padding(18) };
-        rows.Controls.Add(new Label { Text = "Settings", AutoSize = true, Font = Theme.Title, ForeColor = Theme.Text, Margin = new Padding(0, 0, 0, 12) });
+        _output.Width = 560;
+        _ollama.Width = 420;
+        _ffmpeg.Width = 560;
+        _sc.Width = 560;
+        _roots.Width = 560;
+        _roots.Height = 96;
 
-        rows.Controls.Add(Section("FOLDERS"));
-        rows.Controls.Add(Field("Renders and exports", _output, Theme.Button("Browse…", (_, _) => Browse(_output, true)), Theme.Button("Open", (_, _) => OpenFolder(_output.Text))));
-        rows.Controls.Add(Field("Sample libraries", _roots, Theme.Button("Add…", (_, _) => AddRoot()), Theme.Button("Remove", (_, _) => RemoveRoot())));
-        rows.Controls.Add(_rootInfo);
-        rows.Controls.Add(Theme.Label("Sample roots contain DrumKits, OrchestralHits, GuitarHits and FoleyPercussion folders.", Theme.Muted, Theme.Small));
+        var page = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            FlowDirection = FlowDirection.TopDown,
+            WrapContents = false,
+            AutoScroll = true,
+            Padding = new Padding(18),
+            BackColor = Theme.Back
+        };
 
-        rows.Controls.Add(Section("LOCAL AI (OLLAMA)"));
-        rows.Controls.Add(Field("Server URL", _ollama, Theme.Button("Test", (_, _) => TestOllama())));
-        rows.Controls.Add(Theme.Label("Default: http://127.0.0.1:11434. The model is chosen on the AI tab.", Theme.Muted, Theme.Small));
+        var titleRow = new Panel { Width = 1000, Height = 44, BackColor = Theme.Back, Margin = new Padding(0, 0, 0, 8) };
+        titleRow.Controls.Add(new Label { Text = "Settings", AutoSize = true, Font = Theme.Title, ForeColor = Theme.Text, Location = new Point(0, 4) });
+        var saveTop = Theme.Button("Save settings", (_, _) => Save(), true);
+        saveTop.Location = new Point(868, 2);
+        titleRow.Controls.Add(saveTop);
+        page.Controls.Add(titleRow);
 
-        rows.Controls.Add(Section("TOOLS"));
-        rows.Controls.Add(Field("FFmpeg", _ffmpeg, Theme.Button("Browse…", (_, _) => Browse(_ffmpeg, false)), Theme.Button("Detect", (_, _) => DetectFfmpeg())));
-        rows.Controls.Add(Field("SuperCollider (sclang)", _sc, Theme.Button("Browse…", (_, _) => Browse(_sc, false))));
-        rows.Controls.Add(Theme.Label("FFmpeg is only needed for MP3/OGG/FLAC export. SuperCollider is only needed for live SC sessions.", Theme.Muted, Theme.Small));
+        var folders = Theme.CardPanel("Folders and sample libraries");
+        folders.Width = 1000;
+        folders.Height = 268;
+        var folderRows = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, BackColor = Theme.Card };
+        folderRows.Controls.Add(Row("Renders and exports", _output, Theme.Button("Browse…", (_, _) => Browse(_output, true)), Theme.Button("Open", (_, _) => OpenFolder(_output.Text))));
+        folderRows.Controls.Add(Row("Sample libraries", _roots, Theme.Button("Add…", (_, _) => AddRoot()), Theme.Button("Remove", (_, _) => RemoveRoot())));
+        folderRows.Controls.Add(_rootInfo);
+        folderRows.Controls.Add(Theme.Label("Sample roots contain DrumKits, OrchestralHits, GuitarHits and FoleyPercussion folders.", Theme.Muted, Theme.Small));
+        folders.Controls.Add(folderRows);
+        page.Controls.Add(folders);
 
-        rows.Controls.Add(Section("STARTUP"));
-        rows.Controls.Add(_openLast);
+        var ai = Theme.CardPanel("Local AI (Ollama)");
+        ai.Width = 1000;
+        ai.Height = 108;
+        var aiRows = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, BackColor = Theme.Card };
+        aiRows.Controls.Add(Row("Server URL", _ollama, Theme.Button("Test", (_, _) => TestOllama())));
+        aiRows.Controls.Add(Theme.Label("Default: http://127.0.0.1:11434. The model is chosen on the AI tab.", Theme.Muted, Theme.Small));
+        ai.Controls.Add(aiRows);
+        page.Controls.Add(ai);
 
-        var save = Theme.Button("Save settings", (_, _) => Save(), true);
-        rows.Controls.Add(save);
-        rows.Controls.Add(Theme.Button("Open data folder", (_, _) => OpenFolder(AppSettings.DataDirectory)));
-        rows.Controls.Add(Theme.Label("App data: " + AppSettings.DataDirectory, Theme.Muted, Theme.Small));
+        var tools = Theme.CardPanel("Tools");
+        tools.Width = 1000;
+        tools.Height = 152;
+        var toolRows = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, BackColor = Theme.Card };
+        toolRows.Controls.Add(Row("FFmpeg", _ffmpeg, Theme.Button("Browse…", (_, _) => Browse(_ffmpeg, false)), Theme.Button("Detect", (_, _) => DetectFfmpeg())));
+        toolRows.Controls.Add(Row("SuperCollider (sclang)", _sc, Theme.Button("Browse…", (_, _) => Browse(_sc, false))));
+        toolRows.Controls.Add(Theme.Label("FFmpeg is only needed for MP3/OGG/FLAC export. SuperCollider is only needed for live SC sessions.", Theme.Muted, Theme.Small));
+        tools.Controls.Add(toolRows);
+        page.Controls.Add(tools);
 
-        Controls.Add(rows);
+        var startup = Theme.CardPanel("Startup and data");
+        startup.Width = 1000;
+        startup.Height = 116;
+        var startRows = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, BackColor = Theme.Card };
+        startRows.Controls.Add(_openLast);
+        var dataRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = Theme.Card, Margin = new Padding(0, 6, 0, 0) };
+        dataRow.Controls.Add(Theme.Button("Open data folder", (_, _) => OpenFolder(AppSettings.DataDirectory)));
+        dataRow.Controls.Add(Theme.Label("App data: " + AppSettings.DataDirectory, Theme.Muted, Theme.Small));
+        startRows.Controls.Add(dataRow);
+        startup.Controls.Add(startRows);
+        page.Controls.Add(startup);
+
+        Controls.Add(page);
         Load += (_, _) => LoadValues();
     }
 
-    private static Label Section(string text) => new()
+    private static Control Row(string label, Control editor, params Control[] buttons)
     {
-        Text = text,
-        AutoSize = true,
-        ForeColor = Theme.Accent,
-        Font = Theme.UiBold,
-        Margin = new Padding(0, 16, 0, 6)
-    };
-
-    private static Control Field(string label, Control editor, params Control[] buttons)
-    {
-        var p = new Panel { Width = 900, Height = Math.Max(30, editor.Height + 8), Margin = new Padding(0, 1, 0, 1), BackColor = Theme.Back };
-        p.Controls.Add(new Label { Text = label, Width = 170, Height = 26, TextAlign = ContentAlignment.MiddleLeft, ForeColor = Theme.Muted });
-        editor.Left = 174;
+        var row = new Panel
+        {
+            Width = 950,
+            Height = Math.Max(34, editor.Height + 8),
+            BackColor = Theme.Card,
+            Margin = new Padding(0, 2, 0, 2)
+        };
+        row.Controls.Add(new Label
+        {
+            Text = label,
+            Width = 160,
+            Height = 26,
+            TextAlign = ContentAlignment.MiddleLeft,
+            ForeColor = Theme.Muted,
+            Location = new Point(0, 4)
+        });
+        editor.Left = 164;
         editor.Top = 2;
-        p.Controls.Add(editor);
-        int x = 182 + editor.Width;
+        row.Controls.Add(editor);
+        int x = 172 + editor.Width;
         foreach (var b in buttons)
         {
             b.Left = x;
-            b.Top = 1;
-            p.Controls.Add(b);
+            b.Top = 2;
+            row.Controls.Add(b);
             x += b.Width + 4;
         }
-        return p;
+        return row;
     }
-
     private void LoadValues()
     {
         var s = _host.Settings;
