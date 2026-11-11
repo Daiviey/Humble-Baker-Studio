@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.2 — 2026-11-10
+
+- Rebuilt the main app and Studio executables from the current sources.
+- Release bundle now includes the export-dialog fix.
+- Verified both executables launch and the main app no longer overwrites the studio source.
+
 ## 1.0.1 — 2026-11-10
 
 - Fixed the export dialog failing to open in standalone builds.
