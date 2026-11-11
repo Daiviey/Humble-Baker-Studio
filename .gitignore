@@ -4,3 +4,4 @@ renders/
 projects/
 chats/
 *.hbstudio.json
+*.xcf

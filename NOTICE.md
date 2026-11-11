@@ -25,7 +25,7 @@ permission to rebrand:
 
 - the **Humble Baker** name and project identity;
 - the cupcake app icon, logo and icon set (`Humble Baker Studio.ico`,
-  `icon.png`, `docs/icon.png`, `docs/icon-preview.png`);
+  `icon.png`, `docs/icon.png`);
 - the manual, effect/synth/settings references and other documentation text;
 - the bundled instrument presets, instrument profiles, demo projects and demo
   note patterns.

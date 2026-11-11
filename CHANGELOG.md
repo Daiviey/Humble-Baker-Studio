@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.17 — 2026-11-11
+
+- Removed the three dots from the blue dome of the cel-shaded app icon.
+- Removed the redundant `docs/icon-preview.png`.
+
 ## 1.0.16 — 2026-11-10
 
 - Restyled the app icon with the local FLUX.1 Kontext model: cel-shaded flat colours, bold dark outlines, simplified shading and cleaner readability at small sizes.
