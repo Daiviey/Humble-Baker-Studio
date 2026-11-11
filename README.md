@@ -2,6 +2,20 @@
 
 <p align="center"><img src="icon.png" width="180" alt="Humble Baker Studio icon"></p>
 
+<p align="center">
+  <a href="https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/csharp-port-v0.1.1"><img alt="Download the C# port" src="https://img.shields.io/badge/Download_C%23_port-v0.1.1-6caaff?style=for-the-badge"></a>
+  <a href="https://github.com/Daiviey/Humble-Baker-Studio/releases"><img alt="All releases" src="https://img.shields.io/badge/All_releases-GitHub-23272f?style=for-the-badge"></a>
+</p>
+
+## Downloads
+
+| Build | Get it |
+|---|---|
+| **PowerShell studio** (stable) | `Humble Baker Studio.exe` in this repository, or the [latest release](https://github.com/Daiviey/Humble-Baker-Studio/releases) |
+| **C# port** (alpha, Windows x64, no .NET install needed) | [Portable exe](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.1.1/Humble-Baker-Studio-CSharp-0.1.1-win-x64.exe) · [Zip](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.1.1/Humble-Baker-Studio-CSharp-0.1.1-win-x64.zip) · [Release notes](https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/csharp-port-v0.1.1) |
+
+The C# source is in [`src/`](src) and the port guide is [README-CSHARP.md](README-CSHARP.md). Release assets live under **Releases**, not in the file tree.
+
 A local, offline audio studio for Windows: piano roll, synths, drums, sample tracks, a patch graph, automation painting, mastering, and AI-assisted composition. No account, no cloud dependency — generated audio and project data stay on the machine. Built with deepseek v4 flash and qwen. This is honestly more vibey than i really want it to be, it started as messing around but I really like the workflow so i am uploading it for some friends, If you stumble here and try it, let me know what you would like to see, what issues you run into. I'll be developing it more seriously from her on out. {because I am loving using it, like, it may replace my actual work shop with a little more ironing out}
 
 ## Run
