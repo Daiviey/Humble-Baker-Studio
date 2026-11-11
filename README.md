@@ -2,7 +2,7 @@
 
 <p align="center"><img src="icon.png" width="180" alt="Humble Baker Studio icon"></p>
 
-A local, offline audio studio for Windows: piano roll, synths, drums, sample tracks, a patch graph, automation painting, mastering, and AI-assisted composition. No account, no cloud dependency — generated audio and project data stay on the machine. Built with deepseek v4 flash and qwen. 
+A local, offline audio studio for Windows: piano roll, synths, drums, sample tracks, a patch graph, automation painting, mastering, and AI-assisted composition. No account, no cloud dependency — generated audio and project data stay on the machine. Built with deepseek v4 flash and qwen. This is honestly more vibey than i really want it to be, it started as messing around but I really like the workflow so i am uploading it for some friends, If you stumble here and try it, let me know what you would like to see, what issues you run into. I'll be developing it more seriously from her on out. {because I am loving using it, like, it may replace my actual work shop with a little more ironing out}
 
 ## Run
 
