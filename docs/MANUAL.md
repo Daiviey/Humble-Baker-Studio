@@ -1,6 +1,6 @@
 # Humble Baker Studio - Manual
 
-Version 1.0.17. This manual covers every window, tab, tool, effect slot and option in the app. For the full parameter tables see:
+Version 1.0.18. This manual covers every window, tab, tool, effect slot and option in the app. For the full parameter tables see:
 
 - [Effect Reference](EFFECTS.md) - all 98 effects with every control, range and description
 - [Synth Patch Reference](SYNTH.md) - every synth parameter
@@ -748,6 +748,7 @@ If an AI action fails:
 - [Effect Reference](EFFECTS.md) - 98 modules, all controls and ranges
 - [Synth Patch Reference](SYNTH.md) - 89 patch parameters
 - [Settings Reference](SETTINGS.md) - mastering, mix rules, spectral, meta synth
+- [SuperCollider tutorial](SUPERCOLLIDER.md) - SC setup, SynthDefs, patterns, buses and citations
 - [README](../README.md) - install requirements and quick feature list
 - [CHANGELOG](../CHANGELOG.md) - version history
 - [LICENSE](../LICENSE) - MIT software license

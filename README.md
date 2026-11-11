@@ -21,6 +21,7 @@ powershell -ExecutionPolicy Bypass -File ".\Humble Baker Studio.ps1"
 | Guide | Contents |
 |---|---|
 | [Manual](docs/MANUAL.md) | every window, tab, tool, button and workflow |
+| [SuperCollider tutorial](docs/SUPERCOLLIDER.md) | using SC in the Studio, SynthDefs, patterns, buses, MIDI/OSC, debugging, cited SC docs |
 | [Effect Reference](docs/EFFECTS.md) | all 98 effects, every control, range and description |
 | [Synth Patch Reference](docs/SYNTH.md) | every synth parameter |
 | [Settings Reference](docs/SETTINGS.md) | mastering, mix rules, spectral and meta settings |

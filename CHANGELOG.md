@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.18 — 2026-11-11
+
+- Added `docs/SUPERCOLLIDER.md`: an in-depth SuperCollider tutorial covering the Studio bridge, the generated `.scd`, SynthDefs, Pattern/Pbind sequencing, buses and routing, effects, live coding, rendering, MIDI/OSC and debugging.
+- Every external technical claim is cited; 36 official SuperCollider help, download, source and licensing references are linked.
+- Linked the tutorial from the README and the manual.
+
 ## 1.0.17 — 2026-11-11
 
 - Removed the three dots from the blue dome of the cel-shaded app icon.
