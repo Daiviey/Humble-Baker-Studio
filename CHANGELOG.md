@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.14 — 2026-11-10
+
+- Gave the app icon a rounded-square app-tile shape with transparent corners and a subtle inner highlight.
+- Regenerated all icon sizes (16-256 px), the exe icon, the standalone embedded icon and the PNG previews.
+
 ## 1.0.13 — 2026-11-10
 
 - Added the full multi-resolution **Humble Baker Studio icon** (16, 24, 32, 48, 64, 128 and 256 px) and embedded it in the Studio exe, the window/title bar and the standalone build.

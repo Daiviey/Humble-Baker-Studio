@@ -1,6 +1,6 @@
 # Humble Baker Studio - Manual
 
-Version 1.0.13. This manual covers every window, tab, tool, effect slot and option in the app. For the full parameter tables see:
+Version 1.0.14. This manual covers every window, tab, tool, effect slot and option in the app. For the full parameter tables see:
 
 - [Effect Reference](EFFECTS.md) - all 98 effects with every control, range and description
 - [Synth Patch Reference](SYNTH.md) - every synth parameter
