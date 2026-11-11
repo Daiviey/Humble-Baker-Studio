@@ -167,6 +167,21 @@ public class Fx {
         ShimmerMix = 0; ShimmerPitch = 12; ShimmerDecay = 0.7;
         HaasMix = 0; HaasDelay = 14;
         LimiterOn = false; LimiterThreshold = -6; LimiterRelease = 100; LimiterCeiling = -1;
+        EnsembleMix = 0; EnsembleRate = 0.6; EnsembleDepth = 0.5;
+        RotaryMix = 0; RotaryRate = 0.8; RotaryDepth = 0.7;
+        OctaverMix = 0;
+        HarmonizerMix = 0; HarmonizerSemi = 7;
+        ResonatorMix = 0; ResonatorFreq = 220; ResonatorFeedback = 0.6;
+        TiltGain = 0; MidGain = 0; SideGain = 0;
+        DeEsserAmount = 0; DeEsserFreq = 5000;
+        ClipperAmount = 0; ClipperDrive = 0.5;
+        AutoFilterMix = 0; AutoFilterSensitivity = 0.6; AutoFilterResonance = 0.5;
+        GateVerbMix = 0; GateVerbDecay = 0.6; GateVerbHold = 0.25;
+        ReverseVerbMix = 0; ReverseVerbDecay = 0.6;
+        MultiTapMix = 0; MultiTapTime = 180; MultiTapFb = 0.4;
+        DoublerMix = 0; DoublerDelay = 18;
+        FormantMix = 0; FormantVowel = 0; FormantShift = 1;
+        MBOn = false; MBLowThresh = -18; MBMidThresh = -18; MBHighThresh = -18; MBRatio = 3; MBMakeup = 0;
     }
     [Category("1 Filter"), Description("Filter type: off, lowpass, highpass, bandpass.")] public FilterMode Filter { get; set; }
     [Category("1 Filter"), Description("Cutoff in Hz."), Rng(30, 16000)] public double Cutoff { get; set; }
@@ -269,6 +284,47 @@ public class Fx {
     [Category("12 Space / Utility"), Description("Shimmer decay."), Rng(0, 1)] public double ShimmerDecay { get; set; }
     [Category("12 Space / Utility"), Description("Haas widener mix (0 = off)."), Rng(0, 1)] public double HaasMix { get; set; }
     [Category("12 Space / Utility"), Description("Haas delay in ms."), Rng(1, 40)] public double HaasDelay { get; set; }
+    [Category("13 Ensemble / Rotary"), Description("Ensemble chorus mix (0 = off)."), Rng(0, 1)] public double EnsembleMix { get; set; }
+    [Category("13 Ensemble / Rotary"), Description("Ensemble rate in Hz."), Rng(0.05, 8)] public double EnsembleRate { get; set; }
+    [Category("13 Ensemble / Rotary"), Description("Ensemble depth."), Rng(0, 1)] public double EnsembleDepth { get; set; }
+    [Category("13 Ensemble / Rotary"), Description("Rotary speaker mix (0 = off)."), Rng(0, 1)] public double RotaryMix { get; set; }
+    [Category("13 Ensemble / Rotary"), Description("Rotary rate in Hz."), Rng(0.1, 10)] public double RotaryRate { get; set; }
+    [Category("13 Ensemble / Rotary"), Description("Rotary depth."), Rng(0, 1)] public double RotaryDepth { get; set; }
+    [Category("14 Pitch"), Description("Sub-octave mix (0 = off)."), Rng(0, 1)] public double OctaverMix { get; set; }
+    [Category("14 Pitch"), Description("Harmonizer mix (0 = off)."), Rng(0, 1)] public double HarmonizerMix { get; set; }
+    [Category("14 Pitch"), Description("Harmonizer interval in semitones."), Rng(-12, 12)] public double HarmonizerSemi { get; set; }
+    [Category("14 Pitch"), Description("Resonator mix (0 = off)."), Rng(0, 1)] public double ResonatorMix { get; set; }
+    [Category("14 Pitch"), Description("Resonator base frequency in Hz."), Rng(40, 2000)] public double ResonatorFreq { get; set; }
+    [Category("14 Pitch"), Description("Resonator feedback."), Rng(0, 0.95)] public double ResonatorFeedback { get; set; }
+    [Category("15 EQ / Dynamics"), Description("Tilt EQ in dB: positive brightens, negative darkens."), Rng(-12, 12)] public double TiltGain { get; set; }
+    [Category("15 EQ / Dynamics"), Description("Mid gain in dB."), Rng(-12, 12)] public double MidGain { get; set; }
+    [Category("15 EQ / Dynamics"), Description("Side gain in dB."), Rng(-12, 12)] public double SideGain { get; set; }
+    [Category("15 EQ / Dynamics"), Description("De-esser amount (0 = off)."), Rng(0, 1)] public double DeEsserAmount { get; set; }
+    [Category("15 EQ / Dynamics"), Description("De-esser crossover in Hz."), Rng(2000, 12000)] public double DeEsserFreq { get; set; }
+    [Category("15 EQ / Dynamics"), Description("Multiband compressor on/off.")] public bool MBOn { get; set; }
+    [Category("15 EQ / Dynamics"), Description("Low band threshold in dB."), Rng(-40, 0)] public double MBLowThresh { get; set; }
+    [Category("15 EQ / Dynamics"), Description("Mid band threshold in dB."), Rng(-40, 0)] public double MBMidThresh { get; set; }
+    [Category("15 EQ / Dynamics"), Description("High band threshold in dB."), Rng(-40, 0)] public double MBHighThresh { get; set; }
+    [Category("15 EQ / Dynamics"), Description("Multiband ratio."), Rng(1, 12)] public double MBRatio { get; set; }
+    [Category("15 EQ / Dynamics"), Description("Multiband makeup gain in dB."), Rng(-12, 24)] public double MBMakeup { get; set; }
+    [Category("16 Drive / Filter"), Description("Clipper amount (0 = off)."), Rng(0, 1)] public double ClipperAmount { get; set; }
+    [Category("16 Drive / Filter"), Description("Clipper pre-gain."), Rng(0, 1)] public double ClipperDrive { get; set; }
+    [Category("16 Drive / Filter"), Description("Auto-filter mix (0 = off)."), Rng(0, 1)] public double AutoFilterMix { get; set; }
+    [Category("16 Drive / Filter"), Description("Auto-filter envelope sensitivity."), Rng(0, 1)] public double AutoFilterSensitivity { get; set; }
+    [Category("16 Drive / Filter"), Description("Auto-filter resonance."), Rng(0, 0.95)] public double AutoFilterResonance { get; set; }
+    [Category("17 Reverb / Delay"), Description("Gated reverb mix (0 = off)."), Rng(0, 1)] public double GateVerbMix { get; set; }
+    [Category("17 Reverb / Delay"), Description("Gated reverb decay."), Rng(0, 1)] public double GateVerbDecay { get; set; }
+    [Category("17 Reverb / Delay"), Description("Gated reverb hold in seconds."), Rng(0.02, 2)] public double GateVerbHold { get; set; }
+    [Category("17 Reverb / Delay"), Description("Reverse reverb mix (0 = off)."), Rng(0, 1)] public double ReverseVerbMix { get; set; }
+    [Category("17 Reverb / Delay"), Description("Reverse reverb decay."), Rng(0, 1)] public double ReverseVerbDecay { get; set; }
+    [Category("17 Reverb / Delay"), Description("Multi-tap delay mix (0 = off)."), Rng(0, 1)] public double MultiTapMix { get; set; }
+    [Category("17 Reverb / Delay"), Description("Multi-tap time in ms."), Rng(20, 1000)] public double MultiTapTime { get; set; }
+    [Category("17 Reverb / Delay"), Description("Multi-tap feedback."), Rng(0, 0.95)] public double MultiTapFb { get; set; }
+    [Category("17 Reverb / Delay"), Description("Doubler mix (0 = off)."), Rng(0, 1)] public double DoublerMix { get; set; }
+    [Category("17 Reverb / Delay"), Description("Doubler delay in ms."), Rng(1, 40)] public double DoublerDelay { get; set; }
+    [Category("14 Pitch"), Description("Formant filter mix (0 = off)."), Rng(0, 1)] public double FormantMix { get; set; }
+    [Category("14 Pitch"), Description("Formant vowel 0=a 1=e 2=i 3=o 4=u."), Rng(0, 4)] public double FormantVowel { get; set; }
+    [Category("14 Pitch"), Description("Formant shift (0.5 = down, 1 = natural, 2 = up)."), Rng(0.5, 2)] public double FormantShift { get; set; }
     [Category("5 Output"), Description("Output gain."), Rng(0, 2, NoRandom = true)] public double Gain { get; set; }
     public bool Active {
         get {
@@ -279,7 +335,11 @@ public class Fx {
                 || GateAmount > 0 || Math.Abs(TransientAttack) > 0.001 || Math.Abs(TransientSustain) > 0.001 || LimiterOn
                 || Saturator > 0 || Exciter > 0 || RectifyMix > 0
                 || TremoloMix > 0 || AutoPanMix > 0 || VibratoMix > 0 || AutoWahMix > 0
-                || CombMix > 0 || SpringMix > 0 || ShimmerMix > 0 || HaasMix > 0;
+                || CombMix > 0 || SpringMix > 0 || ShimmerMix > 0 || HaasMix > 0
+                || EnsembleMix > 0 || RotaryMix > 0 || OctaverMix > 0 || HarmonizerMix > 0 || ResonatorMix > 0
+                || TiltGain != 0 || MidGain != 0 || SideGain != 0 || DeEsserAmount > 0 || MBOn
+                || ClipperAmount > 0 || AutoFilterMix > 0 || GateVerbMix > 0 || ReverseVerbMix > 0
+                || MultiTapMix > 0 || DoublerMix > 0 || FormantMix > 0;
         }
     }
 }
@@ -3260,6 +3320,22 @@ public static class FxProc {
         if (fx.SpringMix > 0) SpringFx(fx, a, b);
         if (fx.ShimmerMix > 0) ShimmerFx(fx, a, b);
         if (fx.HaasMix > 0) HaasFx(fx, a, b);
+        if (fx.EnsembleMix > 0) EnsembleFx(fx, a, b);
+        if (fx.RotaryMix > 0) RotaryFx(fx, a, b);
+        if (fx.OctaverMix > 0) OctaverFx(fx, a, b);
+        if (fx.HarmonizerMix > 0) HarmonizerFx(fx, a, b);
+        if (fx.ResonatorMix > 0) ResonatorFx(fx, a, b);
+        if (fx.TiltGain != 0) TiltEqFx(fx, a, b);
+        if (fx.MidGain != 0 || fx.SideGain != 0) MidSideEqFx(fx, a, b);
+        if (fx.DeEsserAmount > 0) DeEsserFx(fx, a, b);
+        if (fx.MBOn) MultibandCompFx(fx, a, b);
+        if (fx.ClipperAmount > 0) ClipperFx(fx, a, b);
+        if (fx.AutoFilterMix > 0) AutoFilterFx(fx, a, b);
+        if (fx.GateVerbMix > 0) GateVerbFx(fx, a, b);
+        if (fx.ReverseVerbMix > 0) ReverseVerbFx(fx, a, b);
+        if (fx.MultiTapMix > 0) MultiTapFx(fx, a, b);
+        if (fx.DoublerMix > 0) DoublerFx(fx, a, b);
+        if (fx.FormantMix > 0) FormantFx(fx, a, b);
         if (fx.PitchShift != 0) PitchShift(fx, a, b);
         if (fx.TapeWow > 0) Wow(fx, a, b);
         if (fx.TapeStop > 0) TapeStopFx(fx, a, b, spb);
@@ -3382,6 +3458,151 @@ public static class FxProc {
             double nz = r.NextDouble() * 2 - 1;
             if (fx.TapeHiss > 0) { a[i] += (float)(nz * fx.TapeHiss * 0.03); b[i] += (float)(nz * fx.TapeHiss * 0.03); }
             if (fx.VinylCrackle > 0 && r.NextDouble() < fx.VinylCrackle * 0.02) { float pop = (float)((r.NextDouble() * 2 - 1) * fx.VinylCrackle * 0.6); a[i] += pop; b[i] += pop; }
+        }
+    }
+    static void EnsembleFx(Fx fx, float[] a, float[] b) {
+        int len = (int)(SR * 0.03); float[] dl = new float[len], dr = new float[len]; int pos = 0;
+        double rate = Math.Max(0.05, fx.EnsembleRate), depth = Math.Max(0, Math.Min(1, fx.EnsembleDepth)), mix = Math.Max(0, Math.Min(1, fx.EnsembleMix));
+        for (int i = 0; i < a.Length; i++) {
+            int d1 = (int)((0.006 + 0.006 * depth * (0.5 + 0.5 * Math.Sin(2 * Math.PI * rate * i / SR))) * SR);
+            int d2 = (int)((0.009 + 0.008 * depth * (0.5 + 0.5 * Math.Sin(2 * Math.PI * rate * i / SR + 2.1))) * SR);
+            int r1 = pos - d1; if (r1 < 0) r1 += len; int r2 = pos - d2; if (r2 < 0) r2 += len;
+            double y1 = dl[r1], y2 = dr[r2]; dl[pos] = a[i]; dr[pos] = b[i]; pos++; if (pos >= len) pos = 0;
+            a[i] = (float)(a[i] * (1 - mix) + (y1 + y2) * 0.5 * mix); b[i] = (float)(b[i] * (1 - mix) + (y2 + y1) * 0.5 * mix);
+        }
+    }
+    static void RotaryFx(Fx fx, float[] a, float[] b) {
+        double rate = Math.Max(0.1, fx.RotaryRate), depth = Math.Max(0, Math.Min(1, fx.RotaryDepth)), mix = Math.Max(0, Math.Min(1, fx.RotaryMix));
+        for (int i = 0; i < a.Length; i++) {
+            double lfo = Math.Sin(2 * Math.PI * rate * i / SR);
+            double gl = 1 - depth * (0.5 + 0.5 * lfo), gr = 1 - depth * (0.5 - 0.5 * lfo);
+            a[i] = (float)(a[i] * (1 - mix + mix * gl)); b[i] = (float)(b[i] * (1 - mix + mix * gr));
+        }
+    }
+    static void OctaverFx(Fx fx, float[] a, float[] b) {
+        int len = (int)(SR * 2); float[] dl = new float[len], dr = new float[len]; int w = 0; double rp = 0;
+        double mix = Math.Max(0, Math.Min(1, fx.OctaverMix));
+        for (int i = 0; i < a.Length; i++) {
+            int ri = (int)rp; if (ri >= len) ri %= len; double fr = rp - Math.Floor(rp); int ri2 = (ri + 1) % len;
+            double ya = dl[ri] * (1 - fr) + dl[ri2] * fr, yb = dr[ri] * (1 - fr) + dr[ri2] * fr;
+            dl[w] = a[i]; dr[w] = b[i]; w++; if (w >= len) w = 0;
+            rp += 0.5; if (rp >= len) rp -= len;
+            a[i] = (float)(a[i] * (1 - mix) + ya * mix); b[i] = (float)(b[i] * (1 - mix) + yb * mix);
+        }
+    }
+    static void HarmonizerFx(Fx fx, float[] a, float[] b) {
+        int len = (int)(SR * 2); float[] dl = new float[len], dr = new float[len]; int w = 0; double rp = 0;
+        double ratio = Math.Pow(2, fx.HarmonizerSemi / 12.0), mix = Math.Max(0, Math.Min(1, fx.HarmonizerMix));
+        for (int i = 0; i < a.Length; i++) {
+            int ri = (int)rp; if (ri >= len) ri %= len; double fr = rp - Math.Floor(rp); int ri2 = (ri + 1) % len;
+            double ya = dl[ri] * (1 - fr) + dl[ri2] * fr, yb = dr[ri] * (1 - fr) + dr[ri2] * fr;
+            dl[w] = a[i]; dr[w] = b[i]; w++; if (w >= len) w = 0;
+            rp += ratio; while (rp >= len) rp -= len;
+            a[i] = (float)(a[i] * (1 - mix) + ya * mix); b[i] = (float)(b[i] * (1 - mix) + yb * mix);
+        }
+    }
+    static void ResonatorFx(Fx fx, float[] a, float[] b) {
+        int len = Math.Max(8, (int)(SR / Math.Max(40, fx.ResonatorFreq)));
+        float[] b1 = new float[len], b2 = new float[len * 2 + 1], b3 = new float[len * 3 + 2]; int p1 = 0, p2 = 0, p3 = 0;
+        double fb = Math.Max(0, Math.Min(0.95, fx.ResonatorFeedback)), mix = Math.Max(0, Math.Min(1, fx.ResonatorMix));
+        for (int i = 0; i < a.Length; i++) {
+            double y1 = b1[p1], y2 = b2[p2], y3 = b3[p3];
+            b1[p1] = (float)(a[i] + y1 * fb); b2[p2] = (float)(a[i] + y2 * fb); b3[p3] = (float)(a[i] + y3 * fb);
+            p1++; if (p1 >= b1.Length) p1 = 0; p2++; if (p2 >= b2.Length) p2 = 0; p3++; if (p3 >= b3.Length) p3 = 0;
+            double wet = (y1 + y2 * 0.6 + y3 * 0.35) / 2.0;
+            a[i] = (float)(a[i] * (1 - mix) + wet * mix); b[i] = (float)(b[i] * (1 - mix) + wet * mix);
+        }
+    }
+    static void TiltEqFx(Fx fx, float[] a, float[] b) {
+        double gLow = Math.Pow(10, -fx.TiltGain / 20.0), gHigh = Math.Pow(10, fx.TiltGain / 20.0), lp = 0, rp = 0, coef = Math.Exp(-2 * Math.PI * 700 / SR);
+        for (int i = 0; i < a.Length; i++) { lp = (1 - coef) * a[i] + coef * lp; rp = (1 - coef) * b[i] + coef * rp; a[i] = (float)(lp * gLow + (a[i] - lp) * gHigh); b[i] = (float)(rp * gLow + (b[i] - rp) * gHigh); }
+    }
+    static void MidSideEqFx(Fx fx, float[] a, float[] b) {
+        double gm = Math.Pow(10, fx.MidGain / 20.0), gs = Math.Pow(10, fx.SideGain / 20.0);
+        for (int i = 0; i < a.Length; i++) { double m = (a[i] + b[i]) * 0.5 * gm, s = (a[i] - b[i]) * 0.5 * gs; a[i] = (float)(m + s); b[i] = (float)(m - s); }
+    }
+    static void DeEsserFx(Fx fx, float[] a, float[] b) {
+        double fc = Math.Max(2000, Math.Min(12000, fx.DeEsserFreq)), coef = Math.Exp(-2 * Math.PI * fc / SR), amt = Math.Max(0, Math.Min(1, fx.DeEsserAmount));
+        double la = 0, lb = 0, env = 0, atk = 1 - Math.Exp(-1.0 / (0.001 * SR)), rel = 1 - Math.Exp(-1.0 / (0.08 * SR));
+        for (int i = 0; i < a.Length; i++) {
+            la = (1 - coef) * a[i] + coef * la; lb = (1 - coef) * b[i] + coef * lb;
+            double ha = a[i] - la, hb = b[i] - lb, x = Math.Max(Math.Abs(ha), Math.Abs(hb)); env += (x > env ? atk : rel) * (x - env);
+            double g = env > 0.12 ? 0.12 / env : 1; g = 1 - amt * (1 - g);
+            a[i] = (float)(la + ha * g); b[i] = (float)(lb + hb * g);
+        }
+    }
+    static void MultibandCompFx(Fx fx, float[] a, float[] b) {
+        double c1 = Math.Exp(-2 * Math.PI * 200 / SR), c2 = Math.Exp(-2 * Math.PI * 2000 / SR);
+        double l1a = 0, l1b = 0, l2a = 0, l2b = 0, e1 = 0, e2 = 0, e3 = 0;
+        double makeup = Math.Pow(10, fx.MBMakeup / 20.0), ratio = Math.Max(1, fx.MBRatio), atk = 1 - Math.Exp(-1.0 / (0.01 * SR)), rel = 1 - Math.Exp(-1.0 / (0.12 * SR));
+        for (int i = 0; i < a.Length; i++) {
+            l1a = (1 - c1) * a[i] + c1 * l1a; l1b = (1 - c1) * b[i] + c1 * l1b;
+            l2a = (1 - c2) * a[i] + c2 * l2a; l2b = (1 - c2) * b[i] + c2 * l2b;
+            double lo = (l1a + l1b) * 0.5, mid = ((l2a + l2b) * 0.5) - lo, hi = ((a[i] + b[i]) * 0.5) - lo - mid;
+            e1 += (Math.Abs(lo) > e1 ? atk : rel) * (Math.Abs(lo) - e1); e2 += (Math.Abs(mid) > e2 ? atk : rel) * (Math.Abs(mid) - e2); e3 += (Math.Abs(hi) > e3 ? atk : rel) * (Math.Abs(hi) - e3);
+            double g1 = e1 > Math.Pow(10, fx.MBLowThresh / 20.0) ? Math.Pow(10, fx.MBLowThresh / 20.0) / e1 : 1;
+            double g2 = e2 > Math.Pow(10, fx.MBMidThresh / 20.0) ? Math.Pow(10, fx.MBMidThresh / 20.0) / e2 : 1;
+            double g3 = e3 > Math.Pow(10, fx.MBHighThresh / 20.0) ? Math.Pow(10, fx.MBHighThresh / 20.0) / e3 : 1;
+            g1 = Math.Pow(g1, 1 - 1 / ratio); g2 = Math.Pow(g2, 1 - 1 / ratio); g3 = Math.Pow(g3, 1 - 1 / ratio);
+            double y = (lo * g1 + mid * g2 + hi * g3) * makeup;
+            a[i] = (float)y; b[i] = (float)y;
+        }
+    }
+    static void ClipperFx(Fx fx, float[] a, float[] b) {
+        double g = 1 + fx.ClipperDrive * 10, mix = Math.Max(0, Math.Min(1, fx.ClipperAmount));
+        for (int i = 0; i < a.Length; i++) { double xa = Math.Tanh(a[i] * g), xb = Math.Tanh(b[i] * g); a[i] = (float)(a[i] * (1 - mix) + xa * mix); b[i] = (float)(b[i] * (1 - mix) + xb * mix); }
+    }
+    static void AutoFilterFx(Fx fx, float[] a, float[] b) {
+        double mix = Math.Max(0, Math.Min(1, fx.AutoFilterMix)), sens = Math.Max(0, Math.Min(1, fx.AutoFilterSensitivity)), q = Math.Max(0.05, 1 - Math.Min(0.95, fx.AutoFilterResonance));
+        double env = 0, loA = 0, bdA = 0, loB = 0, bdB = 0, atk = 1 - Math.Exp(-1.0 / (0.005 * SR)), rel = 1 - Math.Exp(-1.0 / (0.12 * SR));
+        for (int i = 0; i < a.Length; i++) {
+            double x = Math.Max(Math.Abs(a[i]), Math.Abs(b[i])); env += (x > env ? atk : rel) * (x - env);
+            double fc = 150 + sens * 7000 * Math.Min(1, env * 3); fc = Math.Max(60, Math.Min(SR / 5.0, fc)); double ff = 2 * Math.Sin(Math.PI * fc / SR);
+            double hiA = a[i] - loA - q * bdA; bdA += ff * hiA; loA += ff * bdA;
+            double hiB = b[i] - loB - q * bdB; bdB += ff * hiB; loB += ff * bdB;
+            a[i] = (float)(a[i] * (1 - mix) + loA * mix); b[i] = (float)(b[i] * (1 - mix) + loB * mix);
+        }
+    }
+    static void GateVerbFx(Fx fx, float[] a, float[] b) {
+        int len = (int)(SR * 0.06); float[] dl = new float[len], dr = new float[len]; int pos = 0; double mix = Math.Max(0, Math.Min(1, fx.GateVerbMix)), gate = 1;
+        int hold = Math.Max(1, (int)(fx.GateVerbHold * SR)); double dec = Math.Exp(-1.0 / Math.Max(0.01, fx.GateVerbDecay) / SR);
+        for (int i = 0; i < a.Length; i++) {
+            double wetL = dl[pos], wetR = dr[pos]; dl[pos] = (float)(a[i] + wetR * 0.6); dr[pos] = (float)(b[i] + wetL * 0.6); pos++; if (pos >= len) pos = 0;
+            if (i % hold == 0) gate = 1; else gate *= dec;
+            a[i] = (float)(a[i] * (1 - mix) + wetL * mix * gate); b[i] = (float)(b[i] * (1 - mix) + wetR * mix * gate);
+        }
+    }
+    static void ReverseVerbFx(Fx fx, float[] a, float[] b) {
+        int n = a.Length; float[] ra = new float[n], rb = new float[n]; for (int i = 0; i < n; i++) { ra[i] = a[n - 1 - i]; rb[i] = b[n - 1 - i]; }
+        Fx rev = new Fx(); rev.SpringMix = 1; rev.SpringDecay = Math.Max(0.1, fx.ReverseVerbDecay); rev.SpringTone = 0.5; SpringFx(rev, ra, rb);
+        double mix = Math.Max(0, Math.Min(1, fx.ReverseVerbMix));
+        for (int i = 0; i < n; i++) { a[i] = (float)(a[i] * (1 - mix) + ra[n - 1 - i] * mix); b[i] = (float)(b[i] * (1 - mix) + rb[n - 1 - i] * mix); }
+    }
+    static void MultiTapFx(Fx fx, float[] a, float[] b) {
+        int d = Math.Max(2, (int)(fx.MultiTapTime * 0.001 * SR)); float[] dl = new float[d], dr = new float[d]; int pos = 0; double fb = Math.Max(0, Math.Min(0.95, fx.MultiTapFb)), mix = Math.Max(0, Math.Min(1, fx.MultiTapMix));
+        for (int i = 0; i < a.Length; i++) {
+            int p2 = pos - d / 2; if (p2 < 0) p2 += d; int p3 = pos - d / 3; if (p3 < 0) p3 += d;
+            double wl = dl[pos] * 0.6 + dl[p2] * 0.3 + dl[p3] * 0.15, wr = dr[pos] * 0.6 + dr[p2] * 0.3 + dr[p3] * 0.15;
+            dl[pos] = (float)(a[i] + wl * fb); dr[pos] = (float)(b[i] + wr * fb); pos++; if (pos >= d) pos = 0;
+            a[i] = (float)(a[i] * (1 - mix) + wl * mix); b[i] = (float)(b[i] * (1 - mix) + wr * mix);
+        }
+    }
+    static void DoublerFx(Fx fx, float[] a, float[] b) {
+        int d = Math.Max(1, (int)(fx.DoublerDelay * 0.001 * SR)); float[] dl = new float[d], dr = new float[d]; int pos = 0; double mix = Math.Max(0, Math.Min(1, fx.DoublerMix));
+        for (int i = 0; i < a.Length; i++) { double yl = dl[pos], yr = dr[pos]; dl[pos] = a[i]; dr[pos] = b[i]; pos++; if (pos >= d) pos = 0; a[i] = (float)(a[i] * (1 - mix) + yl * mix); b[i] = (float)(b[i] * (1 - mix) + yr * mix); }
+    }
+    static void FormantFx(Fx fx, float[] a, float[] b) {
+        double[] fs = { 800, 1200, 2500 }; int v = Math.Max(0, Math.Min(4, (int)Math.Round(fx.FormantVowel)));
+        double[][] vowel = { new double[] { 800, 1200, 2500 }, new double[] { 400, 2000, 2600 }, new double[] { 300, 2300, 3000 }, new double[] { 450, 800, 2830 }, new double[] { 325, 700, 2530 } };
+        fs = vowel[v]; double mix = Math.Max(0, Math.Min(1, fx.FormantMix)), shift = Math.Max(0.5, Math.Min(2, fx.FormantShift));
+        for (int band = 0; band < 3; band++) {
+            double fc = Math.Max(80, Math.Min(SR / 5.0, fs[band] * shift)), ff = 2 * Math.Sin(Math.PI * fc / SR), q = 0.35; double loA = 0, bdA = 0, loB = 0, bdB = 0;
+            for (int i = 0; i < a.Length; i++) {
+                double hiA = a[i] - loA - q * bdA; bdA += ff * hiA; loA += ff * bdA;
+                double hiB = b[i] - loB - q * bdB; bdB += ff * hiB; loB += ff * bdB;
+                double wa = bdA / 3.0, wb = bdB / 3.0;
+                a[i] = (float)(a[i] * (1 - mix) + wa * mix); b[i] = (float)(b[i] * (1 - mix) + wb * mix);
+            }
         }
     }
     static void GateFx(Fx fx, float[] a, float[] b) {
@@ -8402,6 +8623,22 @@ function Show-AudioStudio {
             'Shimmer' { if ($on) { $fx.ShimmerMix = 0.4; $fx.ShimmerPitch = 12; $fx.ShimmerDecay = 0.7 } else { $fx.ShimmerMix = 0 } }
             'Haas' { if ($on) { $fx.HaasMix = 0.5; $fx.HaasDelay = 14 } else { $fx.HaasMix = 0 } }
             'Limiter' { $fx.LimiterOn = $on; if ($on) { $fx.LimiterThreshold = -6; $fx.LimiterRelease = 100; $fx.LimiterCeiling = -1 } }
+            'Ensemble' { if ($on) { $fx.EnsembleMix = 0.5; $fx.EnsembleRate = 0.6; $fx.EnsembleDepth = 0.5 } else { $fx.EnsembleMix = 0 } }
+            'Rotary' { if ($on) { $fx.RotaryMix = 0.5; $fx.RotaryRate = 0.8; $fx.RotaryDepth = 0.7 } else { $fx.RotaryMix = 0 } }
+            'Octaver' { $fx.OctaverMix = $(if ($on) { 0.45 } else { 0 }) }
+            'Harmonizer' { if ($on) { $fx.HarmonizerMix = 0.4; $fx.HarmonizerSemi = 7 } else { $fx.HarmonizerMix = 0 } }
+            'Resonator' { if ($on) { $fx.ResonatorMix = 0.4; $fx.ResonatorFreq = 220; $fx.ResonatorFeedback = 0.6 } else { $fx.ResonatorMix = 0 } }
+            'TiltEQ' { $fx.TiltGain = $(if ($on) { 3 } else { 0 }) }
+            'MidSide' { if ($on) { $fx.MidGain = 2; $fx.SideGain = 2 } else { $fx.MidGain = 0; $fx.SideGain = 0 } }
+            'DeEsser' { $fx.DeEsserAmount = $(if ($on) { 0.5 } else { 0 }) }
+            'MBComp' { $fx.MBOn = $on; if ($on) { $fx.MBLowThresh = -18; $fx.MBMidThresh = -18; $fx.MBHighThresh = -18; $fx.MBRatio = 3; $fx.MBMakeup = 2 } }
+            'Clipper' { if ($on) { $fx.ClipperAmount = 0.5; $fx.ClipperDrive = 0.5 } else { $fx.ClipperAmount = 0 } }
+            'AutoFilter' { if ($on) { $fx.AutoFilterMix = 0.5; $fx.AutoFilterSensitivity = 0.6; $fx.AutoFilterResonance = 0.5 } else { $fx.AutoFilterMix = 0 } }
+            'GateVerb' { if ($on) { $fx.GateVerbMix = 0.4; $fx.GateVerbDecay = 0.6; $fx.GateVerbHold = 0.25 } else { $fx.GateVerbMix = 0 } }
+            'ReverseVerb' { if ($on) { $fx.ReverseVerbMix = 0.4; $fx.ReverseVerbDecay = 0.6 } else { $fx.ReverseVerbMix = 0 } }
+            'MultiTap' { if ($on) { $fx.MultiTapMix = 0.4; $fx.MultiTapTime = 180; $fx.MultiTapFb = 0.4 } else { $fx.MultiTapMix = 0 } }
+            'Doubler' { if ($on) { $fx.DoublerMix = 0.5; $fx.DoublerDelay = 18 } else { $fx.DoublerMix = 0 } }
+            'Formant' { if ($on) { $fx.FormantMix = 0.5; $fx.FormantVowel = 0; $fx.FormantShift = 1 } else { $fx.FormantMix = 0 } }
         }
     }
     function Get-FxModuleOn($fx, [string]$name) {
@@ -8438,6 +8675,22 @@ function Show-AudioStudio {
             'Shimmer' { return ($fx.ShimmerMix -gt 0) }
             'Haas' { return ($fx.HaasMix -gt 0) }
             'Limiter' { return ([bool]$fx.LimiterOn) }
+            'Ensemble' { return ($fx.EnsembleMix -gt 0) }
+            'Rotary' { return ($fx.RotaryMix -gt 0) }
+            'Octaver' { return ($fx.OctaverMix -gt 0) }
+            'Harmonizer' { return ($fx.HarmonizerMix -gt 0) }
+            'Resonator' { return ($fx.ResonatorMix -gt 0) }
+            'TiltEQ' { return ($fx.TiltGain -ne 0) }
+            'MidSide' { return ($fx.MidGain -ne 0 -or $fx.SideGain -ne 0) }
+            'DeEsser' { return ($fx.DeEsserAmount -gt 0) }
+            'MBComp' { return ([bool]$fx.MBOn) }
+            'Clipper' { return ($fx.ClipperAmount -gt 0) }
+            'AutoFilter' { return ($fx.AutoFilterMix -gt 0) }
+            'GateVerb' { return ($fx.GateVerbMix -gt 0) }
+            'ReverseVerb' { return ($fx.ReverseVerbMix -gt 0) }
+            'MultiTap' { return ($fx.MultiTapMix -gt 0) }
+            'Doubler' { return ($fx.DoublerMix -gt 0) }
+            'Formant' { return ($fx.FormantMix -gt 0) }
         }
         return $false
     }
@@ -11801,7 +12054,7 @@ Rules: prefer the user's saved instruments when one fits the goal. Use design_so
         $list = New-Object Windows.Forms.CheckedListBox
         $list.SetBounds(16, 38, 230, 490); $list.BackColor = $dk.Field; $list.ForeColor = $dk.Text; $list.BorderStyle = 'FixedSingle'; $list.CheckOnClick = $true
         $list.Tag = $t
-        $mods = @('Filter', 'Drive', 'Crush', 'Fold', 'Ring', 'Stutter', 'Chorus', 'Delay', 'Reverb', 'Phaser', 'Flanger', 'TapeStop', 'TapeDelay', 'Plate', 'Vinyl', 'Comp', 'EQ', 'Width', 'Saturator', 'Exciter', 'Rectify', 'Gate', 'Transient', 'Tremolo', 'AutoPan', 'Vibrato', 'AutoWah', 'Comb', 'Spring', 'Shimmer', 'Haas', 'Limiter')
+        $mods = @('Filter', 'Drive', 'Crush', 'Fold', 'Ring', 'Stutter', 'Chorus', 'Delay', 'Reverb', 'Phaser', 'Flanger', 'TapeStop', 'TapeDelay', 'Plate', 'Vinyl', 'Comp', 'EQ', 'Width', 'Saturator', 'Exciter', 'Rectify', 'Gate', 'Transient', 'Tremolo', 'AutoPan', 'Vibrato', 'AutoWah', 'Comb', 'Spring', 'Shimmer', 'Haas', 'Limiter', 'Ensemble', 'Rotary', 'Octaver', 'Harmonizer', 'Resonator', 'TiltEQ', 'MidSide', 'DeEsser', 'MBComp', 'Clipper', 'AutoFilter', 'GateVerb', 'ReverseVerb', 'MultiTap', 'Doubler', 'Formant')
         $script:FxRackLoading = $true
         foreach ($m in $mods) { [void]$list.Items.Add($m, (Get-FxModuleOn $t.Fx $m)) }
         $script:FxRackLoading = $false

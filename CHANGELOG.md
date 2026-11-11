@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.8 — 2026-11-10
+
+- Expanded the FX Rack to **48 effect modules**.
+- Added: Ensemble, Rotary, Octaver, Harmonizer, Resonator, Tilt EQ, Mid/Side EQ, De-esser, Multiband Compressor, Clipper, Auto-Filter, Gated Reverb, Reverse Reverb, Multi-Tap Delay, Doubler and Formant Filter.
+- All new effects expose categories, ranges and descriptions in the rack.
+
 ## 1.0.7 — 2026-11-10
 
 - Added an **FX Rack** dialog with 32 effects, category-grouped parameters and descriptions.
