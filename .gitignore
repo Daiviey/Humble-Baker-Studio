@@ -5,3 +5,11 @@ projects/
 chats/
 *.hbstudio.json
 *.xcf
+
+# C# port build output
+**/bin/
+**/obj/
+dist/
+.vs/
+*.user
+
