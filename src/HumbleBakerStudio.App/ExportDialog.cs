@@ -16,8 +16,9 @@ internal sealed class ExportDialog : Form
     private readonly NumericUpDown _targetDb = new() { Minimum = -12, Maximum = 0, DecimalPlaces = 1, Increment = 0.5m, Value = -1m, Width = 64 };
     private readonly NumericUpDown _fadeIn = new() { Minimum = 0, Maximum = 10000, Increment = 100, Width = 70 };
     private readonly NumericUpDown _fadeOut = new() { Minimum = 0, Maximum = 10000, Increment = 100, Width = 70 };
-    private readonly TextBox _file = new() { Width = 430 };
+    private readonly TextBox _file = new() { Width = 500 };
     private readonly Label _status = new() { AutoSize = true, ForeColor = Theme.Muted };
+    private readonly Label _summary = new() { AutoSize = true, ForeColor = Theme.Accent, Font = Theme.Small, Margin = new Padding(0, 6, 0, 0) };
     private readonly Button _export = Theme.Button("Export", null, true);
 
     public string ExportedPath { get; private set; } = "";
@@ -31,7 +32,7 @@ internal sealed class ExportDialog : Form
         StartPosition = FormStartPosition.CenterParent;
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MinimizeBox = MaximizeBox = false;
-        ClientSize = new Size(620, 410);
+        ClientSize = new Size(700, 470);
         BackColor = Theme.Back;
         ForeColor = Theme.Text;
         Font = Theme.Ui;
@@ -44,6 +45,7 @@ internal sealed class ExportDialog : Form
         scope.Controls.Add(_pattern);
         scope.Controls.Add(_song);
         rows.Controls.Add(scope);
+        rows.Controls.Add(_summary);
         rows.Controls.Add(Inline("Repeats (pattern only)", _repeats));
 
         rows.Controls.Add(Section("FORMAT"));
@@ -81,9 +83,13 @@ internal sealed class ExportDialog : Form
         _format.SelectedIndexChanged += (_, _) =>
         {
             if (_format.SelectedItem is ExportFormat f && !string.IsNullOrWhiteSpace(_file.Text))
-                _file.Text = Path.ChangeExtension(_file.Text, f.Extension == ".wav" && f.Name.Contains("24") ? ".wav" : f.Extension);
+                _file.Text = Path.ChangeExtension(_file.Text, f.Extension);
+            UpdateSummary();
         };
-        Load += (_, _) => BuildDefaultFileName();
+        _song.CheckedChanged += (_, _) => UpdateSummary();
+        _repeats.ValueChanged += (_, _) => UpdateSummary();
+        Load += (_, _) => { BuildDefaultFileName(); UpdateSummary(); };
+        UpdateSummary();
         Theme.Apply(this);
     }
 
@@ -114,6 +120,16 @@ internal sealed class ExportDialog : Form
         }
         catch { }
         _file.Text = Path.Combine(_settings.ResolvedOutputDirectory, ExportService.SanitizeFileName(name) + ".wav");
+    }
+
+    private void UpdateSummary()
+    {
+        double spb = 60.0 / Math.Max(1, _project.Bpm);
+        double seconds = _song.Checked
+            ? Arranger.SongBeats(_project) * spb
+            : _project.LoopBeats * spb * Math.Max(1, (int)_repeats.Value);
+        string scope = _song.Checked ? "Song arrangement" : "Pattern loop";
+        _summary.Text = scope + "  ·  " + DurationText.Format(TimeSpan.FromSeconds(seconds)) + "  ·  " + (_format.SelectedItem as ExportFormat)?.Name;
     }
 
     private void Browse()
