@@ -382,3 +382,25 @@ public class LiveMixerTests
         Assert.All(r, v => Assert.True(float.IsFinite(v)));
     }
 }
+
+public class PatchGraphTests
+{
+    [Fact]
+    public void AutoPatch_WiresTracksBusesAndMaster()
+    {
+        var p = ProjectStore.CreateDefault();
+        p.Tracks[0].Bus = 1;
+        p.Tracks[1].Bus = 1;
+        p.Tracks[2].Bus = 0;
+
+        PatchGraphControl.AutoPatch(p);
+
+        Assert.True(p.Graph.Initialized);
+        Assert.Contains(p.Graph.Nodes, n => n.Kind == "out");
+        Assert.Contains(p.Graph.Nodes, n => n.Kind == "track");
+        Assert.Contains(p.Graph.Nodes, n => n.Kind == "fx" && n.Type == "busfx");
+        Assert.Contains(p.Graph.Nodes, n => n.Kind == "fx" && n.Type == "trackfx");
+        Assert.NotEmpty(p.Graph.Links);
+        Assert.True(PatchRender.Active(p));
+    }
+}
