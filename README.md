@@ -71,6 +71,7 @@ No installer is required: the build is portable. FFmpeg and SuperCollider are di
 - **Mastering** analysis and auto-master, AI mixing/mastering advice.
 - **AI tools** for patches, drums, melody, arrangement, mixing and mastering, using a local Ollama model.
 - **SuperCollider export** (`.scd`) and **MIDI export**.
+- **Live performance (Live mix)**: open two independent projects at once in a two-deck window with an equal-power crossfader, per-deck gain and a one-knob LP/HP filter, tempo **Sync**, per-deck queues, and a separate **cue/headphone output**. Click **Live mix** in the toolbar. Cue needs a second Windows audio output; everything else works on one device.
 
 ## Files
 
@@ -80,6 +81,7 @@ No installer is required: the build is portable. FFmpeg and SuperCollider are di
 | `Humble Baker Studio.ps1` | Launcher source |
 | `AudioStudioImplementation.ps1` | Canonical studio implementation |
 | `Humble Baker Studio.standalone.ps1` | Single-file standalone build |
+| `LivePerformanceImplementation.ps1` | Live performance module source (also embedded in the app) |
 | `tests/sc-parity.ps1` | Headless SuperCollider effect/parity harness |
 | `docs/` | Manual and full parameter references |
 | `LICENSE` | MIT license for the software |
