@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.6 — 2026-11-10
+
+- Bus/group graph sidechain: when the shared bus has **Sidechain Mix > 0**, the **bottom-most connected source** becomes the trigger and ducks the other inputs.
+- Sidechain attack/release use the bus FX settings; Mix at 0 keeps the existing mix unchanged.
+
 ## 1.0.5 — 2026-11-10
 
 - Sample-library instruments (foley, percussion, orchestral/guitar hits) now default to **Pitch (key)** mode, so piano-roll notes transpose them.

@@ -1345,13 +1345,43 @@ public static class PatchRender {
                 else { sL = new float[N]; sR = new float[N]; }
             } else {
                 sL = new float[N]; sR = new float[N]; bool any = false;
+                List<PatchNode> srcNodes = new List<PatchNode>();
+                List<float[]> inL = new List<float[]>(), inR = new List<float[]>();
                 foreach (PatchLink link in g.LinksTo(node.Id)) {
                     PatchNode src; byId.TryGetValue(link.From, out src);
                     if (src == null) continue;
                     float[][] s = eval(src);
                     if (s == null) continue;
-                    for (int i = 0; i < N; i++) { sL[i] += s[0][i]; sR[i] += s[1][i]; }
+                    srcNodes.Add(src); inL.Add(s[0]); inR.Add(s[1]);
                     any = true;
+                }
+                // Placement-based sidechain: at a bus/group, the bottom-most (largest Y)
+                // connected source is the trigger and ducks the other inputs. Opt-in via
+                // the shared node's FX Sidechain Mix.
+                int duckTrigger = -1; float[] duckGain = null;
+                bool isMixBus = node.Kind == "bus" || node.Kind == "group" || (node.Kind == "fx" && string.Equals(node.Type, "busfx", StringComparison.OrdinalIgnoreCase));
+                if (any && isMixBus && !node.Bypass && node.Fx != null && node.Fx.SidechainMix > 0 && srcNodes.Count >= 2) {
+                    int ti = 0;
+                    for (int k = 1; k < srcNodes.Count; k++) if (srcNodes[k].Y > srcNodes[ti].Y) ti = k;
+                    float[] tL = inL[ti], tR = inR[ti];
+                    double mix = Math.Max(0, Math.Min(1, node.Fx.SidechainMix));
+                    double atk = 1 - Math.Exp(-1.0 / (Math.Max(0.5, node.Fx.SidechainAttack) * 0.001 * Dsp.SR));
+                    double rel = 1 - Math.Exp(-1.0 / (Math.Max(10, node.Fx.SidechainRelease) * 0.001 * Dsp.SR));
+                    double env = 0; float[] duck = new float[N];
+                    for (int i = 0; i < N; i++) {
+                        double x = Math.Max(Math.Abs(tL[i]), Math.Abs(tR[i]));
+                        env += (x > env ? atk : rel) * (x - env);
+                        duck[i] = (float)(1 - mix * Math.Min(1, env * 2));
+                    }
+                    duckTrigger = ti; duckGain = duck;
+                }
+                for (int k = 0; k < inL.Count; k++) {
+                    float[] dl = inL[k], dr = inR[k];
+                    if (duckGain != null && k != duckTrigger) {
+                        for (int i = 0; i < N; i++) { sL[i] += dl[i] * duckGain[i]; sR[i] += dr[i] * duckGain[i]; }
+                    } else {
+                        for (int i = 0; i < N; i++) { sL[i] += dl[i]; sR[i] += dr[i]; }
+                    }
                 }
                 gotInput[node.Id] = any;
                 if (node.Kind == "fx") {
@@ -8222,7 +8252,7 @@ function Show-AudioStudio {
                     $ti = -1; for ($i = 0; $i -lt $S.Proj.Tracks.Count; $i++) { if ($S.Proj.Tracks[$i].Uid -eq $n.TrackUid) { $ti = $i; break } }
                     if ($ti -ge 0) { $t = $S.Proj.Tracks[$ti]; $S.PatchTitle.Text = $t.Name; $S.PatchType.Text = 'track module - knobs edit its FX chain'; $kobj = $t.Fx; $modFilter = $null } else { $S.PatchTitle.Text = '(missing track)'; $S.PatchType.Text = 'track was deleted - delete this module'; $modFilter = $null }
                 }
-                'fx'  { $S.PatchTitle.Text = $n.Label; $S.PatchType.Text = 'FX module - section'; $kobj = $n.Fx; $modFilter = $(if ($n.Type -ieq 'trackfx' -or $n.Type -ieq 'busfx') { $null } else { [string]$n.Type }) }
+                'fx'  { $S.PatchTitle.Text = $n.Label; $S.PatchType.Text = $(if ($n.Type -ieq 'busfx') { 'bus FX - lower input is the sidechain trigger (Sidechain Mix > 0)' } else { 'FX module - section' }); $kobj = $n.Fx; $modFilter = $(if ($n.Type -ieq 'trackfx' -or $n.Type -ieq 'busfx') { $null } else { [string]$n.Type }) }
                 'bus' { $S.PatchTitle.Text = $n.Label; $S.PatchType.Text = 'bus amp - gain & pan'; $kobj = $n; $modFilter = $null }
                 'group' { $pgName = $n.Label; $pgCount = 0; $pgState = ''; foreach ($pg in $S.Proj.Graph.Groups) { if ($pg.NodeId -eq $n.Id) { $pgCount = @($pg.Members).Count; $pgState = $(if ($pg.Collapsed) { 'condensed component' } else { 'expanded' }); break } }; $S.PatchTitle.Text = $n.Label; $S.PatchType.Text = "group master - $pgState, $pgCount direct members"; $kobj = $n; $modFilter = $null }
                 'out' { $S.PatchTitle.Text = 'MASTER OUT'; $S.PatchType.Text = 'feeds the delay + master chain' }
