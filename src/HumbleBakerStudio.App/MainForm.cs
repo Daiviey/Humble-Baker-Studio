@@ -297,7 +297,7 @@ internal sealed class MainForm : Form
         var help = new ToolStripMenuItem("Help");
         AddMenuItem(help, "About Humble Baker Studio", ShowAbout);
         AddMenuItem(help, "Open repository", () => OpenUrl("https://github.com/Daiviey/Humble-Baker-Studio"));
-        AddMenuItem(help, "C# port release", () => OpenUrl("https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/csharp-port-v0.1.0"));
+        AddMenuItem(help, "C# port release", () => OpenUrl("https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/csharp-port-v0.1.1"));
 
         menu.Items.Add(file);
         menu.Items.Add(edit);
