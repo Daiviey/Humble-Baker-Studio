@@ -25,10 +25,10 @@ See `docs/PORT.md` for the exact matrix.
 
 ## Download
 
-A prebuilt portable build is attached to the [C# port release](https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/csharp-port-v0.1.0):
+A prebuilt portable build is attached to the [C# port release](https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/csharp-port-v0.1.1):
 
-- `Humble-Baker-Studio-CSharp-0.1.0-win-x64.exe` — self-contained single file, no .NET install required.
-- `Humble-Baker-Studio-CSharp-0.1.0-win-x64.zip` — the same exe plus this README and the license.
+- `Humble-Baker-Studio-CSharp-0.1.1-win-x64.exe` — self-contained single file, no .NET install required.
+- `Humble-Baker-Studio-CSharp-0.1.1-win-x64.zip` — the same exe plus this README and the license.
 - `SHA256SUMS.txt` — checksums for both.
 
 The build is unsigned, so Windows SmartScreen may ask for confirmation.
