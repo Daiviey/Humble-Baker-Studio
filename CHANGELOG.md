@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.16 — 2026-11-10
+
+- Restyled the app icon with the local FLUX.1 Kontext model: cel-shaded flat colours, bold dark outlines, simplified shading and cleaner readability at small sizes.
+- Regenerated the seven-size ICO, PNG previews, exe icon and standalone embedded icon.
+
 ## 1.0.15 — 2026-11-10
 
 - UI layout pass: fixed accent buttons that collapsed to 1 px (MIDI **Connect** and **Start recording**, Sampler **Import WAV**).
