@@ -19,6 +19,7 @@ internal sealed class LiveWindow : Form
     private readonly ComboBox _cueDevice = new() { Width = 230, DropDownStyle = ComboBoxStyle.DropDownList };
     private readonly NumericUpDown _masterGain = new() { Minimum = 0, Maximum = 150, Value = 85, Width = 58 };
     private readonly NumericUpDown _cueLevel = new() { Minimum = 0, Maximum = 150, Value = 80, Width = 58 };
+    private readonly NumericUpDown _cueMix = new() { Minimum = 0, Maximum = 100, Value = 0, Width = 58 };
     private readonly CheckBox _cueToMaster = new() { Text = "Cue on master", AutoSize = true };
     private readonly TrackBar _crossfader = new() { Minimum = -100, Maximum = 100, TickFrequency = 25, Value = 0, Width = 230, Height = 42, BackColor = Theme.Panel };
     private readonly LevelMeter _masterMeter = new() { Width = 210 };
@@ -29,6 +30,7 @@ internal sealed class LiveWindow : Form
 
     private bool _advancingA, _advancingB;
     private bool _starting;
+    private bool _loadingDevices;
 
     public LiveMixer Mixer { get; } = new();
     public AppSettings Settings => _main.Settings;
@@ -59,12 +61,16 @@ internal sealed class LiveWindow : Form
         _masterGain.ValueChanged += (_, _) => Mixer.MasterGain = (double)_masterGain.Value / 100.0;
         _cueLevel.ValueChanged += (_, _) => Mixer.CueLevel = (double)_cueLevel.Value / 100.0;
         _cueToMaster.CheckedChanged += (_, _) => Mixer.CueToMaster = _cueToMaster.Checked;
+        _cueMix.ValueChanged += (_, _) => Mixer.CueMonitorMix = (double)_cueMix.Value / 100.0;
+        _masterDevice.SelectedIndexChanged += (_, _) => { if (!_loadingDevices) StartAudio(); };
+        _cueDevice.SelectedIndexChanged += (_, _) => { if (!_loadingDevices) StartAudio(); };
         _audioButton.Click += (_, _) => ToggleAudio();
 
         Shown += (_, _) =>
         {
             LoadDevices();
             StartAudio();
+            Theme.ApplyDarkScrollbars(this);
             _timer.Start();
         };
         FormClosing += (_, _) =>
@@ -81,22 +87,13 @@ internal sealed class LiveWindow : Form
         var top = new FlowLayoutPanel
         {
             Dock = DockStyle.Top,
-            Height = 86,
+            Height = 48,
             BackColor = Theme.Panel,
-            Padding = new Padding(8, 6, 4, 4),
-            WrapContents = true
+            Padding = new Padding(10, 8, 4, 4),
+            WrapContents = false
         };
-        top.Controls.Add(Theme.Label("Master out", Theme.Muted));
-        top.Controls.Add(_masterDevice);
-        top.Controls.Add(Theme.Label("Cue out", Theme.Muted));
-        top.Controls.Add(_cueDevice);
-        top.Controls.Add(Theme.Button("Apply outputs", (_, _) => StartAudio()));
         top.Controls.Add(_audioButton);
-        top.Controls.Add(Theme.Label("Master", Theme.Muted));
-        top.Controls.Add(_masterGain);
-        top.Controls.Add(Theme.Label("Cue", Theme.Muted));
-        top.Controls.Add(_cueLevel);
-        top.Controls.Add(_cueToMaster);
+        top.Controls.Add(Theme.Button("Apply outputs", (_, _) => StartAudio(), false, "Restart audio with the selected master and headphone devices"));
         top.Controls.Add(_engineState);
         top.Controls.Add(_state);
 
@@ -119,64 +116,102 @@ internal sealed class LiveWindow : Form
         var stack = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true, BackColor = Theme.Panel };
         panel.Controls.Add(stack);
 
-        stack.Controls.Add(new Label { Text = "CROSSFADER", ForeColor = Theme.Accent, Font = Theme.UiBold, AutoSize = true, Margin = new Padding(0, 8, 0, 0) });
+        stack.Controls.Add(Theme.SectionLabel("Crossfader"));
         stack.Controls.Add(_crossfader);
         var ab = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = Theme.Panel };
         ab.Controls.Add(new Label { Text = "A", Width = 20, ForeColor = Theme.Text, Font = Theme.UiBold });
-        ab.Controls.Add(new Label { Text = "←  blend  →", AutoSize = true, ForeColor = Theme.Muted, Font = Theme.Small, Margin = new Padding(40, 4, 40, 0) });
+        ab.Controls.Add(new Label { Text = "blend", AutoSize = true, ForeColor = Theme.Muted, Font = Theme.Small, Margin = new Padding(35, 4, 35, 0) });
         ab.Controls.Add(new Label { Text = "B", Width = 20, ForeColor = Theme.Text, Font = Theme.UiBold });
         stack.Controls.Add(ab);
-        stack.Controls.Add(Theme.Button("Centre", (_, _) => _crossfader.Value = 0));
+        stack.Controls.Add(Theme.Button("Centre", (_, _) => _crossfader.Value = 0, false, "Centre the crossfader"));
         stack.Controls.Add(Spacer());
-        stack.Controls.Add(new Label { Text = "MASTER", ForeColor = Theme.Muted, Font = Theme.Small, AutoSize = true });
+
+        stack.Controls.Add(Theme.SectionLabel("Master output"));
+        _masterDevice.Width = 260;
+        _masterDevice.Margin = new Padding(0, 0, 0, 4);
+        stack.Controls.Add(_masterDevice);
+        _masterMeter.Width = 220;
+        _masterMeter.Height = 18;
         stack.Controls.Add(_masterMeter);
-        stack.Controls.Add(new Label { Text = "CUE / HEADPHONES", ForeColor = Theme.Muted, Font = Theme.Small, AutoSize = true });
-        stack.Controls.Add(_cueMeter);
+        stack.Controls.Add(NumberRow("Level", _masterGain));
         stack.Controls.Add(Spacer());
+
+        stack.Controls.Add(Theme.SectionLabel("Headphones / cue"));
+        _cueDevice.Width = 260;
+        _cueDevice.Margin = new Padding(0, 0, 0, 4);
+        stack.Controls.Add(_cueDevice);
+        _cueMeter.Width = 220;
+        _cueMeter.Height = 18;
+        stack.Controls.Add(_cueMeter);
+        stack.Controls.Add(NumberRow("Level", _cueLevel));
+        stack.Controls.Add(NumberRow("Cue mix", _cueMix));
+        var mixHint = new Label
+        {
+            Text = "CUE  <->  MASTER",
+            AutoSize = true,
+            ForeColor = Theme.Muted,
+            Font = Theme.Small,
+            Margin = new Padding(2, 0, 0, 6)
+        };
+        stack.Controls.Add(mixHint);
+        stack.Controls.Add(_cueToMaster);
+        stack.Controls.Add(Spacer());
+
         stack.Controls.Add(Theme.Button("Pause both", (_, _) => PauseBoth()));
         stack.Controls.Add(Theme.Button("Stop both", (_, _) => StopBoth()));
         stack.Controls.Add(Spacer());
-        stack.Controls.Add(new Label
-        {
-            Text = "How to use\r\n\r\n" +
-                   "Load a project into each deck. Press Play on A, then cue B in headphones, match its tempo with Sync, and move the crossfader to transition.\r\n\r\n" +
-                   "Cue out needs a second Windows output (for example a USB interface). Choose “(none)” to keep cue silent.\r\n\r\n" +
-                   "Loop plays the current pattern; turn it off to render the whole song arrangement.",
-            AutoSize = false,
-            Width = 230,
-            Height = 260,
-            ForeColor = Theme.Muted,
-            Font = Theme.Small,
-            Margin = new Padding(0, 10, 0, 0)
-        });
 
         return panel;
+    }
+
+    private static Control NumberRow(string label, Control control)
+    {
+        var row = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = Theme.Panel, Margin = new Padding(0, 2, 0, 2) };
+        row.Controls.Add(new Label
+        {
+            Text = label,
+            Width = 70,
+            Height = 24,
+            TextAlign = ContentAlignment.MiddleLeft,
+            ForeColor = Theme.Muted,
+            Font = Theme.Small
+        });
+        row.Controls.Add(control);
+        return row;
     }
 
     private static Control Spacer() => new Panel { Height = 10, Width = 10, BackColor = Theme.Panel };
 
     private void LoadDevices()
     {
-        var devices = WaveOutStream.GetDevices();
-        _masterDevice.Items.Clear();
-        _cueDevice.Items.Clear();
-        _cueDevice.Items.Add("(none)");
-        foreach (var d in devices)
+        _loadingDevices = true;
+        try
         {
-            _masterDevice.Items.Add(d);
-            _cueDevice.Items.Add(d);
+            var devices = WaveOutStream.GetDevices();
+            _masterDevice.Items.Clear();
+            _cueDevice.Items.Clear();
+            _cueDevice.Items.Add("(none)");
+            foreach (var d in devices)
+            {
+                _masterDevice.Items.Add(d);
+                _cueDevice.Items.Add(d);
+            }
+            if (devices.Length == 0)
+            {
+                _masterDevice.Items.Add("(no output devices)");
+                _masterDevice.SelectedIndex = 0;
+                _masterDevice.Enabled = false;
+            }
+            else
+            {
+                _masterDevice.SelectedIndex = 0;
+            }
+            _cueDevice.SelectedIndex = 0;
         }
-        if (devices.Length == 0)
+        finally
         {
-            _masterDevice.Items.Add("(no output devices)");
-            _masterDevice.SelectedIndex = 0;
-            _masterDevice.Enabled = false;
+            _loadingDevices = false;
         }
-        else
-        {
-            _masterDevice.SelectedIndex = 0;
-        }
-        _cueDevice.SelectedIndex = 0;
     }
 
     private void ToggleAudio()

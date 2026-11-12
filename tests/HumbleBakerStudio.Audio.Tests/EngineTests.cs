@@ -404,3 +404,24 @@ public class PatchGraphTests
         Assert.True(PatchRender.Active(p));
     }
 }
+
+public class LiveCueMixTests
+{
+    [Fact]
+    public void CueMix_BlendsCuedDeckWithMaster()
+    {
+        var mix = new LiveMixer { Crossfade = 0, MasterGain = 1, CueLevel = 1, CueMonitorMix = 0 };
+        mix.A.SetBuffer("a", "", Enumerable.Repeat(0.4f, 1000).ToArray(), Enumerable.Repeat(0.4f, 1000).ToArray(), 120, "", false);
+        mix.B.SetBuffer("b", "", Enumerable.Repeat(0.2f, 1000).ToArray(), Enumerable.Repeat(0.2f, 1000).ToArray(), 120, "", false);
+        mix.A.Playing = mix.B.Playing = true;
+        mix.B.Cue = true;
+
+        var ml = new float[100]; var mr = new float[100]; var cl = new float[100]; var cr = new float[100];
+        mix.Fill(ml, mr, cl, cr, 100);
+        Assert.Equal(0.2, cl[0], 3); // cue only: the cued deck
+
+        mix.CueMonitorMix = 1;
+        mix.Fill(ml, mr, cl, cr, 100);
+        Assert.Equal(0.4, cl[0], 3); // full master blend: deck A, which is live
+    }
+}

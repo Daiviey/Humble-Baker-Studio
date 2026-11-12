@@ -13,6 +13,8 @@ public sealed class LiveMixer
     public double Crossfade { get; set; } = 0.5;
     public double MasterGain { get; set; } = 0.85;
     public double CueLevel { get; set; } = 0.8;
+    /// <summary>Headphone cue/mix blend: 0 = cued decks only, 1 = the live master mix.</summary>
+    public double CueMonitorMix { get; set; }
     public bool CueToMaster { get; set; }
 
     public double LastMasterPeak { get; private set; }
@@ -45,6 +47,7 @@ public sealed class LiveMixer
         double gb = Math.Sin(x * Math.PI / 2);
         double master = Math.Clamp(MasterGain, 0, 2);
         double cueLevel = Math.Clamp(CueLevel, 0, 2);
+        double monitorMix = Math.Clamp(CueMonitorMix, 0, 1);
         bool cueA = A.Cue, cueB = B.Cue;
 
         double peakM = 0, peakC = 0;
@@ -52,23 +55,31 @@ public sealed class LiveMixer
         {
             double ml = _aL[i] * ga + _bL[i] * gb;
             double mr = _aR[i] * ga + _bR[i] * gb;
-            double cl = (cueA ? _aL[i] : 0) + (cueB ? _bL[i] : 0);
-            double cr = (cueA ? _aR[i] : 0) + (cueB ? _bR[i] : 0);
-
-            cl *= cueLevel;
-            cr *= cueLevel;
-
-            if (CueToMaster) { ml += cl; mr += cr; }
+            double cueDeckL = (cueA ? _aL[i] : 0) + (cueB ? _bL[i] : 0);
+            double cueDeckR = (cueA ? _aR[i] : 0) + (cueB ? _bR[i] : 0);
 
             double oL = Math.Clamp(ml * master, -1, 1);
             double oR = Math.Clamp(mr * master, -1, 1);
+
+            // Headphones: blend the cued decks with the live master so the next track can be
+            // auditioned against what the room currently hears.
+            double headL = (cueDeckL * (1 - monitorMix) + oL * monitorMix) * cueLevel;
+            double headR = (cueDeckR * (1 - monitorMix) + oR * monitorMix) * cueLevel;
+
+            // Optional single-output monitoring of the cue source.
+            if (CueToMaster)
+            {
+                oL = Math.Clamp(oL + cueDeckL * cueLevel, -1, 1);
+                oR = Math.Clamp(oR + cueDeckR * cueLevel, -1, 1);
+            }
+
             masterL[i] = (float)oL;
             masterR[i] = (float)oR;
-            cueL[i] = (float)Math.Clamp(cl, -1, 1);
-            cueR[i] = (float)Math.Clamp(cr, -1, 1);
+            cueL[i] = (float)Math.Clamp(headL, -1, 1);
+            cueR[i] = (float)Math.Clamp(headR, -1, 1);
 
             peakM = Math.Max(peakM, Math.Max(Math.Abs(oL), Math.Abs(oR)));
-            peakC = Math.Max(peakC, Math.Max(Math.Abs(cl), Math.Abs(cr)));
+            peakC = Math.Max(peakC, Math.Max(Math.Abs(headL), Math.Abs(headR)));
         }
 
         LastMasterPeak = peakM;
