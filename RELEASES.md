@@ -7,7 +7,8 @@ GitHub release assets are not stored in the file tree. Use the links below or op
 
 | Version | Downloads | Notes |
 |---|---|---|
-| **v0.1.9** | [Portable exe](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.1.9/Humble-Baker-Studio-CSharp-0.1.9-win-x64.exe) · [SHA-256](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.1.9/SHA256SUMS.txt) | Note previews play when notes are placed; loop refreshes are adopted at the loop wrap so new notes are heard on the next pass. |
+| **v0.2.0** | [Portable exe](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.2.0/Humble-Baker-Studio-CSharp-0.2.0-win-x64.exe) · [SHA-256](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.2.0/SHA256SUMS.txt) | Instrument and sound library: saved synth patches, spectral voices, Foley/Orchestral/Guitar sounds and drum kits, with audition and add-as-track. The Sample lab tab is reachable again. |
+| v0.1.9 | [Release page](https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/csharp-port-v0.1.9) | Note previews and live loop updates land on the next pass. |
 | v0.1.8 | [Release page](https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/csharp-port-v0.1.8) | New tracks get patch-graph nodes automatically; deleted tracks are pruned. |
 | v0.1.7 | [Release page](https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/csharp-port-v0.1.7) | Graph module editor, note preview, live loop refresh. |
 | v0.1.6 | [Release page](https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/csharp-port-v0.1.6) | Master/headphone outputs and cue mix. |
@@ -22,7 +23,7 @@ C# source: [`src/`](src) · build guide: [README-CSHARP.md](README-CSHARP.md) ·
 
 The portable exe is also committed in the repository at [`CSharp-Port/Humble Baker Studio.exe`](CSharp-Port/Humble%20Baker%20Studio.exe).
 
-A copy of the latest C# build is also kept locally in `Z:\LocalAI\Repo\release\csharp-v0.1.9\`
+A copy of the latest C# build is also kept locally in `Z:\LocalAI\Repo\release\csharp-v0.2.0\`
 and as `Z:\LocalAI\Repo\release\Humble-Baker-Studio-CSharp-v0.1.1.zip`.
 
 ## PowerShell studio (stable)
