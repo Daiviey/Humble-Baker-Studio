@@ -425,3 +425,24 @@ public class LiveCueMixTests
         Assert.Equal(0.4, cl[0], 3); // full master blend: deck A, which is live
     }
 }
+
+public class PatchGraphSyncTests
+{
+    [Fact]
+    public void AddedTrackGetsAGraphNode_AndPruneRemovesOrphans()
+    {
+        var p = ProjectStore.CreateDefault();
+        PatchGraphControl.AutoPatch(p);
+        var t = ProjectStore.NewTrack("Lead", "sine");
+        p.Tracks.Add(t);
+
+        PatchGraphControl.AddTrackNode(p, t);
+        Assert.Contains(p.Graph.Nodes, n => n.Kind == "track" && n.TrackUid == t.Uid);
+        Assert.Contains(p.Graph.Nodes, n => n.Kind == "fx" && n.Label == "Lead FX");
+
+        p.Tracks.Remove(t);
+        int removed = PatchGraphControl.PruneTrackNodes(p);
+        Assert.True(removed > 0);
+        Assert.DoesNotContain(p.Graph.Nodes, n => n.Kind == "track" && n.TrackUid == t.Uid);
+    }
+}

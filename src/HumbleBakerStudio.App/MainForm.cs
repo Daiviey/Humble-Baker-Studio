@@ -456,6 +456,12 @@ internal sealed class MainForm : Form
 
     public void NotifyTracksChanged(Track? select = null)
     {
+        // The patch graph drives the mix when initialized; keep it in step with the track list.
+        if (_project.Graph.Initialized)
+        {
+            foreach (var t in _project.Tracks) PatchGraphControl.AddTrackNode(_project, t);
+            PatchGraphControl.PruneTrackNodes(_project);
+        }
         _trackList.Rebuild();
         if (select != null) { _selected = select; _trackList.Select(select); }
         _sequencer.SetProject(_project, _selected);
