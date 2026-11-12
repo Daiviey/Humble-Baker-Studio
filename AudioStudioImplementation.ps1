@@ -15690,6 +15690,7 @@ public class DeckPanel : UserControl {
     public event Action LoadFile;
     public event Action FromMain;
     public event Action AddQueueRequested;
+    public event Action NewRequested;
     public event Action<string> PathRequested;
     public event Action LoopChanged;
 
@@ -15736,6 +15737,7 @@ public class DeckPanel : UserControl {
         transport.Controls.Add(Loop);
         transport.Controls.Add(Btn("Load...", 66));
         transport.Controls.Add(Btn("From main", 84));
+        transport.Controls.Add(Btn("New", 54));
         transport.Controls.Add(Btn("Queue...", 70));
 
         TableLayoutPanel controls = new TableLayoutPanel();
@@ -15789,9 +15791,11 @@ public class DeckPanel : UserControl {
         Button load = (Button)transport.Controls[3 + 1];
         load.Click += delegate { if (LoadFile != null) LoadFile(); };
         Button fromMain = (Button)transport.Controls[3 + 2];
+        Button newBtn = (Button)transport.Controls[3 + 3];
         fromMain.Click += delegate { if (FromMain != null) FromMain(); };
-        Button queueBtn = (Button)transport.Controls[3 + 3];
+        Button queueBtn = (Button)transport.Controls[3 + 4];
         queueBtn.Click += delegate { if (AddQueueRequested != null) AddQueueRequested(); };
+        newBtn.Click += delegate { if (NewRequested != null) NewRequested(); };
         ((Button)qbtns.Controls[0]).Click += delegate { Next(); };
         ((Button)qbtns.Controls[1]).Click += delegate { QueuePaths.Clear(); Queue.Items.Clear(); queueIndex = -1; };
         ((Button)qbtns.Controls[2]).Click += delegate { LoadSelected(); };
@@ -15897,6 +15901,7 @@ public class LiveForm : Form {
 
     public event Action<bool> LoadFileRequested;
     public event Action<bool> FromMainRequested;
+    public event Action<bool> NewRequested;
     public event Action<bool> AddQueueRequested;
     public event Action<bool, string> PathRequested;
     public event Action<bool> LoopChanged;
@@ -15948,6 +15953,8 @@ public class LiveForm : Form {
         deckB.LoadFile += delegate { if (LoadFileRequested != null) LoadFileRequested(false); };
         deckA.FromMain += delegate { if (FromMainRequested != null) FromMainRequested(true); };
         deckB.FromMain += delegate { if (FromMainRequested != null) FromMainRequested(false); };
+        deckA.NewRequested += delegate { if (NewRequested != null) NewRequested(true); };
+        deckB.NewRequested += delegate { if (NewRequested != null) NewRequested(false); };
         deckA.AddQueueRequested += delegate { if (AddQueueRequested != null) AddQueueRequested(true); };
         deckB.AddQueueRequested += delegate { if (AddQueueRequested != null) AddQueueRequested(false); };
         deckA.PathRequested += delegate (string p) { if (PathRequested != null) PathRequested(true, p); };
@@ -16141,6 +16148,12 @@ function Show-LivePerformance {
         Set-LiveDeckProject $form $isA $clone ''
     })
 
+    $form.add_NewRequested({
+        param($isA)
+        $proj = New-StudioProject
+        try { Get-StudioDemoNotes $proj } catch { }
+        Set-LiveDeckProject $form $isA $proj 'New project'
+    })
     $form.add_AddQueueRequested({
         param($isA)
         $dlg = New-Object Windows.Forms.OpenFileDialog

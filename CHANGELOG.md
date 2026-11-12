@@ -5,6 +5,7 @@
 - Added **Live mix**, a two-deck performance window: two independent projects open at once, an equal-power crossfader, per-deck gain and one-knob LP/HP filter, tempo sync, per-deck queues that advance at the end of a song, and a separate cue/headphone output device. Master and cue are metered independently.
 - Live audio is rendered once per track and mixed on a dedicated thread through `winmm`, so transitions and filter sweeps are immediate. Rendering a long song still takes the usual offline render time.
 - Rebuilt `Humble Baker Studio.exe` with the live module and the current studio sources.
+- Live decks now include a **New** button that renders a fresh default project into that deck (with a confirmation when the deck already has audio).
 
 ## 1.0.21 - 2026-11-11
 
