@@ -224,7 +224,9 @@ public class PianoRoll : Control {
             Note n = new Note(FixPitch(startPitch), Math.Max(0, Math.Floor(startBeat / Grid) * Grid), lastLen, lastVel);
             Cur.Notes.Add(n); Sel.Add(n); dragNote = n;
             mode = 2; orig.Clear(); orig[n] = n.Clone();
-            Fire(Changed); Invalidate(); return;
+            Fire(Changed); Invalidate();
+            if (NotePlaced != null) NotePlaced(n);
+            return;
         }
         if ((Control.ModifierKeys & Keys.Shift) == Keys.Shift) { if (!Sel.Remove(hit)) Sel.Add(hit); }
         else if (!Sel.Contains(hit)) { Sel.Clear(); Sel.Add(hit); }

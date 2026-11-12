@@ -15,10 +15,8 @@ internal sealed class MainForm : Form
     private readonly OllamaClient _ollama;
     private readonly AiTools _ai;
     private readonly System.Windows.Forms.Timer _playTimer = new() { Interval = 33 };
-    private short[]? _pendingLoopPcm;
     private bool _loopRenderBusy;
     private bool _loopDirty;
-    private double _lastPlayBeat;
     private readonly UndoHistory _undo = new();
 
     private Project _project;
@@ -500,7 +498,9 @@ internal sealed class MainForm : Form
                 bool master = _master.Checked;
                 var pcm = await Task.Run(() => ExportService.RenderPcm(snapshot, false, true, master));
                 if (_player.IsPlaying && _loop.Checked && !_song.Checked)
-                    _pendingLoopPcm = pcm;
+                {
+                    _player.QueueBuffer(pcm);
+                }
             }
         }
         catch
@@ -697,9 +697,7 @@ internal sealed class MainForm : Form
             var pcm = await Task.Run(() => ExportService.RenderPcm(project, song, loopPattern, master));
             if (pcm.Length < 4) { SetStatus("Nothing to play"); return; }
 
-            _pendingLoopPcm = null;
             _loopDirty = false;
-            _lastPlayBeat = 0;
             _sequencer.SetPlayhead(0);
             _player.Play(pcm, Dsp.SR, loopPattern);
             _playButton.Text = "■  Playing";
@@ -721,9 +719,7 @@ internal sealed class MainForm : Form
     {
         _player.Stop();
         _playTimer.Stop();
-        _pendingLoopPcm = null;
         _loopDirty = false;
-        _lastPlayBeat = 0;
         _sequencer.SetPlayhead(-1);
         _playButton.Text = "▶  Play";
         _playButton.Enabled = true;
@@ -737,15 +733,6 @@ internal sealed class MainForm : Form
         double beat = seconds / spb;
         if (_loop.Checked && _project.LoopBeats > 0)
             beat %= _project.LoopBeats;
-        if (_loop.Checked && !_song.Checked && _project.LoopBeats > 0)
-        {
-            if (beat + 0.05 < _lastPlayBeat && _pendingLoopPcm != null)
-            {
-                _player.ReplaceBuffer(_pendingLoopPcm);
-                _pendingLoopPcm = null;
-            }
-            _lastPlayBeat = beat;
-        }
         _sequencer.SetPlayhead(beat);
         SetPosition(DurationText.Format(_player.Position) + " / " + DurationText.Format(_player.Duration));
     }

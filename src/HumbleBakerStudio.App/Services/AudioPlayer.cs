@@ -64,6 +64,7 @@ internal sealed class AudioPlayer : IDisposable
     private int _sampleRate = 44100;
     private int _totalFrames;
     private short[] _pcm = Array.Empty<short>();
+    private short[]? _nextPcm;
     private volatile bool _loop;
 
     public bool IsPlaying { get; private set; }
@@ -89,6 +90,7 @@ internal sealed class AudioPlayer : IDisposable
         _sampleRate = sampleRate;
         _pcm = interleavedStereo;
         _totalFrames = interleavedStereo.Length / 2;
+        Interlocked.Exchange(ref _nextPcm, null);
         _loop = loop;
         Interlocked.Exchange(ref _doneFrames, 0);
         _stop = false;
@@ -98,12 +100,12 @@ internal sealed class AudioPlayer : IDisposable
         _thread.Start();
     }
 
-    /// <summary>Swaps in a freshly rendered loop without restarting playback. Apply it at a loop boundary.</summary>
-    public void ReplaceBuffer(short[] interleavedStereo)
+    /// <summary>Queues a freshly rendered loop. The audio thread adopts it exactly at the next loop wrap,
+    /// so edits are heard from the top of the next pass without a gap or restarting playback.</summary>
+    public void QueueBuffer(short[] interleavedStereo)
     {
         if (interleavedStereo == null || interleavedStereo.Length < 4) return;
-        _pcm = interleavedStereo;
-        _totalFrames = interleavedStereo.Length / 2;
+        Interlocked.Exchange(ref _nextPcm, interleavedStereo);
     }
 
     public void Pause()
@@ -210,7 +212,18 @@ internal sealed class AudioPlayer : IDisposable
 
                 if (nextFrame >= totalFrames)
                 {
-                    if (_loop) nextFrame = 0;
+                    if (_loop)
+                    {
+                        var next = Interlocked.Exchange(ref _nextPcm, null);
+                        if (next != null)
+                        {
+                            _pcm = next;
+                            pcm = next;
+                            totalFrames = next.Length / 2;
+                            _totalFrames = totalFrames;
+                        }
+                        nextFrame = 0;
+                    }
                     else if (pending.Count == 0) break;
                     else { Thread.Sleep(4); continue; }
                 }
