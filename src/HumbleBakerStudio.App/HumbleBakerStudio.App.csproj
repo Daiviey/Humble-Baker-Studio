@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <TargetFramework>net9.0-windows</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -11,15 +11,17 @@
     <AssemblyName>Humble Baker Studio</AssemblyName>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>0.2.0</Version>
+    <Version>0.3.0</Version>
     <Company>Humble Baker Studio</Company>
     <Product>Humble Baker Studio</Product>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <ApplicationIcon>Resources\app.ico</ApplicationIcon>
+    <NoWarn>$(NoWarn);WFO1000</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\HumbleBakerStudio.Audio\HumbleBakerStudio.Audio.csproj" />
+    <PackageReference Include="NAudio.Vst3" Version="3.3.0" />
   </ItemGroup>
 
 </Project>

@@ -22,6 +22,7 @@ internal sealed class TracksTab : UserControl
     private readonly NumericUpDown _rel = Num(0.005m, 8, 3, 0.01m);
     private readonly NumericUpDown _crush = Num(2, 16, 0, 1);
     private readonly Label _stats = new() { AutoSize = true, ForeColor = Theme.Muted, Font = Theme.Small };
+    private List<InstrumentOption> _options = new();
     private bool _syncing;
 
     public TracksTab(MainForm host)
@@ -30,8 +31,8 @@ internal sealed class TracksTab : UserControl
         BackColor = Theme.Back;
         _rows.Controls.Add(_heading);
 
-        _synth.Items.AddRange(new object[] { "acid", "saw", "square", "tri", "sine", "pad", "fm", "pluck", "noise", "drums", "patch", "sample" });
         _kit.Items.AddRange(SampleLibrary.BuiltInKits);
+        ReloadInstruments();
 
         _rows.Controls.Add(Section("IDENTITY"));
         _rows.Controls.Add(Field("Name", _name));
@@ -55,13 +56,18 @@ internal sealed class TracksTab : UserControl
         Controls.Add(_rows);
 
         _name.TextChanged += (_, _) => Apply(t => t.Name = _name.Text.Trim());
-        _synth.SelectedIndexChanged += (_, _) => Apply(t =>
+        _synth.SelectedIndexChanged += (_, _) =>
         {
-            t.Synth = _synth.SelectedItem as string ?? t.Synth;
+            if (_syncing || _host.SelectedTrack == null) return;
+            if (_synth.SelectedItem is not InstrumentOption option) return;
+            var t = _host.SelectedTrack;
+            _host.BeginEdit("instrument");
+            InstrumentCatalog.Apply(t, option, _host.Vst);
             if (t.Synth == "patch" && t.Patch == null) t.Patch = new Patch();
-            _kit.Enabled = t.Synth == "drums";
-            _host.SelectTrack(t, fromList: true);
-        });
+            _kit.Enabled = option.Vst == null && t.Synth == "drums";
+            _host.MarkDirty();
+            _host.NotifyTracksChanged(t);
+        };
         _kit.SelectedIndexChanged += (_, _) => Apply(t => t.DrumKit = _kit.SelectedItem as string ?? t.DrumKit);
         _bus.SelectedIndexChanged += (_, _) => Apply(t => t.Bus = Math.Max(0, _bus.SelectedIndex));
         _vol.ValueChanged += (_, _) => Apply(t => t.Vol = (double)_vol.Value);
@@ -115,9 +121,9 @@ internal sealed class TracksTab : UserControl
             if (t == null) { _stats.Text = ""; return; }
 
             _name.Text = t.Name;
-            _synth.SelectedItem = t.Synth;
+            _synth.SelectedItem = InstrumentCatalog.Find(t, _options);
             _kit.SelectedItem = t.DrumKit;
-            _kit.Enabled = t.Synth == "drums";
+            _kit.Enabled = string.IsNullOrEmpty(t.PluginPath) && t.Synth == "drums";
             _bus.Items.Clear();
             _bus.Items.Add("Direct to master");
             for (int i = 0; i < _host.Project.Buses.Count; i++) _bus.Items.Add(_host.Project.Buses[i].Name);
@@ -136,7 +142,25 @@ internal sealed class TracksTab : UserControl
                 $"Automation lanes: {t.Auto.Count}\n" +
                 $"Effects active: {(t.Fx.Active ? "yes" : "no")}\n" +
                 $"Sample loaded: {(t.Sample != null ? t.Sample.Length + " frames" : "no")}\n" +
+                $"VST3: {(string.IsNullOrEmpty(t.PluginPath) ? "none" : t.PluginName + (t.PluginInstrument ? " (instrument)" : " (effect)"))}\n" +
                 $"Uid: {t.Uid}";
+        }
+        finally
+        {
+            _syncing = false;
+        }
+    }
+
+    public void ReloadInstruments()
+    {
+        _syncing = true;
+        try
+        {
+            _options = InstrumentCatalog.Build(_host.Vst);
+            _synth.Items.Clear();
+            _synth.Items.AddRange(_options.ToArray());
+            var t = _host.SelectedTrack;
+            if (t != null) _synth.SelectedItem = InstrumentCatalog.Find(t, _options);
         }
         finally
         {

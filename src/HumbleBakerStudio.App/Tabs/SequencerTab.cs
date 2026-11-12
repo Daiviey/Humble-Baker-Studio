@@ -19,6 +19,7 @@ internal sealed class SequencerTab : UserControl
     private readonly CheckBox _solo = new() { Text = "Solo", AutoSize = true };
     private readonly CheckBox _preview = new() { Text = "Preview notes", AutoSize = true, Checked = true };
     private readonly AudioPlayer _previewPlayer = new();
+    private List<InstrumentOption> _options = new();
     private bool _syncing;
 
     public SequencerTab(MainForm host)
@@ -33,7 +34,7 @@ internal sealed class SequencerTab : UserControl
         stack.Controls.Add(Theme.SectionLabel("Selected track"));
         stack.Controls.Add(_name);
         stack.Controls.Add(Theme.Label("Engine", Theme.Muted));
-        _synth.Items.AddRange(new object[] { "acid", "saw", "square", "tri", "sine", "pad", "fm", "pluck", "noise", "drums", "patch", "sample" });
+        ReloadInstruments();
         stack.Controls.Add(_synth);
         stack.Controls.Add(Theme.Label("Drum kit", Theme.Muted));
         _kit.Items.AddRange(SampleLibrary.BuiltInKits);
@@ -88,9 +89,10 @@ internal sealed class SequencerTab : UserControl
         _synth.SelectedIndexChanged += (_, _) =>
         {
             if (_syncing || _host.SelectedTrack == null) return;
-            _host.BeginEdit("track");
+            if (_synth.SelectedItem is not InstrumentOption option) return;
+            _host.BeginEdit("instrument");
             var t = _host.SelectedTrack;
-            t.Synth = (string)_synth.SelectedItem!;
+            InstrumentCatalog.Apply(t, option, _host.Vst);
             if (t.Synth == "patch" && t.Patch == null) t.Patch = new Patch();
             _host.MarkDirty();
             _host.SelectTrack(t, fromList: true);
@@ -137,9 +139,9 @@ internal sealed class SequencerTab : UserControl
             if (track != null)
             {
                 _name.Text = track.Name;
-                _synth.SelectedItem = track.Synth;
+                _synth.SelectedItem = InstrumentCatalog.Find(track, _options);
                 _kit.SelectedItem = track.DrumKit;
-                _kit.Enabled = track.Synth == "drums";
+                _kit.Enabled = string.IsNullOrEmpty(track.PluginPath) && track.Synth == "drums";
                 _mute.Checked = track.Mute;
                 _solo.Checked = track.Solo;
                 _root.SelectedIndex = ((_host.Project.Key % 12) + 12) % 12;
@@ -158,6 +160,23 @@ internal sealed class SequencerTab : UserControl
     }
 
     public void RefreshRoll() => _roll.Invalidate();
+
+    public void ReloadInstruments()
+    {
+        _syncing = true;
+        try
+        {
+            _options = InstrumentCatalog.Build(_host.Vst);
+            _synth.Items.Clear();
+            _synth.Items.AddRange(_options.ToArray());
+            var t = _host.SelectedTrack;
+            if (t != null) _synth.SelectedItem = InstrumentCatalog.Find(t, _options);
+        }
+        finally
+        {
+            _syncing = false;
+        }
+    }
 
     /// <summary>Re-applies scroll and zoom once the control has its final size.</summary>
     public void ScrollToContent()
@@ -209,6 +228,7 @@ internal sealed class SequencerTab : UserControl
             var copy = new Track();
             foreach (var f in typeof(Track).GetFields())
                 if (f.Name != "Notes" && f.Name != "Auto") f.SetValue(copy, f.GetValue(source));
+            if (!string.IsNullOrEmpty(copy.PluginPath)) copy.Uid = Guid.NewGuid().ToString("N");
             copy.Bus = 0;
             copy.Mute = false;
             copy.Solo = false;

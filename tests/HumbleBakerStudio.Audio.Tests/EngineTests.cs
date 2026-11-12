@@ -537,3 +537,67 @@ public class InstrumentLibraryTests
         Assert.Contains(pcm, s => s != 0);
     }
 }
+
+public class PluginStatePersistenceTests
+{
+    [Fact]
+    public void TrackAndGraphNodePluginFieldsRoundTrip()
+    {
+        var p = ProjectStore.CreateDefault();
+        var t = p.Tracks[0];
+        t.PluginFormat = "vst3";
+        t.PluginPath = @"C:\VST3\Helm.vst3";
+        t.PluginClass = "abc123";
+        t.PluginName = "Helm";
+        t.PluginInstrument = true;
+        t.PluginState = "c3RhdGU=";
+        t.PluginBypass = false;
+
+        p.Graph.Initialized = true;
+        var node = new PatchNode
+        {
+            Kind = "fx",
+            Type = "vst",
+            PluginFormat = "vst3",
+            PluginPath = @"C:\VST3\kHs Distortion.vst3",
+            PluginClass = "def456",
+            PluginName = "kHs Distortion",
+            PluginState = "bm9kZQ=="
+        };
+        p.Graph.Nodes.Add(node);
+
+        var loaded = ProjectStore.LoadFromJson(ProjectStore.SaveToJson(p));
+        var lt = loaded.Tracks[0];
+        Assert.Equal("vst3", lt.PluginFormat);
+        Assert.Equal("Helm", lt.PluginName);
+        Assert.Equal("abc123", lt.PluginClass);
+        Assert.True(lt.PluginInstrument);
+        Assert.Equal("c3RhdGU=", lt.PluginState);
+
+        var ln = loaded.Graph.Nodes.Single(n => n.Type == "vst");
+        Assert.Equal("kHs Distortion", ln.PluginName);
+        Assert.Equal("def456", ln.PluginClass);
+        Assert.True(ln.HasPlugin);
+        Assert.Equal("bm9kZQ==", ln.PluginState);
+    }
+
+    [Fact]
+    public void PluginTrackIsSilentWithoutAHostAndFallsBackToSynth()
+    {
+        var p = ProjectStore.CreateDefault();
+        p.Tracks.Clear();
+        var t = ProjectStore.NewTrack("VST track", "saw");
+        t.PluginFormat = "vst3";
+        t.PluginPath = @"C:\missing\plugin.vst3";
+        t.PluginClass = "x";
+        t.PluginName = "Missing";
+        t.PluginInstrument = true;
+        t.Notes.Add(new Note(60, 0, 1, 100));
+        p.Tracks.Add(t);
+        p.Bars = 1; p.PhraseBars = 1;
+
+        AudioPlugins.Host = null;
+        var pcm = Dsp.Render(p, loop: true, master: false);
+        Assert.Contains(pcm, s => s != 0);
+    }
+}

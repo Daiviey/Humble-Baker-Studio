@@ -1,4 +1,4 @@
-﻿namespace HumbleBakerStudio.Audio;
+namespace HumbleBakerStudio.Audio;
 
 
 // -----------------------------------------------------------------------------------
@@ -12,6 +12,14 @@ public class PatchNode {
     public string Type = "filter";   // fx: module type, bus: bus label base, track: track, out: out
     public string Label = "";        // fallback label (fx/bus/out); track nodes resolve live by TrackUid
     public string Module = "";       // fx: selected effect module (filter, drive, delay, ... )
+    // Optional VST3 effect hosted by this FX node, processed after the built-in module.
+    public string PluginFormat = "";
+    public string PluginPath = "";
+    public string PluginClass = "";
+    public string PluginName = "";
+    public string PluginState = "";
+    public bool PluginBypass;
+    public bool HasPlugin => !string.IsNullOrEmpty(PluginPath);
     public double X = 60, Y = 60;
     public string TrackUid;          // Kind == track: uid of the linked Track
     [Category("1 Module"), Description("Module output gain (bus modules only). 0 = silent, 1 = unity, 2 = hot."), Rng(0, 2)] public double Gain { get; set; }

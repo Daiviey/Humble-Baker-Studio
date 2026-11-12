@@ -104,7 +104,17 @@ public static class PatchRender {
                 }
                 gotInput[node.Id] = any;
                 if (node.Kind == "fx") {
-                    if (!node.Bypass && node.Fx != null) { float[] cL = (float[])sL.Clone(), cR = (float[])sR.Clone(); if (node.Auto != null && node.Auto.Count > 0) AutoFx.ApplyLanes(node.Auto, node.Fx, cL, cR, spb); if (node.Fx.Active) FxProc.Process(node.Fx, cL, cR, loop, spb); sL = cL; sR = cR; }
+                    if (!node.Bypass) {
+                        float[] cL = (float[])sL.Clone(), cR = (float[])sR.Clone();
+                        if (node.Fx != null) {
+                            if (node.Auto != null && node.Auto.Count > 0) AutoFx.ApplyLanes(node.Auto, node.Fx, cL, cR, spb);
+                            if (node.Fx.Active) FxProc.Process(node.Fx, cL, cR, loop, spb);
+                        }
+                        if (!node.PluginBypass && node.HasPlugin) {
+                            try { AudioPlugins.Host?.ProcessNodeEffect(node, cL, cR, spb); } catch { }
+                        }
+                        sL = cL; sR = cR;
+                    }
                 } else if (node.Kind == "bus" || node.Kind == "group") {
                     if (!node.Bypass) {
                         // Group masters are buses too: they can process their own FX and trim/pan the group sum.

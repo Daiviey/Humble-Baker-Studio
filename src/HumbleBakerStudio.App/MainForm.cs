@@ -39,6 +39,9 @@ internal sealed class MainForm : Form
     private readonly MixerTab _mixerTab;
     private readonly AiTab _aiTab;
     private readonly SettingsTab _settingsTab;
+    private readonly PluginTab _pluginTab;
+    private readonly Vst3Host _vst = new();
+    private Task? _vstScanTask;
 
     private readonly NumericUpDown _bpm = new() { Minimum = 30, Maximum = 300, DecimalPlaces = 2, Increment = 1, Width = 68 };
     private readonly NumericUpDown _bars = new() { Minimum = 1, Maximum = 64, Width = 52 };
@@ -68,6 +71,7 @@ internal sealed class MainForm : Form
         _settings = AppSettings.Load();
         _ollama = new OllamaClient(_settings.OllamaUrl);
         _ai = new AiTools(_ollama) { Model = _settings.OllamaModel };
+        AudioPlugins.Host = _vst;
         SampleLibrary.Discover(_settings);
 
         _project = LoadInitialProject();
@@ -80,6 +84,7 @@ internal sealed class MainForm : Form
         _libraryTab = new LibraryTab(this);
         _sampleTab = new SampleTab(this);
         _effectsTab = new EffectsTab(this);
+        _pluginTab = new PluginTab(this);
         _synthTab = new SynthTab(this);
         _graphTab = new GraphTab(this);
         _masterTab = new MasterTab(this);
@@ -104,6 +109,8 @@ internal sealed class MainForm : Form
         {
             _sequencer.ScrollToContent();
             Theme.ApplyDarkScrollbars(this);
+            _vst.CatalogChanged += OnVstCatalogChanged;
+            _ = EnsureVstScan();
             if (Environment.GetEnvironmentVariable("HBS_OPEN_LIVE") == "1") OpenLiveWindow();
         };
 
@@ -140,6 +147,35 @@ internal sealed class MainForm : Form
     public Project Project => _project;
     public Track? SelectedTrack => _selected;
     public AppSettings Settings => _settings;
+    public Vst3Host Vst => _vst;
+
+    /// <summary>Starts one shared VST3 scan; safe to call from any tab.</summary>
+    public Task EnsureVstScan()
+    {
+        if (_vst.Catalog.Count > 0) return Task.CompletedTask;
+        _vstScanTask ??= Task.Run(() =>
+        {
+            try { _vst.Scan(); }
+            catch { }
+        });
+        return _vstScanTask;
+    }
+
+    private void OnVstCatalogChanged()
+    {
+        if (IsDisposed || !IsHandleCreated) return;
+        try
+        {
+            BeginInvoke(new Action(() =>
+            {
+                _tracksTab.ReloadInstruments();
+                _sequencer.ReloadInstruments();
+                _graphTab.RefreshVstChoices();
+                _pluginTab.RefreshView();
+            }));
+        }
+        catch { }
+    }
     public AudioPlayer Player => _player;
     public AiTools Ai => _ai;
     public OllamaClient Ollama => _ollama;
@@ -246,6 +282,7 @@ internal sealed class MainForm : Form
         _tabs.TabPages.Add(Page("Library", _libraryTab));
         _tabs.TabPages.Add(Page("Sample lab", _sampleTab));
         _tabs.TabPages.Add(Page("Effects", _effectsTab));
+        _tabs.TabPages.Add(Page("Plugins", _pluginTab));
         _tabs.TabPages.Add(Page("Synth", _synthTab));
         _tabs.TabPages.Add(Page("Graph", _graphTab));
         _tabs.TabPages.Add(Page("Mixer", _mixerTab));
@@ -434,10 +471,12 @@ internal sealed class MainForm : Form
             _libraryTab.RefreshView();
             _sampleTab.RefreshView();
             _effectsTab.RefreshView();
+            _pluginTab.RefreshView();
             _synthTab.RefreshView();
             _graphTab.RefreshView();
             _masterTab.RefreshView();
             _mixerTab.Rebuild();
+            _vst.Trim(_project);
         }
         finally
         {
@@ -458,6 +497,7 @@ internal sealed class MainForm : Form
         _mixerTab.RefreshTrack();
         _toolsTab.RefreshView();
         _graphTab.RefreshView();
+        _pluginTab.RefreshView();
     }
 
     public void NotifyTracksChanged(Track? select = null)
@@ -502,6 +542,7 @@ internal sealed class MainForm : Form
             while (_loopDirty && _player.IsPlaying && _loop.Checked && !_song.Checked)
             {
                 _loopDirty = false;
+                _vst.CaptureAll(_project);
                 var snapshot = ProjectStore.LoadFromJson(ProjectStore.SaveToJson(_project));
                 bool master = _master.Checked;
                 var pcm = await Task.Run(() => ExportService.RenderPcm(snapshot, false, true, master));
@@ -651,6 +692,7 @@ internal sealed class MainForm : Form
 
         try
         {
+            _vst.CaptureAll(_project);
             ProjectStore.Save(_project, path!);
             _projectPath = path;
             _dirty = false;
@@ -699,6 +741,7 @@ internal sealed class MainForm : Form
             SetStatus("Rendering…");
             bool song = _song.Checked && _project.Song.Count > 0;
             bool loopPattern = _loop.Checked && !song;
+            _vst.CaptureAll(_project);
             var project = _project;
             bool master = _master.Checked;
 
@@ -749,6 +792,7 @@ internal sealed class MainForm : Form
 
     private void ExportProject()
     {
+        _vst.CaptureAll(_project);
         using var dlg = new ExportDialog(this, _project, _settings);
         if (dlg.ShowDialog(this) == DialogResult.OK)
         {
@@ -774,6 +818,7 @@ internal sealed class MainForm : Form
             return;
         }
         try { _settings.LastProject = _projectPath ?? _settings.LastProject; _settings.Save(); } catch { }
+        _vst.Dispose();
         _ollama.Dispose();
         _player.Dispose();
     }
