@@ -261,6 +261,11 @@ internal sealed class LiveWindow : Form
         }
     }
 
+    public async Task LoadNewProjectIntoDeck(bool isA)
+    {
+        await LoadProjectIntoDeck(isA, ProjectStore.CreateDefault(), "New project");
+    }
+
     public async Task LoadProjectIntoDeck(bool isA, Project project, string path)
     {
         var deck = isA ? Mixer.A : Mixer.B;
