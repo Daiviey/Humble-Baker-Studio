@@ -10,6 +10,7 @@
 - Live audio is rendered once per track and mixed on a dedicated thread through `winmm`, so transitions and filter sweeps are immediate. Rendering a long song still takes the usual offline render time.
 - Rebuilt `Humble Baker Studio.exe` with the live module and the current studio sources.
 - Live decks now include a **New** button that renders a fresh default project into that deck (with a confirmation when the deck already has audio).
+- Ported all of the above to the PowerShell studio (`AudioStudioImplementation.ps1`, standalone build and exe): editable song entries with bars override, marker-driven playback energy, ruler double-click marker sketching (with a marker list and fields on the Song tab) and the timeline-wide piano roll.
 
 ## 1.0.21 - 2026-11-11
 

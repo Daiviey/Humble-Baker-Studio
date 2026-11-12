@@ -1073,7 +1073,16 @@ public class Pattern {
         foreach (AutoLane a in Auto) if (a.Track > i) a.Track--;
     }
 }
-public class SongItem { public int Pattern; public int Repeats = 1; public SongItem() { } public SongItem(int p, int r) { Pattern = p; Repeats = r; } }
+// One step of the song order: a pattern played Repeats times. Bars overrides the pattern's
+// own length for this entry (0 = use the pattern's bars), so one pattern can appear as a
+// 2-bar fill and an 8-bar section.
+public class SongItem {
+    public int Pattern; public int Repeats = 1; public int Bars;
+    public SongItem() { }
+    public SongItem(int p, int r) { Pattern = p; Repeats = r; }
+    public SongItem(int p, int r, int bars) { Pattern = p; Repeats = r; Bars = bars; }
+    public int EffectiveBars(int patternBars) { return Bars > 0 ? Math.Max(1, Math.Min(128, Bars)) : Math.Max(1, patternBars); }
+}
 
 public static class Arranger {
     // Lays the song out on one long timeline so the normal renderer can play it. Track settings are shared with the editor.
@@ -1087,16 +1096,22 @@ public static class Arranger {
             c.Mute = false; c.Auto = new List<AutoLane>(); q.Tracks.Add(c);
         }
         double offset = 0;
+        List<Marker> markers = p.Markers == null ? new List<Marker>() : p.Markers.OrderBy(m => m.Beat).ToList();
         foreach (SongItem it in p.Song) {
             if (it.Pattern < 0 || it.Pattern >= p.Patterns.Count) continue;
             Pattern pat = p.Patterns[it.Pattern];
+            int bars = it.EffectiveBars(pat.Bars);
             int reps = Math.Max(1, Math.Min(128, it.Repeats));
             for (int r = 0; r < reps; r++) {
                 for (int ti = 0; ti < q.Tracks.Count && ti < pat.Notes.Count; ti++) {
                     if (pat.Mutes[ti]) continue;
-                    foreach (Note n in pat.Notes[ti]) q.Tracks[ti].Notes.Add(new Note(n.Pitch, n.Start + offset, n.Len, n.Vel));
+                    foreach (Note n in pat.Notes[ti]) {
+                        // Markers shape the arrangement: the section energy scales note velocity (energy 5 = neutral).
+                        int vel = (int)Math.Round(n.Vel * EnergyFactor(markers, n.Start + offset));
+                        q.Tracks[ti].Notes.Add(new Note(n.Pitch, n.Start + offset, n.Len, Math.Max(1, Math.Min(127, vel))));
+                    }
                 }
-                double end = offset + pat.Bars * p.BarBeats;
+                double end = offset + bars * p.BarBeats;
                 foreach (AutoLane al in pat.Auto) {
                     if (al.Track < 0 || al.Track >= q.Tracks.Count || al.Points.Count == 0 || al.Track >= pat.Mutes.Count || pat.Mutes[al.Track]) continue;
                     AutoLane dst = null;
@@ -1112,9 +1127,18 @@ public static class Arranger {
         q.Bars = Math.Max(1, (int)Math.Ceiling(offset / p.BarBeats - 1e-9));
         return q;
     }
+    // 0.6 + 0.08 * energy: energy 5 plays at normal level, 1 is a sparse intro, 10 is a peak.
+    static double EnergyFactor(List<Marker> markers, double beat) {
+        double f = 1.0;
+        foreach (Marker m in markers) {
+            if (m.Beat > beat + 1e-9) break;
+            f = 0.6 + 0.08 * Math.Max(1, Math.Min(10, m.Energy));
+        }
+        return f;
+    }
     public static double SongBeats(Project p) {
         double b = 0;
-        foreach (SongItem it in p.Song) if (it.Pattern >= 0 && it.Pattern < p.Patterns.Count) b += p.Patterns[it.Pattern].Bars * p.BarBeats * Math.Max(1, it.Repeats);
+        foreach (SongItem it in p.Song) if (it.Pattern >= 0 && it.Pattern < p.Patterns.Count) b += it.EffectiveBars(p.Patterns[it.Pattern].Bars) * p.BarBeats * Math.Max(1, it.Repeats);
         return b;
     }
 
@@ -5564,6 +5588,7 @@ public class PianoRoll : Control {
     public double Zoom = 80; public int RowH = 14;
     public HashSet<Note> Sel = new HashSet<Note>();
     public event EventHandler Changed, BeginEdit, UndoRequested, SpaceRequested;
+    public event EventHandler MarkersChanged;
 
     const int KeyW = 58, RulerH = 22, VelH = 52;
     HScrollBar hs = new HScrollBar(); VScrollBar vs = new VScrollBar();
@@ -5583,6 +5608,10 @@ public class PianoRoll : Control {
     }
 
     public void ScrollToPitch(int pitch) { SetScroll(vs, Math.Max(0, (127 - pitch) * RowH - Math.Max(0, ViewH / 2))); }
+    // Brings a timeline position into view so notes can be written or pasted far past the loop.
+    public void ScrollToBeat(double beat) { UpdateScroll(); SetScroll(hs, (int)(beat * Zoom - ViewW / 2.0)); }
+    // The canvas always covers the loop, the whole song arrangement and some writing room past the end.
+    double CanvasBeats { get { return Math.Max(Proj.LoopBeats, Proj.Song == null ? 0 : Arranger.SongBeats(Proj)) + 64; } }
     int ViewW { get { return Math.Max(10, Width - vs.Width - KeyW); } }
     int GridH { get { return Math.Max(10, Height - hs.Height - RulerH - VelH); } }
     int ViewH { get { return GridH; } }
@@ -5592,7 +5621,7 @@ public class PianoRoll : Control {
         if (Proj == null || Width < 120 || Height < 120) return;
         hs.SetBounds(0, Height - hs.Height, Width - vs.Width, hs.Height);
         vs.SetBounds(Width - vs.Width, 0, vs.Width, Height - hs.Height);
-        int cw = (int)((Proj.LoopBeats + 8) * Zoom), vw = ViewW;
+        int cw = (int)(CanvasBeats * Zoom), vw = ViewW;
         hs.LargeChange = Math.Max(1, vw); hs.SmallChange = 20; hs.Maximum = Math.Max(0, cw - vw) + hs.LargeChange - 1;
         int ch = 128 * RowH, vh = GridH;
         vs.LargeChange = Math.Max(1, vh); vs.SmallChange = RowH; vs.Maximum = Math.Max(0, ch - vh) + vs.LargeChange - 1;
@@ -5748,12 +5777,30 @@ public class PianoRoll : Control {
 
     void BeginChange() { Fire(BeginEdit); }
 
+    // Double-click on the ruler: adds an arrangement marker (energy 5 = neutral) or removes
+    // the marker under the cursor, so song structure can be sketched straight on the piano roll.
+    void ToggleMarkerAt(int x, double beat) {
+        Marker hit = null; double best = 8;
+        if (Proj.Markers != null) foreach (Marker m in Proj.Markers) {
+            double d = Math.Abs(BeatToX(m.Beat) - x);
+            if (d < best) { best = d; hit = m; }
+        }
+        BeginChange();
+        if (hit != null) Proj.Markers.Remove(hit);
+        else {
+            if (Proj.Markers == null) Proj.Markers = new List<Marker>();
+            Proj.Markers.Add(new Marker(beat, "Section", 5));
+        }
+        Fire(Changed); Fire(MarkersChanged); Invalidate();
+    }
+
     protected override void OnMouseDown(MouseEventArgs e) {
         Focus();
         if (Proj == null || Cur == null) return;
         int gb = Height - hs.Height - VelH;
         if (e.Y < RulerH && e.X >= KeyW) {
             double b = Math.Max(0, Math.Round(XToBeat(e.X) / Grid) * Grid);
+            if (e.Clicks >= 2) { ToggleMarkerAt(e.X, b); return; }
             if (e.Button == MouseButtons.Left) { MarkerBeat = b; Playhead = b; Fire(Changed); Invalidate(); }
             else if (e.Button == MouseButtons.Right) { MarkerBeat = -1; Playhead = -1; Fire(Changed); Invalidate(); }
             return;
@@ -6694,7 +6741,7 @@ function Get-StudioProjectData($P) {
             groups = @($P.Graph.Groups | ForEach-Object { [ordered]@{ id = $_.Id; name = $_.Name; nodeId = $_.NodeId; collapsed = $_.Collapsed; color = $_.ColorIndex; members = @($_.Members) } })
         }
         patterns = @($P.Patterns | ForEach-Object { [ordered]@{ name = $_.Name; bars = $_.Bars; mutes = @($_.Mutes); notes = @($_.Notes | ForEach-Object { (ConvertTo-StudioNoteString $_) }); auto = @($_.Auto | ForEach-Object { [ordered]@{ track = $_.Track; param = $_.Param; points = @($_.Points | ForEach-Object { , @($_[0], $_[1]) }) } }) } })
-        song = @($P.Song | ForEach-Object { [ordered]@{ pattern = $_.Pattern; repeats = $_.Repeats } })
+        song = @($P.Song | ForEach-Object { [ordered]@{ pattern = $_.Pattern; repeats = $_.Repeats; bars = $_.Bars } })
         tracks = @($tracks)
     }
 }
@@ -6824,7 +6871,7 @@ function Read-StudioProjectData($d) {
         }
         $p.Patterns.Add($pat)
     }
-    foreach ($sd in @($d.song)) { if ($sd) { $p.Song.Add((New-Object HbStudio.SongItem ([int]$sd.pattern), ([int]$sd.repeats))) } }
+    foreach ($sd in @($d.song)) { if ($sd) { $sb = 0; if ($sd.PSObject.Properties['bars']) { $sb = [int]$sd.bars }; $p.Song.Add((New-Object HbStudio.SongItem ([int]$sd.pattern), ([int]$sd.repeats), $sb)) } }
     return $p
 }
 
@@ -9658,7 +9705,7 @@ function Get-StudioMixReport($Proj, $Plan) {
         $t = 0.0
         foreach ($it in $Proj.Song) {
             if ($it.Pattern -lt 0 -or $it.Pattern -ge $Proj.Patterns.Count) { continue }
-            $pat = $Proj.Patterns[$it.Pattern]; $dur = $pat.Bars * $Proj.BarBeats * 60.0 / $bpm * [math]::Max(1, $it.Repeats)
+            $pat = $Proj.Patterns[$it.Pattern]; $dur = $it.EffectiveBars($pat.Bars) * $Proj.BarBeats * 60.0 / $bpm * [math]::Max(1, $it.Repeats)
             $en = $null; if ($Plan) { $m = $Plan.Sections | Where-Object { $pat.Name -like ($_.Name + '*') } | Select-Object -First 1; if ($m) { $en = [int]$m.Energy } }
             $sl = & $slice $t $dur $pat.Name $it.Pattern $en; if ($sl) { $secs += $sl }; $t += $dur
         }
@@ -9939,7 +9986,7 @@ function Convert-StudioArrangementToTimeline($Proj, $Plan) {
                 if ($pat.Mutes[$ti]) { continue }
                 foreach ($n in $pat.Notes[$ti]) { $Proj.Tracks[$ti].Notes.Add((New-Object HbStudio.Note $n.Pitch, ($n.Start + $offset), $n.Len, $n.Vel)) }
             }
-            $end = $offset + $pat.Bars * $bb
+            $end = $offset + $it.EffectiveBars($pat.Bars) * $bb
             foreach ($al in $pat.Auto) {
                 if ($al.Track -lt 0 -or $al.Track -ge $Proj.Tracks.Count -or $al.Points.Count -eq 0 -or $al.Track -ge $pat.Mutes.Count -or $pat.Mutes[$al.Track]) { continue }
                 $tr = $Proj.Tracks[$al.Track]; $dst = $tr.Auto | Where-Object { $_.Param -eq $al.Param } | Select-Object -First 1
@@ -10647,8 +10694,9 @@ function Show-AudioStudio {
     $tSong.Controls.Add((Lbl 'Rename: edit the box, then click away.' 8 232 300))
     $tSong.Controls.Add((Lbl 'Arrangement (song order)' 330 4 300))
     $S.SongList = New-LabList 330 24 340 136
-    $S.SongAdd = Btn 'Add pattern' 330 166 86; $tSong.Controls.Add((Lbl 'x' 420 170 12)); $S.SongReps = Num 2 1 64 1 0 432 166 48
-    $S.SongRem = Btn 'Remove' 486 166 62; $S.SongUp = Btn 'Up' 552 166 40; $S.SongDn = Btn 'Down' 596 166 50
+    $S.SongAdd = Btn 'Add pattern' 330 166 80; $tSong.Controls.Add((Lbl 'x' 414 170 12)); $S.SongReps = Num 2 1 64 1 0 426 166 44
+    $tSong.Controls.Add((Lbl 'bars' 474 170 30)); $S.SongBars = Num 0 0 64 1 0 502 166 44
+    $S.SongRem = Btn 'Remove' 550 166 58; $S.SongUp = Btn 'Up' 612 166 34; $S.SongDn = Btn 'Down' 650 166 40
     $S.SongAuto = Btn 'Auto-arrange from tracks' 330 198 168; $S.SongClear = Btn 'Clear' 502 198 52
     $S.SongPlay = Btn 'Play song' 558 198 78 28 $true; $S.SongStop = Btn 'Stop' 640 198 40
     $S.SongInfo = Lbl '' 330 232 340
@@ -10659,7 +10707,13 @@ function Show-AudioStudio {
     $S.SongPrompt = Sty (New-Object Windows.Forms.TextBox); $S.SongPrompt.Multiline = $true; $S.SongPrompt.SetBounds(996, 24, 360, 66)
     $S.SongPrompt.Text = 'about 3 minutes: slow intro, build, hard drop, breakdown, second drop, outro'
     $S.SongAi = Btn 'AI arrange song' 996 96 130 28 $true; $S.SongAiStatus = Lbl '' 996 130 360
-    $tSong.Controls.AddRange(@($S.PatList, $S.PatCap, $S.PatUpd, $S.PatLoad, $S.PatDup, $S.PatDel, $S.PatName, $S.SongList, $S.SongAdd, $S.SongReps, $S.SongRem, $S.SongUp, $S.SongDn, $S.SongAuto, $S.SongClear, $S.SongPlay, $S.SongStop, $S.SongInfo, $S.PresetList, $S.PresetAdd, $S.PresetApply, $S.SongPrompt, $S.SongAi, $S.SongAiStatus))
+    $tSong.Controls.Add((Lbl 'Arrangement markers (double-click the piano roll ruler to sketch them; energy scales section velocity)' 996 158 360))
+    $S.MarkerList = New-LabList 996 176 360 90
+    $tSong.Controls.Add((Lbl 'beat' 996 270 30)); $S.MarkerBeat = Num 0 0 9999 4 2 1028 266 70
+    $S.MarkerName = Sty (New-Object Windows.Forms.TextBox); $S.MarkerName.SetBounds(1102, 266, 120, 24); $S.MarkerName.Text = 'Section'
+    $tSong.Controls.Add((Lbl 'energy' 1226 270 44)); $S.MarkerEnergy = Num 5 1 10 1 0 1272 266 40
+    $S.MarkerAdd = Btn 'Add' 996 298 56; $S.MarkerPlay = Btn 'At playhead' 1056 298 90; $S.MarkerRem = Btn 'Remove' 1150 298 70
+    $tSong.Controls.AddRange(@($S.PatList, $S.PatCap, $S.PatUpd, $S.PatLoad, $S.PatDup, $S.PatDel, $S.PatName, $S.SongList, $S.SongAdd, $S.SongReps, $S.SongBars, $S.SongRem, $S.SongUp, $S.SongDn, $S.SongAuto, $S.SongClear, $S.SongPlay, $S.SongStop, $S.SongInfo, $S.PresetList, $S.PresetAdd, $S.PresetApply, $S.SongPrompt, $S.SongAi, $S.SongAiStatus, $S.MarkerList, $S.MarkerBeat, $S.MarkerName, $S.MarkerEnergy, $S.MarkerAdd, $S.MarkerPlay, $S.MarkerRem))
 
     # Master tab: analysis, auto/AI mastering, preview, export
     $S.GridMaster = New-LabGrid 4 410; $S.GridMaster.SelectedObject = $S.Proj.Master
@@ -14559,12 +14613,15 @@ Rules: prefer the user's saved instruments when one fits the goal. Use design_so
         $n = 1
         foreach ($it in $P.Song) {
             $nm = if ($it.Pattern -ge 0 -and $it.Pattern -lt $P.Patterns.Count) { $P.Patterns[$it.Pattern].Name } else { '(missing)' }
-            [void]$S.SongList.Items.Add(('{0}. {1}  x{2}' -f $n, $nm, $it.Repeats)); $n++
+            $pb = if ($it.Pattern -ge 0 -and $it.Pattern -lt $P.Patterns.Count) { $P.Patterns[$it.Pattern].Bars } else { 0 }
+            $bars = '{0} bars{1}' -f $it.EffectiveBars($pb), $(if ($it.Bars -gt 0) { ' (override)' } else { '' })
+            [void]$S.SongList.Items.Add(('{0}. {1}  x{2}  · {3}' -f $n, $nm, $it.Repeats, $bars)); $n++
         }
         if ($pi -ge 0 -and $pi -lt $S.PatList.Items.Count) { $S.PatList.SelectedIndex = $pi }
         if ($si -ge 0 -and $si -lt $S.SongList.Items.Count) { $S.SongList.SelectedIndex = $si }
         $beats = [HbStudio.Arranger]::SongBeats($P); $sec = $beats * 60.0 / $P.Bpm
         $S.SongInfo.Text = if ($P.Song.Count) { 'Song length: {0} beats, {1}:{2:00}' -f [int]$beats, [int][math]::Floor($sec / 60), [int]($sec % 60) } else { 'Song is empty: add patterns or auto-arrange.' }
+        try { Refresh-Markers } catch { }
         $S.GridMaster.SelectedObject = $P.Master
         try { Refresh-MixUi } catch { }
     }
@@ -14616,7 +14673,7 @@ Rules: prefer the user's saved instruments when one fits the goal. Use design_so
     })
     $S.SongAdd.Add_Click({
         $i = $S.PatList.SelectedIndex; if ($i -lt 0) { Show-StudioMsg 'Select a pattern first.'; return }
-        $S.Proj.Song.Add((New-Object HbStudio.SongItem $i, [int]$S.SongReps.Value)); $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Refresh-SongUi
+        $S.Proj.Song.Add((New-Object HbStudio.SongItem $i, [int]$S.SongReps.Value, [int]$S.SongBars.Value)); $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Refresh-SongUi
     })
     $S.SongRem.Add_Click({ $i = $S.SongList.SelectedIndex; if ($i -ge 0) { $S.Proj.Song.RemoveAt($i); $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Refresh-SongUi } })
     $S.SongUp.Add_Click({
@@ -14627,11 +14684,69 @@ Rules: prefer the user's saved instruments when one fits the goal. Use design_so
     })
     $S.SongList.Add_SelectedIndexChanged({
         $i = $S.SongList.SelectedIndex
-        if ($i -ge 0 -and $i -lt $S.Proj.Song.Count) { $S.Loading = $true; $S.SongReps.Value = [decimal]$S.Proj.Song[$i].Repeats; $S.Loading = $false }
+        if ($i -ge 0 -and $i -lt $S.Proj.Song.Count) { $S.Loading = $true; $S.SongReps.Value = [decimal]$S.Proj.Song[$i].Repeats; $S.SongBars.Value = [decimal]$S.Proj.Song[$i].Bars; $S.Loading = $false }
     })
     $S.SongReps.Add_ValueChanged({
         $i = $S.SongList.SelectedIndex
         if (-not $S.Loading -and $i -ge 0 -and $i -lt $S.Proj.Song.Count) { $S.Proj.Song[$i].Repeats = [int]$S.SongReps.Value; $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Refresh-SongUi }
+    })
+    $S.SongBars.Add_ValueChanged({
+        $i = $S.SongList.SelectedIndex
+        if (-not $S.Loading -and $i -ge 0 -and $i -lt $S.Proj.Song.Count) { $S.Proj.Song[$i].Bars = [int]$S.SongBars.Value; $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Refresh-SongUi }
+    })
+    # ---- Arrangement markers: list + fields on the Song tab, sketched by double-clicking the roll ruler ----
+    function Get-SortedMarkers { return @($S.Proj.Markers | Sort-Object Beat) }
+    function Sync-MarkerFields {
+        $S.Loading = $true
+        $ms = Get-SortedMarkers; $i = $S.MarkerList.SelectedIndex
+        if ($i -ge 0 -and $i -lt $ms.Count) {
+            $m = $ms[$i]
+            $S.MarkerBeat.Value = [decimal][math]::Max(0, [math]::Min(9999, $m.Beat))
+            $S.MarkerName.Text = $m.Name
+            $S.MarkerEnergy.Value = [decimal][math]::Max(1, [math]::Min(10, $m.Energy))
+        }
+        $S.Loading = $false
+    }
+    function Refresh-Markers {
+        $sel = $S.MarkerList.SelectedIndex
+        $S.Loading = $true
+        $S.MarkerList.Items.Clear()
+        foreach ($m in (Get-SortedMarkers)) { [void]$S.MarkerList.Items.Add(('{0:0.##} — {1} (energy {2})' -f $m.Beat, $m.Name, $m.Energy)) }
+        if ($sel -ge 0 -and $sel -lt $S.MarkerList.Items.Count) { $S.MarkerList.SelectedIndex = $sel }
+        $S.Loading = $false
+        Sync-MarkerFields
+    }
+    function Add-StudioMarker([double]$beat) {
+        if ($null -eq $S.Proj.Markers) { $S.Proj.Markers = New-Object 'System.Collections.Generic.List[HbStudio.Marker]' }
+        $nm = if ([string]::IsNullOrWhiteSpace($S.MarkerName.Text)) { 'Marker' } else { $S.MarkerName.Text.Trim() }
+        $S.Proj.Markers.Add((New-Object HbStudio.Marker ([math]::Max(0.0, $beat)), $nm, [int][math]::Max(1, [math]::Min(10, $S.MarkerEnergy.Value))))
+        $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; $S.Roll.Invalidate(); Refresh-Markers
+        $S.MarkerList.SelectedIndex = $S.MarkerList.Items.Count - 1
+    }
+    $S.MarkerList.Add_SelectedIndexChanged({ if (-not $S.Loading) { Sync-MarkerFields } })
+    $S.MarkerBeat.Add_ValueChanged({ Apply-MarkerFields })
+    $S.MarkerEnergy.Add_ValueChanged({ Apply-MarkerFields })
+    $S.MarkerName.Add_TextChanged({ Apply-MarkerFields })
+    function Apply-MarkerFields {
+        if ($S.Loading) { return }
+        $ms = Get-SortedMarkers; $i = $S.MarkerList.SelectedIndex
+        if ($i -lt 0 -or $i -ge $ms.Count) { return }
+        $m = $ms[$i]
+        $m.Beat = [double]$S.MarkerBeat.Value
+        $m.Name = if ([string]::IsNullOrWhiteSpace($S.MarkerName.Text)) { 'Marker' } else { $S.MarkerName.Text.Trim() }
+        $m.Energy = [int][math]::Max(1, [math]::Min(10, $S.MarkerEnergy.Value))
+        $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; $S.Roll.Invalidate(); Refresh-Markers
+    }
+    $S.MarkerAdd.Add_Click({ Add-StudioMarker ([double]$S.MarkerBeat.Value) })
+    $S.MarkerPlay.Add_Click({
+        $beat = if ($S.Roll.Playhead -ge 0) { $S.Roll.Playhead } elseif ($S.Roll.MarkerBeat -ge 0) { $S.Roll.MarkerBeat } else { 0.0 }
+        Add-StudioMarker $beat
+        Status ('Marker added at beat {0:0.##}.' -f $beat)
+    })
+    $S.MarkerRem.Add_Click({
+        $ms = Get-SortedMarkers; $i = $S.MarkerList.SelectedIndex
+        if ($i -lt 0 -or $i -ge $ms.Count) { return }
+        [void]$S.Proj.Markers.Remove($ms[$i]); $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; $S.Roll.Invalidate(); Refresh-Markers
     })
     $S.SongClear.Add_Click({ $S.Proj.Song.Clear(); $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; Refresh-SongUi })
     $S.SongAuto.Add_Click({
@@ -15049,6 +15164,7 @@ Rules: prefer the user's saved instruments when one fits the goal. Use design_so
     $miAddNode.Add_Click({ Add-SelectedTrackNode })
     $roll.Add_BeginEdit({ Push-Undo })
     $roll.Add_Changed({ $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit })
+    $roll.Add_MarkersChanged({ try { Refresh-Markers } catch { }; try { Refresh-SongUi } catch { } })
     $roll.Add_UndoRequested({ Invoke-Undo })
     $roll.Add_SpaceRequested({ if ($S.Playing) { Stop-Studio } else { Start-Studio } })
     $f.Add_KeyDown({ param($snd, $e) if ($e.Control -and $e.KeyCode -eq 'Z' -and -not ($f.ActiveControl -is [Windows.Forms.TextBoxBase])) { Invoke-Undo; $e.Handled = $true } })
@@ -15208,7 +15324,7 @@ Rules: prefer the user's saved instruments when one fits the goal. Use design_so
         if ($S.Dirty -and [Windows.Forms.MessageBox]::Show('Close the Studio? Unsaved changes will be lost.', 'Audio Studio', 'YesNo', 'Question') -ne 'Yes') { $_.Cancel = $true; return }
         $timer.Stop(); Stop-Studio
     })
-    $f.Add_Shown({ Sync-Project; Refresh-Tracks 0; Refresh-SongUi; Update-FfmpegLabel; Update-ScLabel; Update-AiModels; $S.Roll.UpdateScroll(); $S.Roll.ScrollToPitch(48); $S.Roll.Focus(); Status 'Ready. Space = play/stop; Roll: click add, drag edge = length, right-click erase; Drums: C2 kick, D2 snare, D#2 clap, F#2 hat, A#2 open hat.'; $S.Dirty = $false })
+    $f.Add_Shown({ Sync-Project; Refresh-Tracks 0; Refresh-SongUi; Update-FfmpegLabel; Update-ScLabel; Update-AiModels; $S.Roll.UpdateScroll(); $S.Roll.ScrollToPitch(48); $S.Roll.Focus(); Status 'Ready. Space = play/stop; Roll: click add, drag edge = length, right-click erase, double-click the ruler to sketch arrangement markers; Drums: C2 kick, D2 snare, D#2 clap, F#2 hat, A#2 open hat.'; $S.Dirty = $false })
 
     # ---- responsive anchors: grow the editors with the window and the resizer handles -------------------------
     function Initialize-UiLayout {
@@ -15290,6 +15406,11 @@ Rules: prefer the user's saved instruments when one fits the goal. Use design_so
 }
 
 
+
+
+
+
+
 # Standalone entry point
 try { Show-AudioStudio } catch {
   $full = $_.Exception.ToString() + "`r`n--- ScriptStack ---`r`n" + $_.ScriptStackTrace
@@ -15297,7 +15418,6 @@ try { Show-AudioStudio } catch {
   try { [System.Windows.Forms.MessageBox]::Show($full, 'Humble Baker Studio failed to start') } catch { }
   exit 1
 }
-
 
 
 
