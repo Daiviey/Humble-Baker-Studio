@@ -7,7 +7,7 @@ application.
 **Status: feature-complete alpha.** The project model, synthesis engine, 113-effect DSP,
 mixing, mastering, piano roll, project format, WAV export and local-AI helpers are in place,
 together with the sample lab, MIDI recording, spectral/meta synth, arrangement editor, undo/redo,
-SuperCollider export and a dual-deck live performance window. Remaining gaps are the
+SuperCollider export and a dual-deck live performance window. 64-bit VST3 effects and instruments are hosted on tracks and as graph FX nodes; VST2 is not supported yet. Remaining gaps are the
 SuperCollider live session/OSC bridge and full effect-graph parity in the SC export.
 See `docs/PORT.md` for the exact matrix.
 
@@ -48,7 +48,7 @@ Or make a portable build (no .NET install required on the target machine):
 # dist\Humble Baker Studio.exe plus its runtime files
 ```
 
-Pass `-FrameworkDependent` to produce a small build that uses an installed .NET 8 runtime.
+Pass `-FrameworkDependent` to produce a small build that uses an installed .NET 9 runtime.
 
 ## Layout
 
