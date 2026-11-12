@@ -349,7 +349,7 @@ public class PatchGraphControl : Control {
                 if (n.Kind != "track") DrawJack(g, InJack(n), true);
                 if (KindHasOut(n)) DrawJack(g, OutJack(n), false);
                 if (n.Kind == "track" && proj != null) { for (int i = 0; i < proj.Tracks.Count; i++) if (proj.Tracks[i].Uid == n.TrackUid) { g.DrawString(proj.Tracks[i].Synth.ToUpperInvariant(), Font, sub, new RectangleF(r.X + 8, r.Y + 30, r.Width - 16, 24), sf); if (proj.Tracks[i].Mute) g.DrawString("MUTED", Font, RedBrush, new RectangleF(r.X + 8, r.Y + TH - 22, r.Width - 16, 16), sf); } }
-                else if (n.Kind == "fx") { g.DrawString(n.Bypass ? "BYPASSED" : FxTag(n.Fx), Font, n.Bypass ? RedBrush : sub, new RectangleF(r.X + 8, r.Y + 34, r.Width - 16, 40), sf); }
+                else if (n.Kind == "fx") { g.DrawString(n.Bypass ? "BYPASSED" : FxTag(n), Font, n.Bypass ? RedBrush : sub, new RectangleF(r.X + 8, r.Y + 34, r.Width - 16, 40), sf); }
                 else if (n.Kind == "bus") { Rectangle gr = GainRow(n); using (Pen bg = new Pen(Color.FromArgb(60, 66, 84), 3)) g.DrawLine(bg, gr.Left, gr.Top + 8, gr.Right, gr.Top + 8); int dotw = (int)((Math.Max(0, Math.Min(2, n.Gain)) / 2.0) * (gr.Width - 12)); using (SolidBrush lb = new SolidBrush(Color.FromArgb(40, 200, 170))) g.FillEllipse(lb, gr.Left + dotw - 6, gr.Top + 2, 12, 12); using (SolidBrush lb2 = new SolidBrush(Color.FromArgb(150, 158, 180))) { g.DrawString("GAIN", Font, lb2, new RectangleF(gr.Left, gr.Top - 2, gr.Width, 12), sf); } g.DrawString("PAN " + n.Pan.ToString("0.00"), Font, sub, new RectangleF(r.X + 8, r.Y + 72, r.Width - 16, 16), sf); }
                 else if (n.Kind == "group") {
                     PatchGroup pg = GroupByNodeId(n.Id);
@@ -368,11 +368,13 @@ public class PatchGraphControl : Control {
         if (wireHoverJack != null) { PatchNode n = wireHoverJack; Point o = InJack(n); using (Pen hi = new Pen(Color.FromArgb(80, 255, 140), 3)) g.DrawEllipse(hi, o.X - 10, o.Y - 10, 20, 20); }
         if (wireFrom != null) { using (SolidBrush b = new SolidBrush(Color.FromArgb(150, 158, 180))) g.DrawString("release on an IN jack to patch > green = good target, or drop onto a wire to splice", Font, b, 12, Height - 22); }
     }
-    static string FxTag(Fx fx) {
-        if (fx == null) return "(empty module)";
+    static string FxTag(PatchNode n) {
+        if (n == null || n.Fx == null) return "(empty module)";
+        if (!string.IsNullOrEmpty(n.Module)) return n.Module.ToUpperInvariant();
+        Fx fx = n.Fx;
         List<string> on = new List<string>();
         if (fx.Filter != FilterMode.off) on.Add("FILTER"); if (fx.Drive > 0) on.Add("DRIVE"); if (fx.Bits < 16 || fx.Downsample > 1) on.Add("CRUSH"); if (fx.RingMix > 0) on.Add("RING"); if (fx.StutterBeats > 0) on.Add("STUTTER"); if (fx.Chorus > 0) on.Add("CHORUS"); if (fx.DelayMix > 0) on.Add("DELAY"); if (fx.ReverbMix > 0) on.Add("REVERB");
-        return on.Count == 0 ? "(empty module)" : string.Join(" | ", on.ToArray());
+        return on.Count == 0 ? "FX RACK" : string.Join(" | ", on.ToArray());
     }
     static System.Drawing.Drawing2D.GraphicsPath RoundRect(Rectangle r, int rad) {
         System.Drawing.Drawing2D.GraphicsPath p = new System.Drawing.Drawing2D.GraphicsPath(); int d = rad * 2;
@@ -588,7 +590,7 @@ public class PatchGraphControl : Control {
         new[] { "Phase aligner", "phasealign" }, new[] { "Tape loop", "tapeloop" }, new[] { "Stutter gate", "stuttergate" }
     };
     public static PatchNode NewFxNode(string type, int x, int y) {
-        PatchNode n = new PatchNode(); n.Kind = "fx"; n.Type = type; n.Label = type.ToUpperInvariant(); n.X = x; n.Y = y;
+        PatchNode n = new PatchNode(); n.Kind = "fx"; n.Type = type; n.Module = type; n.Label = type.ToUpperInvariant(); n.X = x; n.Y = y;
         Fx fx = n.Fx;
         switch (type) {
             case "filter": fx.Filter = FilterMode.lowpass; fx.Cutoff = 1200; fx.Resonance = 0.4; break;
