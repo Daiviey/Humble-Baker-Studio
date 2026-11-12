@@ -30,6 +30,8 @@ internal sealed class MainForm : Form
     private readonly ToolsTab _toolsTab;
     private readonly ArrangementTab _arrangementTab;
     private readonly TracksTab _tracksTab;
+    private readonly LibraryTab _libraryTab;
+    private readonly SampleTab _sampleTab;
     private readonly EffectsTab _effectsTab;
     private readonly SynthTab _synthTab;
     private readonly GraphTab _graphTab;
@@ -75,6 +77,8 @@ internal sealed class MainForm : Form
         _toolsTab = new ToolsTab(this);
         _arrangementTab = new ArrangementTab(this);
         _tracksTab = new TracksTab(this);
+        _libraryTab = new LibraryTab(this);
+        _sampleTab = new SampleTab(this);
         _effectsTab = new EffectsTab(this);
         _synthTab = new SynthTab(this);
         _graphTab = new GraphTab(this);
@@ -239,6 +243,8 @@ internal sealed class MainForm : Form
         _tabs.TabPages.Add(Page("Tools", _toolsTab));
         _tabs.TabPages.Add(Page("Arrangement", _arrangementTab));
         _tabs.TabPages.Add(Page("Tracks", _tracksTab));
+        _tabs.TabPages.Add(Page("Library", _libraryTab));
+        _tabs.TabPages.Add(Page("Sample lab", _sampleTab));
         _tabs.TabPages.Add(Page("Effects", _effectsTab));
         _tabs.TabPages.Add(Page("Synth", _synthTab));
         _tabs.TabPages.Add(Page("Graph", _graphTab));
@@ -425,6 +431,8 @@ internal sealed class MainForm : Form
             _toolsTab.RefreshView();
             _arrangementTab.RefreshView();
             _tracksTab.RefreshView();
+            _libraryTab.RefreshView();
+            _sampleTab.RefreshView();
             _effectsTab.RefreshView();
             _synthTab.RefreshView();
             _graphTab.RefreshView();
