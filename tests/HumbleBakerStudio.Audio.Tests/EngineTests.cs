@@ -446,3 +446,34 @@ public class PatchGraphSyncTests
         Assert.DoesNotContain(p.Graph.Nodes, n => n.Kind == "track" && n.TrackUid == t.Uid);
     }
 }
+
+public class NotePreviewTests
+{
+    [Fact]
+    public void OneNotePreviewRendersAudio()
+    {
+        var p = ProjectStore.CreateDefault();
+        var source = p.Tracks[2];
+        var preview = new Project
+        {
+            Bpm = p.Bpm,
+            BeatsPerBar = p.BeatsPerBar,
+            BeatUnit = p.BeatUnit,
+            Bars = 1,
+            Swing = 0
+        };
+        var copy = new Track();
+        foreach (var f in typeof(Track).GetFields())
+            if (f.Name != "Notes" && f.Name != "Auto") f.SetValue(copy, f.GetValue(source));
+        copy.Bus = 0;
+        copy.Mute = false;
+        copy.Solo = false;
+        copy.Notes = new List<Note> { new(66, 0, 0.5, 100) };
+        preview.Tracks.Add(copy);
+        preview.Master.Enabled = false;
+
+        var pcm = Dsp.Render(preview, loop: true, master: false);
+        Assert.Contains(pcm, s => s != 0);
+        Assert.True(pcm.Length > 1000);
+    }
+}
