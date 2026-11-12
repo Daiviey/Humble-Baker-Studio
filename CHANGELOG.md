@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.0.22 - 2026-11-12
 
 - Arrangement **Song Order entries are editable**: each entry gets a **Bars override** (0 = use the pattern's own bars) next to Repeats, so one pattern can be laid out as a 2-bar fill in one place and an 8-bar section in another. Overrides are saved in the project file and honoured by song playback, export and the SuperCollider export.
 - **Arrangement markers now shape song playback**: the marker in effect at each note scales its velocity (`0.6 + 0.08 × energy`, energy 5 = neutral), so Intro/Breakdown/Drop sections play softer or harder. Marker fields on the Arrangement tab (Beat, Name, Energy) now edit the selected marker instead of only feeding new ones.
@@ -11,6 +11,7 @@
 - Rebuilt `Humble Baker Studio.exe` with the live module and the current studio sources.
 - Live decks now include a **New** button that renders a fresh default project into that deck (with a confirmation when the deck already has audio).
 - Ported all of the above to the PowerShell studio (`AudioStudioImplementation.ps1`, standalone build and exe): editable song entries with bars override, marker-driven playback energy, ruler double-click marker sketching (with a marker list and fields on the Song tab) and the timeline-wide piano roll.
+- Refreshed the manual, SuperCollider guide, port notes and release pages for this version. The C# port is packaged separately as `csharp-port-v0.4.0` with the same arrangement, marker and timeline features.
 
 ## 1.0.21 - 2026-11-11
 

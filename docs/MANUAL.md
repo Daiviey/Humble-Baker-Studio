@@ -71,6 +71,7 @@ Drag the splitter above the bottom tabs to make the tab area taller or shorter, 
 | `Locate SuperCollider` | Point to `sclang.exe`. |
 | `Get SuperCollider` | Open the SuperCollider download page. |
 | `Click (metronome)` | Add the metronome to renders and built-in previews. |
+| `Live mix` | Open the two-deck Live Performance window (see 8.21). |
 
 ### Selected-track strip
 
@@ -140,8 +141,11 @@ Four shared stereo buses. Tracks routed into a bus are summed, processed by that
 | Ctrl+drag empty space | Box-select notes. |
 | Shift+click a note | Add/remove it from the selection. |
 | Drag in the velocity lane | Set velocity (drag across notes to change the selection). |
-| Left-click ruler | Set the playhead / paste marker. |
-| Right-click ruler | Clear the playhead / marker. |
+| Left-click ruler | Set the playhead / paste position. |
+| Right-click ruler | Clear the playhead / paste position. |
+| Double-click ruler | Add an arrangement marker at that beat, or remove the marker under the cursor. |
+
+The piano-roll timeline is wider than the loop: it covers the loop, the whole song arrangement and 64 extra beats, so notes can be written or pasted anywhere. Scroll horizontally with **Shift+wheel** or the bottom scrollbar.
 
 ### Piano-roll keyboard
 
@@ -302,10 +306,13 @@ Read-only log of actions, errors and export messages. Useful when something fail
 | Control | What it does |
 |---|---|
 | `Add pattern` + `x reps` | Append the selected pattern, repeated N times. |
+| Entry **Repeats** | Edit how many times that song-order entry repeats. |
+| Entry **Bars** | Per-entry bars override. `0` uses the pattern's own bar count; any other value lays that entry out at that length (for example a 2-bar fill in one place and an 8-bar section in another). Saved in the project and honoured by song playback, export and the SuperCollider export. |
 | `Remove` / `Up` / `Down` | Edit the arrangement order. |
 | `Auto-arrange from tracks` | Build sections from the tracks automatically. |
 | `Clear` | Empty the arrangement. |
 | `Play song` / `Stop` | Play the arrangement once. |
+| Marker **Beat** / **Name** / **Energy** | Edit the selected marker. Energy 0-9 shapes playback: `0.6 + 0.08 x energy` scales note velocity, so Intro/Breakdown/Drop sections play softer or harder (energy 5 is neutral). |
 | Arrangement info | Length, sections and timing. |
 
 **Presets**
@@ -646,6 +653,30 @@ Import, inspect, chop and export samples.
 | Bus knobs | Full parameter view for the selected bus FX chain. |
 | Modules | Effect modules are added in the Patch graph, not here. |
 
+### 8.21 Live mix
+
+**Live mix** opens a separate two-deck performance window (LivePerformanceImplementation.ps1). Each deck can hold a complete project, so transitions never interrupt the editor.
+
+| Control | What it does |
+|---|---|
+| Load... | Load a .hbstudio.json project into this deck. |
+| From main | Copy the current editor project into the deck. |
+| New | Render a fresh default project into the deck (confirmation if the deck already has audio). |
+| Play / Pause | Start or pause the deck. |
+| Cue | Send this deck to the cue/headphone output instead of the master. |
+| Sync | Match this deck's tempo to the other deck. |
+| Loop | On: loop the current pattern. Off: play the whole song arrangement. |
+| Gain | Per-deck output gain (0-150%). |
+| Filter | One-knob filter: left is low-pass, right is high-pass, centre is bypass. |
+| Queue | Add... appends a project, Next advances, Load selected loads the highlighted item, Clear empties the queue. Queues advance automatically at the end of a song when Loop is off. |
+| CROSSFADER | Equal-power blend between deck A and deck B; Centre resets it. |
+| Pause both / Stop both | Pause or stop both decks. |
+| Master out / Cue out | Choose the Windows output devices. Cue needs a second output; choose (none) to keep it silent. |
+| Master / Cue | Output levels. Cue on master adds the cue signal to the master. |
+| Meters | Independent master and cue level meters. |
+
+Live audio is rendered once per track and mixed on a dedicated thread through winmm, so crossfades and filter sweeps are immediate. Rendering a long song still takes the usual offline render time.
+
 ---
 
 ## 9. Export
@@ -705,6 +736,7 @@ Environment:
 | `Left/Right` | Piano roll | Move by grid. |
 | `Ctrl+wheel` | Piano roll | Zoom. |
 | `Shift+wheel` | Piano roll | Horizontal scroll. |
+| Double-click ruler | Piano roll | Add or remove an arrangement marker. |
 | `Ctrl+click` | Patch graph | Multi-select modules. |
 | `Delete` | Patch graph | Delete selected module. |
 | `Esc` | Patch graph | Cancel wire. |

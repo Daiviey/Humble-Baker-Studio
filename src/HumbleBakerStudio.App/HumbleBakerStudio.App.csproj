@@ -11,7 +11,7 @@
     <AssemblyName>Humble Baker Studio</AssemblyName>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>0.3.0</Version>
+    <Version>0.4.0</Version>
     <Company>Humble Baker Studio</Company>
     <Product>Humble Baker Studio</Product>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>

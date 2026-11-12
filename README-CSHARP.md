@@ -6,7 +6,7 @@ application.
 
 **Status: feature-complete alpha.** The project model, synthesis engine, 113-effect DSP,
 mixing, mastering, piano roll, project format, WAV export and local-AI helpers are in place,
-together with the sample lab, MIDI recording, spectral/meta synth, arrangement editor, undo/redo,
+together with the sample lab, MIDI recording, spectral/meta synth, arrangement editor with editable Song Order bars overrides and marker-driven energy, ruler marker sketching, the timeline-wide piano roll, undo/redo,
 SuperCollider export and a dual-deck live performance window. 64-bit VST3 effects and instruments are hosted on tracks and as graph FX nodes; VST2 is not supported yet. Remaining gaps are the
 SuperCollider live session/OSC bridge and full effect-graph parity in the SC export.
 See `docs/PORT.md` for the exact matrix.
@@ -25,10 +25,10 @@ See `docs/PORT.md` for the exact matrix.
 
 ## Download
 
-A prebuilt portable build is attached to the [C# port release](https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/csharp-port-v0.1.1):
+A prebuilt portable build is attached to the [C# port release](https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/csharp-port-v0.4.0):
 
-- `Humble-Baker-Studio-CSharp-0.1.1-win-x64.exe` — self-contained single file, no .NET install required.
-- `Humble-Baker-Studio-CSharp-0.1.1-win-x64.zip` — the same exe plus this README and the license.
+- `Humble-Baker-Studio-CSharp-0.4.0-win-x64.exe` — self-contained single file, no .NET install required.
+- `Humble-Baker-Studio-CSharp-0.4.0-win-x64.zip` — the same exe plus this README and the license.
 - `SHA256SUMS.txt` — checksums for both.
 
 The build is unsigned, so Windows SmartScreen may ask for confirmation.

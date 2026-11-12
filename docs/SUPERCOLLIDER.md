@@ -404,15 +404,15 @@ SynthDef(\hbMySampler, { |out = 0, buf = 0, freq = 440, rootfreq = 261.63,
 
 ### 6.5 Effects in the generated script
 
-The SC exporter does **not** translate the 113 Patch-graph effect modules. It generates a
-SynthDef from the legacy track `Fx` fields, and only for the subset implemented by
-`Get-StudioFxSynthDef` [app]: filter, wavefolder, drive, downsampling, bit crush, ring
-modulation, chorus, delay, reverb and output gain. The global `hbfx` is a stereo delay [app].
+The current graph compiler (`Get-StudioScGraphProject`) does translate every Patch-graph effect.
+Each module type resolves to a native `hb_<type>` SynthDef (all 113 types), and graph links
+become `hb_route` synths on explicit audio buses. Effect parameters come from the same `Fx`
+fields used by the built-in renderer. See section 14.4 for the family table.
 
-This is an important limitation: if your project relies on the Patch graph, Ladder filter,
-Vocoder, Opto compressor, or any of the other graph effects, the exported `.scd` will not
-reproduce that processing. Use the built-in renderer for those projects, or recreate the
-processing in SC with SynthDefs and buses.
+The older `Get-StudioScd` export path still exists for simple per-track projects; it builds a
+legacy `hbfx` delay/reverb chain from the track `Fx` fields. For patch-graph projects use the
+live bridge and the generated `project.scd`, which reproduce the graph, drums, samples,
+automation and native effects.
 
 > **Known exporter issue:** the current exporter emits
 > `Synth(..., addToTail: true)` when it creates an FX synth. The documented `Synth.new`

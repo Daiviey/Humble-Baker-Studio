@@ -23,13 +23,14 @@ files alone on purpose.
 
 | Area | State |
 |---|---|
-| Project model, patterns, song arrangement, markers | Done |
+| Project model, patterns, song arrangement with editable bars overrides, markers and marker energy | Done |
 | Project save/load (`*.hbstudio.json`) | Done, schema-compatible |
 | Synth engine (subtractive, FM, additive, wavetable, vowel, pluck, modal) | Done |
 | Drum kits (procedural + WAV sample kits) | Done |
 | Track effects, buses, graph FX, automation | Done (engine); editors expose the full parameter set |
+| VST3 instruments and effects on tracks and graph nodes | Done (64-bit; VST2 not supported) |
 | Mixing, sidechain, mix rules, mastering, LUFS analysis | Done |
-| Piano roll editing, scales, snap, velocity lane | Done |
+| Piano roll editing, scales, snap, velocity lane, timeline-wide writing area, ruler marker sketching | Done |
 | Transport/playback (winmm, no third-party audio package) | Done |
 | Export WAV 16/24/32-bit, optional FFmpeg formats | Done |
 | MIDI export | Done (engine) |
@@ -41,7 +42,7 @@ files alone on purpose.
 | Spectral painting / meta-synth | Done (paintable grid, settings, render to WAV or sample track; four-corner meta synth) |
 | Song import and transcription | Done (audio track + monophonic melody + drum hits + section markers) |
 | MIDI input recording | Done (device selection, live log, quantized recording into the selected track) |
-| Marker and song arrangement editing | Done (patterns, song order, repeats, markers) |
+| Marker and song arrangement editing | Done (patterns, song order, repeats with bars override, markers and energy) |
 | Live performance mode | Done (two independent decks, crossfader, cue bus, sync) |
 | SuperCollider live sessions and OSC bridge | Not yet (export only) |
 | Full effect-graph parity in the SC export | Approximate (global delay/reverb + per-voice filter) |
