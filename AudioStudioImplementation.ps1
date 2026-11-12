@@ -15738,7 +15738,7 @@ public class DeckPanel : UserControl {
         transport.Controls.Add(Btn("Load...", 66));
         transport.Controls.Add(Btn("From main", 84));
         transport.Controls.Add(Btn("New", 54));
-        transport.Controls.Add(Btn("Queue...", 70));
+
 
         TableLayoutPanel controls = new TableLayoutPanel();
         controls.Dock = DockStyle.Top; controls.Height = 86; controls.ColumnCount = 2; controls.RowCount = 1;
@@ -15771,6 +15771,7 @@ public class DeckPanel : UserControl {
         qbtns.Controls.Add(Btn("Next", 60));
         qbtns.Controls.Add(Btn("Clear", 60));
         qbtns.Controls.Add(Btn("Load selected", 96));
+        qbtns.Controls.Add(Btn("Add...", 56));
         Queue = new ListBox();
         Queue.Dock = DockStyle.Fill; Queue.BackColor = Color.FromArgb(26, 29, 38);
         Queue.ForeColor = Color.FromArgb(224, 228, 236); Queue.BorderStyle = BorderStyle.FixedSingle;
@@ -15793,12 +15794,13 @@ public class DeckPanel : UserControl {
         Button fromMain = (Button)transport.Controls[3 + 2];
         Button newBtn = (Button)transport.Controls[3 + 3];
         fromMain.Click += delegate { if (FromMain != null) FromMain(); };
-        Button queueBtn = (Button)transport.Controls[3 + 4];
-        queueBtn.Click += delegate { if (AddQueueRequested != null) AddQueueRequested(); };
+
+
         newBtn.Click += delegate { if (NewRequested != null) NewRequested(); };
         ((Button)qbtns.Controls[0]).Click += delegate { Next(); };
         ((Button)qbtns.Controls[1]).Click += delegate { QueuePaths.Clear(); Queue.Items.Clear(); queueIndex = -1; };
         ((Button)qbtns.Controls[2]).Click += delegate { LoadSelected(); };
+        ((Button)qbtns.Controls[3]).Click += delegate { if (AddQueueRequested != null) AddQueueRequested(); };
         Queue.DoubleClick += delegate { LoadSelected(); };
         UpdateUi();
     }
