@@ -60,18 +60,57 @@ internal sealed class DeckView : UserControl
         infoPanel.Controls.Add(_info);
         infoPanel.Controls.Add(_source);
 
-        var transport = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 76, WrapContents = true, BackColor = Theme.Panel };
-        _play.Width = 78;
-        _cue.Width = 64;
-        _sync.Width = 60;
-        transport.Controls.Add(_play);
-        transport.Controls.Add(_cue);
-        transport.Controls.Add(_sync);
-        transport.Controls.Add(_loop);
-        transport.Controls.Add(FixedButton("Load…", 64, (_, _) => ChooseFile()));
-        transport.Controls.Add(FixedButton("From main", 84, (_, _) => LoadMain()));
-        transport.Controls.Add(FixedButton("New", 54, (_, _) => NewProject()));
-        transport.Controls.Add(FixedButton("Queue…", 68, (_, _) => AddToQueue()));
+        var transport = new TableLayoutPanel
+        {
+            Dock = DockStyle.Top,
+            Height = 42,
+            ColumnCount = 7,
+            RowCount = 1,
+            BackColor = Theme.Card,
+            Padding = new Padding(0, 2, 0, 2)
+        };
+        for (int i = 0; i < 7; i++)
+            transport.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, i == 6 ? 16f : 14f));
+
+        _play.AutoSize = false;
+        _play.Dock = DockStyle.Fill;
+        _play.Margin = new Padding(1);
+        _play.Padding = new Padding(4, 2, 4, 2);
+        _play.Font = Theme.Small;
+        _cue.AutoSize = false;
+        _cue.Dock = DockStyle.Fill;
+        _cue.Margin = new Padding(1);
+        _cue.Padding = new Padding(4, 2, 4, 2);
+        _cue.Font = Theme.Small;
+        _sync.AutoSize = false;
+        _sync.Dock = DockStyle.Fill;
+        _sync.Margin = new Padding(1);
+        _sync.Padding = new Padding(4, 2, 4, 2);
+        _sync.Font = Theme.Small;
+        _loop.AutoSize = false;
+        _loop.Dock = DockStyle.Fill;
+        _loop.CheckAlign = ContentAlignment.MiddleLeft;
+        _loop.Margin = new Padding(2, 1, 1, 1);
+        _loop.Font = Theme.Small;
+
+        Button MakeDeckButton(string text, EventHandler click, string? tip = null)
+        {
+            var b = Theme.Button(text, click, false, tip);
+            b.AutoSize = false;
+            b.Dock = DockStyle.Fill;
+            b.Margin = new Padding(1);
+            b.Padding = new Padding(4, 2, 4, 2);
+            b.Font = Theme.Small;
+            return b;
+        }
+
+        transport.Controls.Add(_play, 0, 0);
+        transport.Controls.Add(_cue, 1, 0);
+        transport.Controls.Add(_sync, 2, 0);
+        transport.Controls.Add(_loop, 3, 0);
+        transport.Controls.Add(MakeDeckButton("Load…", (_, _) => ChooseFile(), "Load a project into this deck"), 4, 0);
+        transport.Controls.Add(MakeDeckButton("Main", (_, _) => LoadMain(), "Load the project from the main studio window"), 5, 0);
+        transport.Controls.Add(MakeDeckButton("New", (_, _) => NewProject(), "Create a new project in this deck"), 6, 0);
 
         var controls = new TableLayoutPanel { Dock = DockStyle.Top, Height = 100, ColumnCount = 2, RowCount = 2, BackColor = Theme.Panel };
         controls.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
@@ -99,6 +138,7 @@ internal sealed class DeckView : UserControl
 
         var queueTitle = new Label { Text = "QUEUE", Dock = DockStyle.Top, Height = 20, ForeColor = Theme.Accent, Font = Theme.UiBold };
         var queueButtons = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 62, WrapContents = true, BackColor = Theme.Panel };
+        queueButtons.Controls.Add(Theme.Button("Add…", (_, _) => AddToQueue()));
         queueButtons.Controls.Add(Theme.Button("Next", (_, _) => Next()));
         queueButtons.Controls.Add(Theme.Button("Clear", (_, _) => ClearQueue()));
         queueButtons.Controls.Add(Theme.Button("Load selected", (_, _) => LoadSelectedQueue()));
