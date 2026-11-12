@@ -1,6 +1,6 @@
 # Humble Baker Studio — C# port (portable)
 
-**Version 0.1.8** · Windows 10/11 x64 · self-contained, no .NET install required.
+**Version 0.1.9** · Windows 10/11 x64 · self-contained, no .NET install required.
 
 ## Run
 
@@ -19,8 +19,8 @@ use the same `*.hbstudio.json` format as the PowerShell studio.
 
 ## Downloads
 
-- Release page: https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/csharp-port-v0.1.8
-- SHA-256: `2b73289993f5aba7d1e9f7afb7e0131a42886e25aff208cfbb25695b16dd4f0e`
+- Release page: https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/csharp-port-v0.1.9
+- SHA-256: `fd6d96aea803e3e6a6ca7d5fddbf1ee36cfaa9d18786cd770630964efc7f48d4`
 
 ## Notes
 
