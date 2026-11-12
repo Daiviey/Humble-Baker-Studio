@@ -8,6 +8,9 @@ namespace HumbleBakerStudio.Services;
 /// </summary>
 internal static class SampleLibrary
 {
+    /// <summary>Sample roots discovered at startup, in priority order.</summary>
+    public static List<string> RootPaths { get; } = new();
+
     public static List<string> Discover(AppSettings settings)
     {
         var candidates = new List<string>();
@@ -44,6 +47,8 @@ internal static class SampleLibrary
 
         foreach (var root in candidates) DrumSamples.AddRoot(root);
         DrumSamples.Reset();
+        RootPaths.Clear();
+        RootPaths.AddRange(candidates);
         return candidates;
     }
 

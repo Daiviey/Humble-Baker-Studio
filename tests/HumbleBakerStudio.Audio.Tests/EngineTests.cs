@@ -477,3 +477,63 @@ public class NotePreviewTests
         Assert.True(pcm.Length > 1000);
     }
 }
+
+public class InstrumentLibraryTests
+{
+    [Fact]
+    public void PatchInstrumentJsonAppliesToATrack()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "hbs-instruments-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            string file = Path.Combine(dir, "test-voice.json");
+            File.WriteAllText(file, """
+            {"version":1,"name":"Test Voice","kind":"patch","role":"lead","octave":4,
+             "patch":{"Cutoff":1234,"Attack":0.02,"Resonance":0.44},
+             "fx":{"Drive":0.15,"ReverbMix":0.2}}
+            """);
+
+            var defs = InstrumentLibrary.LoadAll(new[] { dir });
+            var def = Assert.Single(defs);
+            Assert.Equal("Test Voice", def.Name);
+            Assert.Equal("Patches", def.Category);
+
+            var track = new Track();
+            Assert.True(InstrumentLibrary.Apply(def, track, Array.Empty<string>(), out string error), error);
+            Assert.Equal("patch", track.Synth);
+            Assert.Equal(1234, track.Patch!.Cutoff, 3);
+            Assert.Equal(0.02, track.Patch.Attack, 3);
+            Assert.Equal(0.15, track.Fx.Drive, 3);
+            Assert.Equal("Test Voice", track.InstrumentName);
+        }
+        finally
+        {
+            try { Directory.Delete(dir, true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void SavedSampleInstrumentLoadsAndRenders()
+    {
+        string library = @"Z:\LocalAI\Audio\studio\instruments";
+        string samples = @"Z:\LocalAI\App";
+        if (!Directory.Exists(library) || !Directory.Exists(samples)) return;
+
+        var defs = InstrumentLibrary.LoadAll(new[] { library });
+        var def = defs.FirstOrDefault(d => d.Kind == "sample" && d.SampleFile.Contains("FoleyPercussion", StringComparison.OrdinalIgnoreCase));
+        Assert.NotNull(def);
+
+        var track = new Track();
+        Assert.True(InstrumentLibrary.Apply(def!, track, new[] { samples }, out string error), error);
+        Assert.Equal("sample", track.Synth);
+        Assert.NotNull(track.Sample);
+        Assert.True(track.Sample!.Length > 200);
+
+        var preview = new Project { Bpm = 120, BeatsPerBar = 4, BeatUnit = 4, Bars = 1, PhraseBars = 1, Swing = 0 };
+        track.Notes.Add(new Note(Math.Clamp(def!.Root, 0, 127), 0, 2, 110));
+        preview.Tracks.Add(track);
+        var pcm = Dsp.Render(preview, loop: true, master: false);
+        Assert.Contains(pcm, s => s != 0);
+    }
+}
