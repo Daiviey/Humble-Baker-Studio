@@ -3,7 +3,7 @@
 <p align="center"><img src="icon.png" width="180" alt="Humble Baker Studio icon"></p>
 
 <p align="center">
-  <a href="https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/csharp-port-v0.1.6"><img alt="Download the C# port" src="https://img.shields.io/badge/Download_C%23_port-v0.1.1-6caaff?style=for-the-badge"></a>
+  <a href="https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/csharp-port-v0.1.7"><img alt="Download the C# port" src="https://img.shields.io/badge/Download_C%23_port-v0.1.1-6caaff?style=for-the-badge"></a>
   <a href="https://github.com/Daiviey/Humble-Baker-Studio/releases"><img alt="All releases" src="https://img.shields.io/badge/All_releases-GitHub-23272f?style=for-the-badge"></a>
 </p>
 
@@ -12,7 +12,7 @@
 | Build | Get it |
 |---|---|
 | **PowerShell studio** (stable) | `Humble Baker Studio.exe` in this repository, or the [latest release](https://github.com/Daiviey/Humble-Baker-Studio/releases) |
-| **C# port** (alpha, Windows x64, no .NET install needed) | [Portable exe](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.1.6/Humble-Baker-Studio-CSharp-0.1.6-win-x64.exe) · [Zip](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.1.6/Humble-Baker-Studio-CSharp-0.1.6-win-x64.zip) · [Release notes](https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/csharp-port-v0.1.6) |
+| **C# port** (alpha, Windows x64, no .NET install needed) | [Portable exe](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.1.7/Humble-Baker-Studio-CSharp-0.1.7-win-x64.exe) · [Zip](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.1.7/Humble-Baker-Studio-CSharp-0.1.7-win-x64.zip) · [Release notes](https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/csharp-port-v0.1.7) |
 
 The C# source is in [`src/`](src) and the port guide is [README-CSHARP.md](README-CSHARP.md). A copy of the portable exe is committed in [`CSharp-Port/`](CSharp-Port/); release assets also live under **Releases**.
 
@@ -67,7 +67,7 @@ No installer is required: the build is portable. FFmpeg and SuperCollider are di
 
 A native .NET port of the studio lives in `src/` and is documented in [README-CSHARP.md](README-CSHARP.md) and [docs/PORT.md](docs/PORT.md). It reads and writes the same `*.hbstudio.json` projects and includes the two-deck Live performance window.
 
-Prebuilt portable build: [C# port v0.1.1](https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/csharp-port-v0.1.6) (self-contained Windows x64 exe, no .NET install required).
+Prebuilt portable build: [C# port v0.1.1](https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/csharp-port-v0.1.7) (self-contained Windows x64 exe, no .NET install required).
 
 ## Features
 
