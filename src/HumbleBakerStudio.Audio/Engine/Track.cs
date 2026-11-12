@@ -1,4 +1,4 @@
-﻿namespace HumbleBakerStudio.Audio;
+namespace HumbleBakerStudio.Audio;
 
 
 public class Track {
@@ -11,6 +11,15 @@ public class Track {
     public string Uid = Guid.NewGuid().ToString("N");
     public float[] Sample; public int SampleRoot = 60; public bool SampleGate; public int SampleMode = 0;
     public string DrumKit = "Standard"; public string InstrumentName = "";
+    // Optional VST3 slot: an instrument replaces the built-in synth, an effect processes the track after its FX chain.
+    public string PluginFormat = "";     // vst3
+    public string PluginPath = "";       // bundle or module path
+    public string PluginClass = "";      // VST3 class id
+    public string PluginName = "";       // display name
+    public bool PluginInstrument;        // true = VSTi, false = audio effect
+    public string PluginState = "";      // base64 component state
+    public bool PluginBypass;
+    public bool HasPlugin => !string.IsNullOrEmpty(PluginPath) && !PluginBypass;
     public List<Note> Notes = new List<Note>();
     public List<AutoLane> Auto = new List<AutoLane>();
 }

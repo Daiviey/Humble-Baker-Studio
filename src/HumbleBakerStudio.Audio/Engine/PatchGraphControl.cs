@@ -369,7 +369,9 @@ public class PatchGraphControl : Control {
         if (wireFrom != null) { using (SolidBrush b = new SolidBrush(Color.FromArgb(150, 158, 180))) g.DrawString("release on an IN jack to patch > green = good target, or drop onto a wire to splice", Font, b, 12, Height - 22); }
     }
     static string FxTag(PatchNode n) {
-        if (n == null || n.Fx == null) return "(empty module)";
+        if (n == null) return "(empty module)";
+        if (n.HasPlugin && !n.PluginBypass) return "VST3 · " + (string.IsNullOrEmpty(n.PluginName) ? "PLUG-IN" : n.PluginName.ToUpperInvariant());
+        if (n.Fx == null) return "(empty module)";
         if (!string.IsNullOrEmpty(n.Module)) return n.Module.ToUpperInvariant();
         Fx fx = n.Fx;
         List<string> on = new List<string>();

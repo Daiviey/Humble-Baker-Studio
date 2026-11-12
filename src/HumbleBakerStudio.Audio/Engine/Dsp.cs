@@ -1,4 +1,4 @@
-﻿namespace HumbleBakerStudio.Audio;
+namespace HumbleBakerStudio.Audio;
 
 
 public static class Dsp {
@@ -73,12 +73,19 @@ public static class Dsp {
             Dictionary<string, float[]> cache = new Dictionary<string, float[]>();
             bool isPatch = (t.Synth ?? "").ToLowerInvariant() == "patch" && t.Patch != null;
             bool isDrums = (t.Synth ?? "").ToLowerInvariant() == "drums";
+            bool pluginInst = AudioPlugins.HasInstrument(t);
+            List<PluginNote>? pluginNotes = pluginInst ? new List<PluginNote>() : null;
             bool pctx = isPatch && t.Patch.NeedsContext();
             List<AutoLane> planes = null;
             if (isPatch && t.Auto != null) foreach (AutoLane al in t.Auto) if (al.Param.StartsWith("p:") && al.Points.Count > 0) { if (planes == null) planes = new List<AutoLane>(); planes.Add(al); }
             int evi = 0;
             foreach (Ev e in Engine.Events(p, t)) {
                 evi++;
+                if (pluginNotes != null)
+                {
+                    pluginNotes.Add(new PluginNote { StartBeat = e.Start, LenBeats = e.Len, Pitch = e.Pitch, Vel = e.Vel });
+                    continue;
+                }
                 int s0 = (int)Math.Round(e.Start * spb * SR);
                 float amp = (float)(t.Vol * e.Vel / 127.0 * 0.5);
                 string key = e.Pitch + "|" + Math.Round(e.Len * spb, 3).ToString(CultureInfo.InvariantCulture);
@@ -98,6 +105,21 @@ public static class Dsp {
                     if (idx >= N) { if (loop) idx %= N; else break; }
                     float v = buf[i] * amp;
                     TL[idx] += (float)(v * pl); TR[idx] += (float)(v * pr);
+                }
+            }
+            if (pluginInst && pluginNotes != null && AudioPlugins.Host != null)
+            {
+                float[][]? st = null;
+                try { st = AudioPlugins.Host.RenderInstrument(t, pluginNotes, spb, N, loop); } catch { }
+                if (st != null && st.Length >= 1)
+                {
+                    float[] sl = st[0];
+                    float[] sr = st.Length > 1 ? st[1] : st[0];
+                    float panL = (float)(Math.Cos((t.Pan + 1) * Math.PI / 4) * Math.Sqrt(2));
+                    float panR = (float)(Math.Sin((t.Pan + 1) * Math.PI / 4) * Math.Sqrt(2));
+                    int pn = Math.Min(N, Math.Min(sl.Length, sr.Length));
+                    float pg = (float)(t.Vol * 0.5);
+                    for (int i = 0; i < pn; i++) { TL[i] += sl[i] * pg * panL; TR[i] += sr[i] * pg * panR; }
                 }
             }
             if (t.Fx != null && t.Fx.Active && (!patchOn || !PatchRender.HasFxNode(p, t.Fx))) FxProc.Process(t.Fx, TL, TR, loop, spb);
