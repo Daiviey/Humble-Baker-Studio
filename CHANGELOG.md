@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Arrangement **Song Order entries are editable**: each entry gets a **Bars override** (0 = use the pattern's own bars) next to Repeats, so one pattern can be laid out as a 2-bar fill in one place and an 8-bar section in another. Overrides are saved in the project file and honoured by song playback, export and the SuperCollider export.
+- **Arrangement markers now shape song playback**: the marker in effect at each note scales its velocity (`0.6 + 0.08 × energy`, energy 5 = neutral), so Intro/Breakdown/Drop sections play softer or harder. Marker fields on the Arrangement tab (Beat, Name, Energy) now edit the selected marker instead of only feeding new ones.
+- **Markers can be sketched on the piano roll**: double-click the ruler to add a marker (or remove the one under the cursor); the Arrangement tab and project file stay in sync.
+- **The piano roll timeline now scrolls past the loop**: the canvas covers the loop, the whole song arrangement plus 64 beats of writing room, so notes can be written or pasted anywhere on the timeline (click the ruler where you want the paste point, then Ctrl+V).
 - Added **Live mix**, a two-deck performance window: two independent projects open at once, an equal-power crossfader, per-deck gain and one-knob LP/HP filter, tempo sync, per-deck queues that advance at the end of a song, and a separate cue/headphone output device. Master and cue are metered independently.
 - Live audio is rendered once per track and mixed on a dedicated thread through `winmm`, so transitions and filter sweeps are immediate. Rendering a long song still takes the usual offline render time.
 - Rebuilt `Humble Baker Studio.exe` with the live module and the current studio sources.

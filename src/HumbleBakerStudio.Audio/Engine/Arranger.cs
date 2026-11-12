@@ -13,16 +13,22 @@ public static class Arranger {
             c.Mute = false; c.Auto = new List<AutoLane>(); q.Tracks.Add(c);
         }
         double offset = 0;
+        List<Marker> markers = p.Markers == null ? new List<Marker>() : p.Markers.OrderBy(m => m.Beat).ToList();
         foreach (SongItem it in p.Song) {
             if (it.Pattern < 0 || it.Pattern >= p.Patterns.Count) continue;
             Pattern pat = p.Patterns[it.Pattern];
+            int bars = it.EffectiveBars(pat.Bars);
             int reps = Math.Max(1, Math.Min(128, it.Repeats));
             for (int r = 0; r < reps; r++) {
                 for (int ti = 0; ti < q.Tracks.Count && ti < pat.Notes.Count; ti++) {
                     if (pat.Mutes[ti]) continue;
-                    foreach (Note n in pat.Notes[ti]) q.Tracks[ti].Notes.Add(new Note(n.Pitch, n.Start + offset, n.Len, n.Vel));
+                    foreach (Note n in pat.Notes[ti]) {
+                        // Markers shape the arrangement: the section energy scales note velocity (energy 5 = neutral).
+                        int vel = (int)Math.Round(n.Vel * EnergyFactor(markers, n.Start + offset));
+                        q.Tracks[ti].Notes.Add(new Note(n.Pitch, n.Start + offset, n.Len, Math.Max(1, Math.Min(127, vel))));
+                    }
                 }
-                double end = offset + pat.Bars * p.BarBeats;
+                double end = offset + bars * p.BarBeats;
                 foreach (AutoLane al in pat.Auto) {
                     if (al.Track < 0 || al.Track >= q.Tracks.Count || al.Points.Count == 0 || al.Track >= pat.Mutes.Count || pat.Mutes[al.Track]) continue;
                     AutoLane dst = null;
@@ -38,9 +44,18 @@ public static class Arranger {
         q.Bars = Math.Max(1, (int)Math.Ceiling(offset / p.BarBeats - 1e-9));
         return q;
     }
+    // 0.6 + 0.08 * energy: energy 5 plays at normal level, 1 is a sparse intro, 10 is a peak.
+    static double EnergyFactor(List<Marker> markers, double beat) {
+        double f = 1.0;
+        foreach (Marker m in markers) {
+            if (m.Beat > beat + 1e-9) break;
+            f = 0.6 + 0.08 * Math.Max(1, Math.Min(10, m.Energy));
+        }
+        return f;
+    }
     public static double SongBeats(Project p) {
         double b = 0;
-        foreach (SongItem it in p.Song) if (it.Pattern >= 0 && it.Pattern < p.Patterns.Count) b += p.Patterns[it.Pattern].Bars * p.BarBeats * Math.Max(1, it.Repeats);
+        foreach (SongItem it in p.Song) if (it.Pattern >= 0 && it.Pattern < p.Patterns.Count) b += it.EffectiveBars(p.Patterns[it.Pattern].Bars) * p.BarBeats * Math.Max(1, it.Repeats);
         return b;
     }
 

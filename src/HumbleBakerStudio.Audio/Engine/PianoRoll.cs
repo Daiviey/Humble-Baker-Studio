@@ -9,6 +9,7 @@ public class PianoRoll : Control {
     public double Zoom = 80; public int RowH = 14;
     public HashSet<Note> Sel = new HashSet<Note>();
     public event EventHandler Changed, BeginEdit, UndoRequested, SpaceRequested;
+    public event EventHandler MarkersChanged;
     public event Action<Note> NotePlaced;
 
     const int KeyW = 58, RulerH = 22, VelH = 52;
@@ -29,6 +30,10 @@ public class PianoRoll : Control {
     }
 
     public void ScrollToPitch(int pitch) { SetScroll(vs, Math.Max(0, (127 - pitch) * RowH - Math.Max(0, ViewH / 2))); }
+    // Brings a timeline position into view so notes can be written or pasted far past the loop.
+    public void ScrollToBeat(double beat) { UpdateScroll(); SetScroll(hs, (int)(beat * Zoom - ViewW / 2.0)); }
+    // The canvas always covers the loop, the whole song arrangement and some writing room past the end.
+    double CanvasBeats { get { return Math.Max(Proj.LoopBeats, Proj.Song == null ? 0 : Arranger.SongBeats(Proj)) + 64; } }
     int ViewW { get { return Math.Max(10, Width - vs.Width - KeyW); } }
     int GridH { get { return Math.Max(10, Height - hs.Height - RulerH - VelH); } }
     int ViewH { get { return GridH; } }
@@ -38,7 +43,7 @@ public class PianoRoll : Control {
         if (Proj == null || Width < 120 || Height < 120) return;
         hs.SetBounds(0, Height - hs.Height, Width - vs.Width, hs.Height);
         vs.SetBounds(Width - vs.Width, 0, vs.Width, Height - hs.Height);
-        int cw = (int)((Proj.LoopBeats + 8) * Zoom), vw = ViewW;
+        int cw = (int)(CanvasBeats * Zoom), vw = ViewW;
         hs.LargeChange = Math.Max(1, vw); hs.SmallChange = 20; hs.Maximum = Math.Max(0, cw - vw) + hs.LargeChange - 1;
         int ch = 128 * RowH, vh = GridH;
         vs.LargeChange = Math.Max(1, vh); vs.SmallChange = RowH; vs.Maximum = Math.Max(0, ch - vh) + vs.LargeChange - 1;
@@ -194,12 +199,30 @@ public class PianoRoll : Control {
 
     void BeginChange() { Fire(BeginEdit); }
 
+    // Double-click on the ruler: adds an arrangement marker (energy 5 = neutral) or removes
+    // the marker under the cursor, so song structure can be sketched straight on the piano roll.
+    void ToggleMarkerAt(int x, double beat) {
+        Marker hit = null; double best = 8;
+        if (Proj.Markers != null) foreach (Marker m in Proj.Markers) {
+            double d = Math.Abs(BeatToX(m.Beat) - x);
+            if (d < best) { best = d; hit = m; }
+        }
+        BeginChange();
+        if (hit != null) Proj.Markers.Remove(hit);
+        else {
+            if (Proj.Markers == null) Proj.Markers = new List<Marker>();
+            Proj.Markers.Add(new Marker(beat, "Section", 5));
+        }
+        Fire(Changed); Fire(MarkersChanged); Invalidate();
+    }
+
     protected override void OnMouseDown(MouseEventArgs e) {
         Focus();
         if (Proj == null || Cur == null) return;
         int gb = Height - hs.Height - VelH;
         if (e.Y < RulerH && e.X >= KeyW) {
             double b = Math.Max(0, Math.Round(XToBeat(e.X) / Grid) * Grid);
+            if (e.Clicks >= 2) { ToggleMarkerAt(e.X, b); return; }
             if (e.Button == MouseButtons.Left) { MarkerBeat = b; Playhead = b; Fire(Changed); Invalidate(); }
             else if (e.Button == MouseButtons.Right) { MarkerBeat = -1; Playhead = -1; Fire(Changed); Invalidate(); }
             return;

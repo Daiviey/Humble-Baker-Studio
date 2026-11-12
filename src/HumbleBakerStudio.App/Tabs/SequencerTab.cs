@@ -65,7 +65,7 @@ internal sealed class SequencerTab : UserControl
         stack.Controls.Add(Theme.Button("Play / stop (Space)", (_, _) => _host.TogglePlayback(), true));
         stack.Controls.Add(Spacer());
         stack.Controls.Add(_info);
-        stack.Controls.Add(Theme.Label("Tip: drag to add notes, drag the right edge to resize, right-click to delete.", Theme.Muted, Theme.Small));
+        stack.Controls.Add(Theme.Label("Tip: drag to add notes, drag the right edge to resize, right-click to delete. Double-click the ruler to add or remove arrangement markers; the song canvas scrolls past the loop so you can write anywhere.", Theme.Muted, Theme.Small));
 
         Controls.Add(_roll);
         Controls.Add(side);
@@ -78,6 +78,7 @@ internal sealed class SequencerTab : UserControl
         _roll.BeginEdit += (_, _) => _host.BeginEdit("notes");
         _roll.NotePlaced += PreviewNote;
         _roll.SpaceRequested += (_, _) => _host.TogglePlayback();
+        _roll.MarkersChanged += (_, _) => _host.NotifyMarkersChanged();
 
         _name.TextChanged += (_, _) =>
         {

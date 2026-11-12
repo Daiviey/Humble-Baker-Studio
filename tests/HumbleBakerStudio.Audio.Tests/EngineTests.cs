@@ -601,3 +601,67 @@ public class PluginStatePersistenceTests
         Assert.Contains(pcm, s => s != 0);
     }
 }
+
+public class ArrangementTests
+{
+    private static Project SongProject()
+    {
+        var p = ProjectStore.CreateDefault();
+        p.Bars = 4;
+        p.Song.Clear();
+        p.Markers.Clear();
+        p.Tracks[1].Notes.Clear();
+        p.Tracks[1].Notes.Add(new Note(36, 0, 1, 80));
+        var pat = Pattern.Capture(p, "Verse");
+        p.Patterns.Clear();
+        p.Patterns.Add(pat);
+        p.Song.Add(new SongItem(0, 1));
+        return p;
+    }
+
+    [Fact]
+    public void SongItemBarsOverride_ChangesTheLaidOutLength()
+    {
+        var p = SongProject();
+        Assert.Equal(16, Arranger.SongBeats(p)); // 4 bars x 4 beats
+
+        p.Song[0].Bars = 2;
+        Assert.Equal(8, Arranger.SongBeats(p));
+        var flat = Arranger.Flatten(p);
+        Assert.Equal(2, flat.Bars);
+        Assert.Equal(36, flat.Tracks[1].Notes[0].Pitch);
+    }
+
+    [Fact]
+    public void MarkerEnergy_ScalesSongVelocitiesWhileNeutralFiveDoesNot()
+    {
+        var p = SongProject();
+        var flat = Arranger.Flatten(p);
+        Assert.Equal(80, flat.Tracks[1].Notes[0].Vel); // no markers: untouched
+
+        p.Markers.Clear();
+        p.Markers.Add(new Marker(0, "Intro", 10)); // 0.6 + 0.08*10 = 1.4
+        p.Markers.Add(new Marker(8, "Drop", 5));   // neutral from beat 8 on
+        flat = Arranger.Flatten(p);
+        Assert.Equal(112, flat.Tracks[1].Notes[0].Vel);
+
+        // The same note, laid out as a 2-bar repeat starting at beat 8, sits in the neutral section.
+        p.Song[0].Bars = 2;
+        p.Song.Add(new SongItem(0, 1, 2));
+        flat = Arranger.Flatten(p);
+        Assert.Equal(80, flat.Tracks[1].Notes.Last().Vel);
+        Assert.Equal(8, flat.Tracks[1].Notes.Last().Start);
+    }
+
+    [Fact]
+    public void SongItemBarsOverride_RoundTripsThroughTheProjectFile()
+    {
+        var p = SongProject();
+        p.Song[0].Bars = 8;
+        var loaded = ProjectStore.LoadFromJson(ProjectStore.SaveToJson(p));
+        Assert.Equal(8, loaded.Song[0].Bars);
+        loaded.Song[0].Bars = 0;
+        loaded = ProjectStore.LoadFromJson(ProjectStore.SaveToJson(loaded));
+        Assert.Equal(0, loaded.Song[0].Bars);
+    }
+}

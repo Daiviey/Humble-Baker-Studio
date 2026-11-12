@@ -525,6 +525,13 @@ internal sealed class MainForm : Form
         ScheduleLoopRefresh();
     }
 
+    /// <summary>Arrangement markers changed from the piano roll; keep the Arrangement tab in step.</summary>
+    public void NotifyMarkersChanged()
+    {
+        _arrangementTab.RefreshView();
+        MarkDirty();
+    }
+
     /// <summary>Re-renders the loop in the background so newly added notes play on the next pass.</summary>
     private void ScheduleLoopRefresh()
     {

@@ -167,7 +167,7 @@ public static class ProjectStore
 
         if (root["song"] is JsonArray song)
             foreach (var s in song.OfType<JsonObject>())
-                p.Song.Add(new SongItem(GetInt(s, "pattern", 0), GetInt(s, "repeats", 1)));
+                p.Song.Add(new SongItem(GetInt(s, "pattern", 0), GetInt(s, "repeats", 1), GetInt(s, "bars", 0)));
 
         if (root["tracks"] is JsonArray tracks)
             foreach (var td in tracks.OfType<JsonObject>())
@@ -278,7 +278,8 @@ public static class ProjectStore
             ["song"] = new JsonArray(p.Song.Select(s => (JsonNode)new JsonObject
             {
                 ["pattern"] = s.Pattern,
-                ["repeats"] = s.Repeats
+                ["repeats"] = s.Repeats,
+                ["bars"] = s.Bars
             }).ToArray()),
             ["tracks"] = new JsonArray(p.Tracks.Select(t => (JsonNode)new JsonObject
             {

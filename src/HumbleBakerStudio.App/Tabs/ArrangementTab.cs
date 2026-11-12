@@ -12,11 +12,13 @@ internal sealed class ArrangementTab : UserControl
     private readonly TextBox _patternName = new() { Width = 160 };
     private readonly NumericUpDown _patternBars = new() { Minimum = 1, Maximum = 64, Width = 56 };
     private readonly NumericUpDown _repeats = new() { Minimum = 1, Maximum = 128, Width = 56, Value = 4 };
+    private readonly NumericUpDown _itemBars = new() { Minimum = 0, Maximum = 64, Width = 56 };
     private readonly NumericUpDown _markerBeat = new() { Minimum = 0, Maximum = 9999, DecimalPlaces = 2, Increment = 4, Width = 70 };
     private readonly TextBox _markerName = new() { Width = 120, Text = "Section" };
     private readonly NumericUpDown _markerEnergy = new() { Minimum = 1, Maximum = 10, Width = 46, Value = 5 };
     private readonly Label _songInfo = new() { AutoSize = true, ForeColor = Theme.Muted, Font = Theme.Small };
     private readonly CheckBox _exportSong = new() { Text = "Use song arrangement", AutoSize = true, Checked = true };
+    private bool _syncingMarkers;
 
     public ArrangementTab(MainForm host)
     {
@@ -114,11 +116,33 @@ internal sealed class ArrangementTab : UserControl
         fields.Controls.Add(Theme.Label("Repeats", Theme.Muted));
         fields.Controls.Add(_repeats);
         fields.Controls.Add(Theme.Button("Set", (_, _) => SetRepeats()));
+        fields.Controls.Add(Theme.Label("Bars", Theme.Muted));
+        fields.Controls.Add(_itemBars);
+        fields.Controls.Add(Theme.Label("(0 = pattern)", Theme.Muted));
 
         panel.Controls.Add(buttons);
         panel.Controls.Add(_song);
         panel.Controls.Add(fields);
         AddTitle(panel, "SONG ORDER");
+
+        _song.SelectedIndexChanged += (_, _) =>
+        {
+            int i = _song.SelectedIndex;
+            if (i < 0 || i >= _host.Project.Song.Count) return;
+            var it = _host.Project.Song[i];
+            _itemBars.Value = Math.Clamp(it.Bars, 0, 64);
+        };
+        _itemBars.ValueChanged += (_, _) =>
+        {
+            int i = _song.SelectedIndex;
+            if (i < 0 || i >= _host.Project.Song.Count) return;
+            var it = _host.Project.Song[i];
+            if (it.Bars == (int)_itemBars.Value) return;
+            _host.BeginEdit("song");
+            it.Bars = (int)_itemBars.Value;
+            _host.MarkDirty();
+            RefreshLists();
+        };
         return panel;
     }
 
@@ -141,15 +165,43 @@ internal sealed class ArrangementTab : UserControl
         panel.Controls.Add(_markers);
         panel.Controls.Add(fields);
         AddTitle(panel, "MARKERS");
-        _markers.SelectedIndexChanged += (_, _) =>
+        _markers.SelectedIndexChanged += (_, _) => SyncMarkerFields();
+        _markerBeat.ValueChanged += (_, _) => ApplyMarkerFields();
+        _markerEnergy.ValueChanged += (_, _) => ApplyMarkerFields();
+        _markerName.TextChanged += (_, _) => ApplyMarkerFields();
+        return panel;
+    }
+
+    /// <summary>Fills the marker fields from the selected marker without retriggering edits.</summary>
+    private void SyncMarkerFields()
+    {
+        _syncingMarkers = true;
+        try
         {
             var m = SelectedMarker();
             if (m == null) return;
             _markerBeat.Value = (decimal)Math.Clamp(m.Beat, 0, 9999);
             _markerName.Text = m.Name;
             _markerEnergy.Value = Math.Clamp(m.Energy, 1, 10);
-        };
-        return panel;
+        }
+        finally
+        {
+            _syncingMarkers = false;
+        }
+    }
+
+    /// <summary>Applies the marker fields back onto the selected marker.</summary>
+    private void ApplyMarkerFields()
+    {
+        if (_syncingMarkers) return;
+        var m = SelectedMarker();
+        if (m == null) return;
+        _host.BeginEdit("marker");
+        m.Beat = (double)_markerBeat.Value;
+        m.Name = string.IsNullOrWhiteSpace(_markerName.Text) ? "Marker" : _markerName.Text.Trim();
+        m.Energy = Math.Clamp((int)_markerEnergy.Value, 1, 10);
+        _host.MarkDirty();
+        RefreshLists();
     }
 
     public void RefreshView() => RefreshLists();
@@ -176,9 +228,9 @@ internal sealed class ArrangementTab : UserControl
         {
             var it = p.Song[i];
             string name = it.Pattern >= 0 && it.Pattern < p.Patterns.Count ? p.Patterns[it.Pattern].Name : "(missing)";
-            double bars = it.Pattern >= 0 && it.Pattern < p.Patterns.Count ? p.Patterns[it.Pattern].Bars : 0;
+            int bars = it.Pattern >= 0 && it.Pattern < p.Patterns.Count ? it.EffectiveBars(p.Patterns[it.Pattern].Bars) : 0;
             beats += bars * p.BarBeats * Math.Max(1, it.Repeats);
-            _song.Add($"{i + 1}. {name} ×{it.Repeats}");
+            _song.Add($"{i + 1}. {name} ×{it.Repeats} · {bars} bars" + (it.Bars > 0 ? " (override)" : ""));
         }
         _song.EndUpdate();
         if (si >= 0 && si < _song.Items.Count) _song.SelectedIndex = si;
@@ -191,6 +243,7 @@ internal sealed class ArrangementTab : UserControl
             _markers.Add($"{m.Beat:0.##} — {m.Name} (energy {m.Energy})");
         _markers.EndUpdate();
         if (mi >= 0 && mi < _markers.Items.Count) _markers.SelectedIndex = mi;
+        SyncMarkerFields();
 
     }
 
