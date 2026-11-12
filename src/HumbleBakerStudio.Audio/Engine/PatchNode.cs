@@ -11,6 +11,7 @@ public class PatchNode {
     public string Kind = "fx";       // track | fx | bus | out
     public string Type = "filter";   // fx: module type, bus: bus label base, track: track, out: out
     public string Label = "";        // fallback label (fx/bus/out); track nodes resolve live by TrackUid
+    public string Module = "";       // fx: selected effect module (filter, drive, delay, ... )
     public double X = 60, Y = 60;
     public string TrackUid;          // Kind == track: uid of the linked Track
     [Category("1 Module"), Description("Module output gain (bus modules only). 0 = silent, 1 = unity, 2 = hot."), Rng(0, 2)] public double Gain { get; set; }

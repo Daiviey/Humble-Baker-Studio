@@ -17,6 +17,8 @@ internal sealed class SequencerTab : UserControl
     private readonly Label _info = new() { AutoSize = true, ForeColor = Theme.Muted, Font = Theme.Small };
     private readonly CheckBox _mute = new() { Text = "Mute", AutoSize = true };
     private readonly CheckBox _solo = new() { Text = "Solo", AutoSize = true };
+    private readonly CheckBox _preview = new() { Text = "Preview notes", AutoSize = true, Checked = true };
+    private readonly AudioPlayer _previewPlayer = new();
     private bool _syncing;
 
     public SequencerTab(MainForm host)
@@ -54,6 +56,7 @@ internal sealed class SequencerTab : UserControl
         var flags = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = Theme.Panel };
         flags.Controls.Add(_mute);
         flags.Controls.Add(_solo);
+        flags.Controls.Add(_preview);
         stack.Controls.Add(flags);
         stack.Controls.Add(Spacer());
         stack.Controls.Add(Theme.Button("Quantize notes", (_, _) => Quantize(), false, "Round note starts to the grid"));
@@ -72,6 +75,7 @@ internal sealed class SequencerTab : UserControl
             _host.MarkDirty();
         };
         _roll.BeginEdit += (_, _) => _host.BeginEdit("notes");
+        _roll.NotePlaced += PreviewNote;
         _roll.SpaceRequested += (_, _) => _host.TogglePlayback();
 
         _name.TextChanged += (_, _) =>
@@ -185,6 +189,45 @@ internal sealed class SequencerTab : UserControl
         double avg = t.Notes.Count > 0 ? t.Notes.Average(n => n.Pitch) : 0;
         _info.Text = $"{t.Notes.Count} notes · {t.Notes.Count(x => x.Pitch < avg):0} low / {t.Notes.Count(x => x.Pitch >= avg):0} high\n" +
                      $"bars {_host.Project.Bars} · loop {_host.Project.LoopBeats:0.##} beats";
+    }
+
+    private void PreviewNote(Note note)
+    {
+        if (!_preview.Checked) return;
+        var source = _host.SelectedTrack;
+        if (source == null) return;
+        try
+        {
+            var preview = new Project
+            {
+                Bpm = _host.Project.Bpm,
+                BeatsPerBar = _host.Project.BeatsPerBar,
+                BeatUnit = _host.Project.BeatUnit,
+                Bars = 1,
+                Swing = 0
+            };
+            var copy = new Track();
+            foreach (var f in typeof(Track).GetFields())
+                if (f.Name != "Notes" && f.Name != "Auto") f.SetValue(copy, f.GetValue(source));
+            copy.Bus = 0;
+            copy.Mute = false;
+            copy.Solo = false;
+            copy.Notes = new List<Note> { new(note.Pitch, 0, Math.Clamp(note.Len, 0.08, 2.0), note.Vel) };
+            preview.Tracks.Add(copy);
+            preview.Master.Enabled = false;
+            var pcm = Dsp.Render(preview, loop: true, master: false);
+            _previewPlayer.Play(pcm, Dsp.SR);
+        }
+        catch
+        {
+            // A preview must never interrupt editing.
+        }
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing) _previewPlayer.Dispose();
+        base.Dispose(disposing);
     }
 
     private void Quantize()

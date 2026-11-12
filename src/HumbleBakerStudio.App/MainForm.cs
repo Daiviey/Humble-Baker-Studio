@@ -15,6 +15,10 @@ internal sealed class MainForm : Form
     private readonly OllamaClient _ollama;
     private readonly AiTools _ai;
     private readonly System.Windows.Forms.Timer _playTimer = new() { Interval = 33 };
+    private short[]? _pendingLoopPcm;
+    private bool _loopRenderBusy;
+    private bool _loopDirty;
+    private double _lastPlayBeat;
     private readonly UndoHistory _undo = new();
 
     private Project _project;
@@ -466,6 +470,41 @@ internal sealed class MainForm : Form
         _title.Text = (_projectPath != null ? Path.GetFileNameWithoutExtension(_projectPath) : "Untitled") + " •";
         Text = "Humble Baker Studio" + (_projectPath != null ? " — " + Path.GetFileName(_projectPath) : "");
         _sequencer.RefreshRoll();
+        ScheduleLoopRefresh();
+    }
+
+    /// <summary>Re-renders the loop in the background so newly added notes play on the next pass.</summary>
+    private void ScheduleLoopRefresh()
+    {
+        if (!_player.IsPlaying || !_loop.Checked || _song.Checked) return;
+        _loopDirty = true;
+        if (_loopRenderBusy) return;
+        _ = RefreshLoopAsync();
+    }
+
+    private async Task RefreshLoopAsync()
+    {
+        _loopRenderBusy = true;
+        try
+        {
+            while (_loopDirty && _player.IsPlaying && _loop.Checked && !_song.Checked)
+            {
+                _loopDirty = false;
+                var snapshot = ProjectStore.LoadFromJson(ProjectStore.SaveToJson(_project));
+                bool master = _master.Checked;
+                var pcm = await Task.Run(() => ExportService.RenderPcm(snapshot, false, true, master));
+                if (_player.IsPlaying && _loop.Checked && !_song.Checked)
+                    _pendingLoopPcm = pcm;
+            }
+        }
+        catch
+        {
+            // Keep playback running if a refresh fails.
+        }
+        finally
+        {
+            _loopRenderBusy = false;
+        }
     }
 
     /// <summary>Records the state before a user edit. Safe to call repeatedly during a drag.</summary>
@@ -645,16 +684,18 @@ internal sealed class MainForm : Form
             _playButton.Enabled = false;
             SetStatus("Rendering…");
             bool song = _song.Checked && _project.Song.Count > 0;
-            bool loop = _loop.Checked;
-            int repeats = loop && !song ? 8 : 1;
+            bool loopPattern = _loop.Checked && !song;
             var project = _project;
             bool master = _master.Checked;
 
-            var pcm = await Task.Run(() => ExportService.RenderPcm(project, song, loop, master, repeats));
+            var pcm = await Task.Run(() => ExportService.RenderPcm(project, song, loopPattern, master));
             if (pcm.Length < 4) { SetStatus("Nothing to play"); return; }
 
+            _pendingLoopPcm = null;
+            _loopDirty = false;
+            _lastPlayBeat = 0;
             _sequencer.SetPlayhead(0);
-            _player.Play(pcm, Dsp.SR);
+            _player.Play(pcm, Dsp.SR, loopPattern);
             _playButton.Text = "■  Playing";
             _playTimer.Start();
             SetStatus(song ? "Playing song" : "Playing pattern");
@@ -674,6 +715,9 @@ internal sealed class MainForm : Form
     {
         _player.Stop();
         _playTimer.Stop();
+        _pendingLoopPcm = null;
+        _loopDirty = false;
+        _lastPlayBeat = 0;
         _sequencer.SetPlayhead(-1);
         _playButton.Text = "▶  Play";
         _playButton.Enabled = true;
@@ -687,6 +731,15 @@ internal sealed class MainForm : Form
         double beat = seconds / spb;
         if (_loop.Checked && _project.LoopBeats > 0)
             beat %= _project.LoopBeats;
+        if (_loop.Checked && !_song.Checked && _project.LoopBeats > 0)
+        {
+            if (beat + 0.05 < _lastPlayBeat && _pendingLoopPcm != null)
+            {
+                _player.ReplaceBuffer(_pendingLoopPcm);
+                _pendingLoopPcm = null;
+            }
+            _lastPlayBeat = beat;
+        }
         _sequencer.SetPlayhead(beat);
         SetPosition(DurationText.Format(_player.Position) + " / " + DurationText.Format(_player.Duration));
     }

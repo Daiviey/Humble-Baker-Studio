@@ -1,4 +1,4 @@
-﻿namespace HumbleBakerStudio.Audio;
+namespace HumbleBakerStudio.Audio;
 
 
 public class PianoRoll : Control {
@@ -9,6 +9,7 @@ public class PianoRoll : Control {
     public double Zoom = 80; public int RowH = 14;
     public HashSet<Note> Sel = new HashSet<Note>();
     public event EventHandler Changed, BeginEdit, UndoRequested, SpaceRequested;
+    public event Action<Note> NotePlaced;
 
     const int KeyW = 58, RulerH = 22, VelH = 52;
     HScrollBar hs = new HScrollBar(); VScrollBar vs = new VScrollBar();

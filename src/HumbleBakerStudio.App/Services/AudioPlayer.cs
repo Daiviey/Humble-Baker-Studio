@@ -63,6 +63,8 @@ internal sealed class AudioPlayer : IDisposable
     private long _doneFrames;
     private int _sampleRate = 44100;
     private int _totalFrames;
+    private short[] _pcm = Array.Empty<short>();
+    private volatile bool _loop;
 
     public bool IsPlaying { get; private set; }
     public event Action? Finished;
@@ -72,25 +74,36 @@ internal sealed class AudioPlayer : IDisposable
         get
         {
             long frames = Interlocked.Read(ref _doneFrames);
+            if (_loop && _totalFrames > 0) frames %= _totalFrames;
             return TimeSpan.FromSeconds(_sampleRate > 0 ? (double)frames / _sampleRate : 0);
         }
     }
 
     public TimeSpan Duration => TimeSpan.FromSeconds(_sampleRate > 0 ? (double)_totalFrames / _sampleRate : 0);
 
-    public void Play(short[] interleavedStereo, int sampleRate = 44100)
+    public void Play(short[] interleavedStereo, int sampleRate = 44100, bool loop = false)
     {
         Stop();
         if (interleavedStereo == null || interleavedStereo.Length < 4) return;
 
         _sampleRate = sampleRate;
+        _pcm = interleavedStereo;
         _totalFrames = interleavedStereo.Length / 2;
+        _loop = loop;
         Interlocked.Exchange(ref _doneFrames, 0);
         _stop = false;
         _paused = false;
         IsPlaying = true;
-        _thread = new Thread(() => Run(interleavedStereo)) { IsBackground = true, Name = "HBS audio", Priority = ThreadPriority.AboveNormal };
+        _thread = new Thread(Run) { IsBackground = true, Name = "HBS audio", Priority = ThreadPriority.AboveNormal };
         _thread.Start();
+    }
+
+    /// <summary>Swaps in a freshly rendered loop without restarting playback. Apply it at a loop boundary.</summary>
+    public void ReplaceBuffer(short[] interleavedStereo)
+    {
+        if (interleavedStereo == null || interleavedStereo.Length < 4) return;
+        _pcm = interleavedStereo;
+        _totalFrames = interleavedStereo.Length / 2;
     }
 
     public void Pause()
@@ -129,7 +142,7 @@ internal sealed class AudioPlayer : IDisposable
         _device = IntPtr.Zero;
     }
 
-    private void Run(short[] pcm)
+    private void Run()
     {
         // Four short buffers keep latency low while giving the driver enough work to stay smooth.
         const int bufferCount = 4;
@@ -166,13 +179,11 @@ internal sealed class AudioPlayer : IDisposable
                 ZeroHeader(slots[i]);
             }
 
-            int totalFrames = pcm.Length / 2;
             int nextFrame = 0;
             var pending = new Queue<Slot>();
             long finishedFrames = 0;
-            long framesInFlight = 0;
 
-            while (!_stop && (nextFrame < totalFrames || pending.Count > 0))
+            while (!_stop)
             {
                 // Reclaim any finished buffers.
                 while (pending.Count > 0)
@@ -185,9 +196,23 @@ internal sealed class AudioPlayer : IDisposable
                     hdr.Flags &= ~WhdrPrepared;
                     Marshal.StructureToPtr(hdr, slot.Header, false);
                     finishedFrames += slot.Frames;
-                    framesInFlight -= slot.Frames;
                     Interlocked.Exchange(ref _doneFrames, finishedFrames);
                     slot.Frames = 0;
+                }
+
+                var pcm = _pcm;
+                int totalFrames = pcm.Length / 2;
+                if (totalFrames < 2)
+                {
+                    Thread.Sleep(4);
+                    continue;
+                }
+
+                if (nextFrame >= totalFrames)
+                {
+                    if (_loop) nextFrame = 0;
+                    else if (pending.Count == 0) break;
+                    else { Thread.Sleep(4); continue; }
                 }
 
                 Slot? free = null;
@@ -195,7 +220,7 @@ internal sealed class AudioPlayer : IDisposable
                 {
                     if ((Marshal.PtrToStructure<WaveHdr>(slots[i].Header).Flags & WhdrPrepared) == 0) { free = slots[i]; break; }
                 }
-                if (free == null || nextFrame >= totalFrames)
+                if (free == null)
                 {
                     Thread.Sleep(4);
                     continue;
@@ -222,7 +247,6 @@ internal sealed class AudioPlayer : IDisposable
                 }
                 free.Frames = frames;
                 pending.Enqueue(free);
-                framesInFlight += frames;
                 nextFrame += frames;
             }
 
@@ -238,7 +262,6 @@ internal sealed class AudioPlayer : IDisposable
                 finishedFrames += slot.Frames;
                 Interlocked.Exchange(ref _doneFrames, finishedFrames);
                 slot.Frames = 0;
-                _ = framesInFlight;
             }
         }
         catch
