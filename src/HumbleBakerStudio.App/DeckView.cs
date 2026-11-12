@@ -70,6 +70,7 @@ internal sealed class DeckView : UserControl
         transport.Controls.Add(_loop);
         transport.Controls.Add(FixedButton("Load…", 64, (_, _) => ChooseFile()));
         transport.Controls.Add(FixedButton("From main", 84, (_, _) => LoadMain()));
+        transport.Controls.Add(FixedButton("New", 54, (_, _) => NewProject()));
         transport.Controls.Add(FixedButton("Queue…", 68, (_, _) => AddToQueue()));
 
         var controls = new TableLayoutPanel { Dock = DockStyle.Top, Height = 100, ColumnCount = 2, RowCount = 2, BackColor = Theme.Panel };
@@ -235,6 +236,18 @@ internal sealed class DeckView : UserControl
     private async void LoadMain()
     {
         await _host.LoadProjectIntoDeck(_isA, _host.MainProjectSnapshot(), "Main project");
+    }
+
+    private async void NewProject()
+    {
+        if (Deck.HasAudio)
+        {
+            var answer = MessageBox.Show(this,
+                "Replace deck " + (_isA ? "A" : "B") + " with a new project?",
+                "Live performance", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+            if (answer != DialogResult.Yes) return;
+        }
+        await _host.LoadNewProjectIntoDeck(_isA);
     }
 
     private async void Reload()
