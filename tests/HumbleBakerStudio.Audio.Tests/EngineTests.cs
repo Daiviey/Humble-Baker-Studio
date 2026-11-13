@@ -827,6 +827,70 @@ public class ArrangementTests
     }
 
     [Fact]
+    public void PatternComposer_IsDeterministicForASeed()
+    {
+        var request = new PatternRequest
+        {
+            Role = "Lead",
+            Style = "Any",
+            Mood = "Any",
+            Bars = 4,
+            Energy = 0.6,
+            Complexity = 0.5,
+            Density = 0.6,
+            Seed = 42,
+            Key = 9,
+            Scale = "minor",
+            BarBeats = 4
+        };
+
+        var a = PatternComposer.Compose(request);
+        var b = PatternComposer.Compose(request);
+
+        Assert.Equal(a.Name, b.Name);
+        Assert.Equal(a.Notes.Count, b.Notes.Count);
+        for (int i = 0; i < a.Notes.Count; i++)
+        {
+            Assert.Equal(a.Notes[i].Pitch, b.Notes[i].Pitch);
+            Assert.Equal(a.Notes[i].Start, b.Notes[i].Start, 9);
+            Assert.Equal(a.Notes[i].Len, b.Notes[i].Len, 9);
+            Assert.Equal(a.Notes[i].Vel, b.Notes[i].Vel);
+        }
+    }
+
+    [Fact]
+    public void PatternComposer_DrumExamplesUseDrumPitches()
+    {
+        var result = PatternComposer.Compose(new PatternRequest
+        {
+            Role = "Drums",
+            Bars = 2,
+            Seed = 7,
+            BarBeats = 4
+        });
+
+        Assert.NotEmpty(result.Notes);
+        Assert.Contains(result.Notes, n => n.Pitch == 36); // kick
+        Assert.Contains(result.Notes, n => n.Pitch == 38); // snare
+        Assert.All(result.Notes, n => Assert.InRange(n.Pitch, 35, 81));
+    }
+
+    [Fact]
+    public void PatternComposer_FitsTheRequestedBars()
+    {
+        var result = PatternComposer.Compose(new PatternRequest
+        {
+            Role = "Chords",
+            Bars = 2,
+            Seed = 3,
+            BarBeats = 4
+        });
+
+        Assert.NotEmpty(result.Notes);
+        Assert.All(result.Notes, n => Assert.InRange(n.Start, 0, 8));
+    }
+
+    [Fact]
     public void AutomationPreview_RoundTripsPaintingAtFullResolution()
     {
         var grid = new SpectralGrid(256, 64);

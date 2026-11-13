@@ -10,7 +10,14 @@
 - **Exact visual preservation**: every written lane stores a Deflate-compressed, display-only snapshot of the painted canvas at its original resolution. The editor restores the exact painting and resolution; playback ignores the snapshot.
 - Automation points now carry optional brightness and vertical-extent values so redrawn lanes preserve stroke weight as well as the curve. Older readers use only beat/value.
 - Added `docs/AUTOMATION.md` and refreshed `README-CSHARP.md`, `docs/PORT.md`, `RELEASES.md` and the portable-build README.
-- Tests: 45 passing.
+- Tests: 45 passing in the standard build (48 including the No-AI pattern tests).
+
+### No-AI edition
+
+- Added a deterministic edition for artists who do not want generative melody/composition tools. Build with `.\build.ps1 -NoAi`; the AI tab, toolbar button and AI menu entries are replaced by a **Patterns** tab.
+- Added a curated library of pre-programmed MIDI examples for drums, bass, chords, leads, arpeggios and counter-melodies. The selector scores examples by role, style, mood, energy, complexity and density; the seed makes selection and humanisation reproducible.
+- The composer transposes to the project key, snaps to the project scale, fits the requested bars, thins by density and scales velocities by energy. No model or network is used.
+- Release assets: `Humble-Baker-Studio-CSharp-NoAI-0.5.0-win-x64.exe` and `.zip` on the v0.5.0 release.
 
 ## 1.0.22 - 2026-11-12
 

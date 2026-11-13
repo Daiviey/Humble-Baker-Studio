@@ -41,6 +41,7 @@ files alone on purpose.
 | SuperCollider `.scd` export | Done (voices, drums, sample buffers, per-track patterns, global delay/reverb, song flattening) |
 | Spectral painting / meta-synth | Done (7 brushes, image import, track spectrogram, harmonic stacks, undo, audition, WAV/sample-track/instrument export, AI shape drawing; four-corner meta synth with morph pad, apply/render, instrument saving and AI patch design) |
 | Automation painting / layered splines | Done (high-resolution canvas, brushes, track/bus/graph targets, Z axis, mapping modes, per-stroke layers, crossing-stroke separation, amplitude normalization, Add/Multiply/Max/Replace mixing, compressed display snapshots) |
+| No-AI / deterministic edition | Done (build with `-NoAi`; AI tab, toolbar button and menu entries replaced by the pre-programmed MIDI Patterns tab) |
 | Song import and transcription | Done (audio track + monophonic melody + drum hits + section markers) |
 | MIDI input recording | Done (device selection, live log, quantized recording into the selected track) |
 | Marker and song arrangement editing | Done (patterns, song order, repeats with bars override, markers and energy) |
@@ -48,6 +49,14 @@ files alone on purpose.
 | SuperCollider live sessions and OSC bridge | Not yet (export only) |
 | Full effect-graph parity in the SC export | Approximate (global delay/reverb + per-voice filter) |
 | MIDI note monitoring through the track voice | Not yet |
+
+## No-AI edition
+
+`.\build.ps1 -NoAi` produces `dist-noai\Humble Baker Studio (No AI).exe`. The build defines
+`HBS_NO_AI`, which removes the AI tab, the AI toolbar button and the AI menu entries, and adds
+the deterministic **Patterns** tab. The pattern library is a curated set of pre-programmed MIDI
+examples; selection and humanisation are seeded and reproducible. The standard build is
+unchanged and still includes the local-AI tools.
 
 ## Automation painting
 

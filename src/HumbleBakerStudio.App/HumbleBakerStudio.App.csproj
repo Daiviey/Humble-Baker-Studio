@@ -19,6 +19,12 @@
     <NoWarn>$(NoWarn);WFO1000</NoWarn>
   </PropertyGroup>
 
+  <PropertyGroup Condition="'$(NoAi)' == 'true'">
+    <DefineConstants>$(DefineConstants);HBS_NO_AI</DefineConstants>
+    <AssemblyName>Humble Baker Studio (No AI)</AssemblyName>
+    <Description>Humble Baker Studio - deterministic MIDI edition (no generative AI)</Description>
+  </PropertyGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\HumbleBakerStudio.Audio\HumbleBakerStudio.Audio.csproj" />
     <PackageReference Include="NAudio.Vst3" Version="3.3.0" />

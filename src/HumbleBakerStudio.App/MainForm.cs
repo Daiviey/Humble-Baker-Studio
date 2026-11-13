@@ -38,6 +38,7 @@ internal sealed class MainForm : Form
     private readonly MasterTab _masterTab;
     private readonly MixerTab _mixerTab;
     private readonly AiTab _aiTab;
+    private readonly PatternsTab _patternsTab;
     private readonly SettingsTab _settingsTab;
     private readonly PluginTab _pluginTab;
     private readonly Vst3Host _vst = new();
@@ -90,6 +91,7 @@ internal sealed class MainForm : Form
         _masterTab = new MasterTab(this);
         _mixerTab = new MixerTab(this);
         _aiTab = new AiTab(this);
+        _patternsTab = new PatternsTab(this);
         _settingsTab = new SettingsTab(this);
 
         BuildLayout();
@@ -239,7 +241,11 @@ internal sealed class MainForm : Form
         live.FlatAppearance.BorderColor = Theme.AccentWarm;
         live.FlatAppearance.MouseOverBackColor = Color.FromArgb(255, 192, 124);
         top.Controls.Add(live);
+#if HBS_NO_AI
+        top.Controls.Add(Theme.Button("Patterns", (_, _) => SelectTab(_patternsTab), false, "Deterministic MIDI pattern library"));
+#else
         top.Controls.Add(Theme.Button("AI", (_, _) => SelectTab(_aiTab), false, "Local AI assistant"));
+#endif
         top.Controls.Add(Theme.Button("Settings", (_, _) => SelectTab(_settingsTab), false, "Studio settings"));
 
         _bpm.ValueChanged += (_, _) =>
@@ -287,7 +293,11 @@ internal sealed class MainForm : Form
         _tabs.TabPages.Add(Page("Graph", _graphTab));
         _tabs.TabPages.Add(Page("Mixer", _mixerTab));
         _tabs.TabPages.Add(Page("Master", _masterTab));
+#if HBS_NO_AI
+        _tabs.TabPages.Add(Page("Patterns", _patternsTab));
+#else
         _tabs.TabPages.Add(Page("AI", _aiTab));
+#endif
         _tabs.TabPages.Add(Page("Settings", _settingsTab));
         Theme.StyleTabs(_tabs);
 
@@ -331,12 +341,20 @@ internal sealed class MainForm : Form
         AddMenuItem(view, "Patch graph", () => SelectTab(_graphTab));
         AddMenuItem(view, "Mixer", () => SelectTab(_mixerTab));
         AddMenuItem(view, "Master", () => SelectTab(_masterTab));
+#if HBS_NO_AI
+        AddMenuItem(view, "Patterns", () => SelectTab(_patternsTab));
+#else
         AddMenuItem(view, "AI", () => SelectTab(_aiTab));
+#endif
         AddMenuItem(view, "Settings", () => SelectTab(_settingsTab));
 
         var tools = new ToolStripMenuItem("Tools");
         AddMenuItem(tools, "Live performance…", OpenLiveWindow);
+#if HBS_NO_AI
+        AddMenuItem(tools, "Pattern library (deterministic)", () => SelectTab(_patternsTab));
+#else
         AddMenuItem(tools, "AI assistant", () => SelectTab(_aiTab));
+#endif
         AddMenuItem(tools, "Settings", () => SelectTab(_settingsTab));
 
         var help = new ToolStripMenuItem("Help");
@@ -475,6 +493,7 @@ internal sealed class MainForm : Form
             _synthTab.RefreshView();
             _graphTab.RefreshView();
             _masterTab.RefreshView();
+            _patternsTab.RefreshView();
             _mixerTab.Rebuild();
             _vst.Trim(_project);
         }
@@ -496,6 +515,7 @@ internal sealed class MainForm : Form
         _synthTab.RefreshView();
         _mixerTab.RefreshTrack();
         _toolsTab.RefreshView();
+        _patternsTab.RefreshView();
         _graphTab.RefreshView();
         _pluginTab.RefreshView();
     }

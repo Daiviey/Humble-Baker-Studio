@@ -8,13 +8,14 @@
 param(
     [switch]$FrameworkDependent,
     [switch]$SkipTests,
+    [switch]$NoAi,
     [string]$Configuration = 'Release'
 )
 
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
 $app = Join-Path $root 'src\HumbleBakerStudio.App\HumbleBakerStudio.App.csproj'
-$dist = Join-Path $root 'dist'
+$dist = if ($NoAi) { Join-Path $root 'dist-noai' } else { Join-Path $root 'dist' }
 
 if (-not $SkipTests) {
     Write-Host 'Running tests...' -ForegroundColor Cyan
@@ -23,6 +24,7 @@ if (-not $SkipTests) {
 }
 
 $args = @('publish', $app, '-c', $Configuration, '-r', 'win-x64', '--nologo', '-o', $dist)
+if ($NoAi) { $args += @('-p:NoAi=true') }
 if ($FrameworkDependent) {
     $args += @('--self-contained', 'false')
 } else {
@@ -39,4 +41,5 @@ dotnet @args
 if ($LASTEXITCODE -ne 0) { throw 'Publish failed.' }
 
 Write-Host ''
-Write-Host "Built: $(Join-Path $dist 'Humble Baker Studio.exe')" -ForegroundColor Green
+$exeName = if ($NoAi) { 'Humble Baker Studio (No AI).exe' } else { 'Humble Baker Studio.exe' }
+Write-Host "Built: $(Join-Path $dist $exeName)" -ForegroundColor Green

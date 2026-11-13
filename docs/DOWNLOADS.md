@@ -3,15 +3,15 @@
 Humble Baker Studio has two Windows builds. They share the same `*.hbstudio.json` project
 format, so projects open in both.
 
-| | PowerShell studio (stable) | C# port (alpha) |
-|---|---|---|
-| **Find it in the repo** | `Humble Baker Studio.exe` | `CSharp-Port/Humble Baker Studio (C#).exe` |
-| **Approx. size** | 1.7 MB | 46.7 MB |
-| **Release tag** | `v1.0.22` (tags without a prefix) | `csharp-port-v0.5.0` (tags start with `csharp-port-`) |
-| **Release asset name** | `Humble-Baker-Studio-v<version>.zip` / the repo exe | `Humble-Baker-Studio-CSharp-<version>-win-x64.exe` |
-| **Runtime** | Windows PowerShell 5.1 + .NET Framework 4.8 | Self-contained; no .NET install required |
-| **UI** | PowerShell/WinForms | Native .NET/WinForms |
-| **Best for** | The most complete feature set, including the SuperCollider live bridge and FLUX spectral photo mode | Faster native app, VST3 hosting, the newest automation painter |
+| | PowerShell studio (stable) | C# port (alpha) | C# No-AI edition |
+|---|---|---|---|
+| **Find it in the repo** | `Humble Baker Studio.exe` | `CSharp-Port/Humble Baker Studio (C#).exe` | build with `.\build.ps1 -NoAi`; release asset `Humble-Baker-Studio-CSharp-NoAI-...` |
+| **Approx. size** | 1.7 MB | 46.7 MB | 46.7 MB |
+| **Release tag** | `v1.0.22` (tags without a prefix) | `csharp-port-v0.5.0` (tags start with `csharp-port-`) | `csharp-port-v0.5.0` (separate asset) |
+| **Release asset name** | `Humble-Baker-Studio-v<version>.zip` / the repo exe | `Humble-Baker-Studio-CSharp-<version>-win-x64.exe` | `Humble-Baker-Studio-CSharp-NoAI-<version>-win-x64.exe` |
+| **Runtime** | Windows PowerShell 5.1 + .NET Framework 4.8 | Self-contained; no .NET install required | Self-contained; no .NET install required |
+| **UI** | PowerShell/WinForms | Native .NET/WinForms | Native .NET/WinForms |
+| **Best for** | The most complete feature set, including the SuperCollider live bridge and FLUX spectral photo mode | Faster native app, VST3 hosting, the newest automation painter | A deterministic workflow with no generative AI: a pre-programmed MIDI pattern library replaces the AI tab |
 
 ## How to tell them apart
 
@@ -26,6 +26,8 @@ format, so projects open in both.
 - **C# port v0.5.0**:
   - [Portable exe](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.5.0/Humble-Baker-Studio-CSharp-0.5.0-win-x64.exe)
   - [Zip](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.5.0/Humble-Baker-Studio-CSharp-0.5.0-win-x64.zip)
+  - [No-AI edition exe](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.5.0/Humble-Baker-Studio-CSharp-NoAI-0.5.0-win-x64.exe)
+  - [No-AI edition zip](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.5.0/Humble-Baker-Studio-CSharp-NoAI-0.5.0-win-x64.zip)
   - [Release notes](https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/csharp-port-v0.5.0)
 
 The C# portable exe is also committed in [`CSharp-Port/`](../CSharp-Port/) as
@@ -46,8 +48,6 @@ The C# port additionally has:
 
 The PowerShell studio has:
 
-- a 1024 x 256 automation canvas and binary-search lane lookup (updated alongside the C#
-  performance work)
 - the SuperCollider live session/OSC bridge
 - the FLUX photo/illustration mode in the spectral painter
 - the original PowerShell scripting and automation hooks

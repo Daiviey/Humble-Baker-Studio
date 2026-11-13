@@ -100,6 +100,31 @@ patch-graph module. The editor supports:
 
 Full guide: [`docs/AUTOMATION.md`](docs/AUTOMATION.md).
 
+## No-AI edition
+
+A deterministic edition is available for artists who do not want generative melody or
+composition tools. Build it with:
+
+```powershell
+.\build.ps1 -NoAi
+# dist-noai\Humble Baker Studio (No AI).exe
+```
+
+In this edition the AI tab and AI toolbar/menu entries are absent, and a **Patterns** tab is the
+main writing assistant. It contains a curated library of pre-programmed MIDI examples for drums,
+bass, chords, leads, arpeggios and counter-melodies. You choose:
+
+- role, style and mood
+- bars, energy, complexity and density
+- a seed (the same seed always selects and humanises the same way)
+
+The composer transposes the example to the project key, snaps it to the project scale, fits it
+to the requested bars, thins or thickens notes by density, scales velocity by energy and applies
+seeded humanisation. No model, network or external service is used.
+
+The standard build keeps the local-AI tools; the No-AI edition is the same codebase with the
+`HBS_NO_AI` build constant.
+
 ## macOS
 
 There is no native macOS build yet. The DSP and project format are reusable, but the UI is

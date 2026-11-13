@@ -13,8 +13,9 @@
 |---|---|
 | **PowerShell studio** (stable) | `Humble Baker Studio.exe` (**1.7 MB**, PowerShell) in this repository, or the [latest release](https://github.com/Daiviey/Humble-Baker-Studio/releases) |
 | **C# port** (alpha, Windows x64, no .NET install needed) | `CSharp-Port/Humble Baker Studio (C#).exe` (**46.7 MB**) - [Portable exe](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.5.0/Humble-Baker-Studio-CSharp-0.5.0-win-x64.exe) · [Zip](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.5.0/Humble-Baker-Studio-CSharp-0.5.0-win-x64.zip) · [Release notes](https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/csharp-port-v0.5.0) |
+| **C# No-AI edition** (alpha, deterministic patterns, no generative AI) | [Portable exe](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.5.0/Humble-Baker-Studio-CSharp-NoAI-0.5.0-win-x64.exe) - [Zip](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.5.0/Humble-Baker-Studio-CSharp-NoAI-0.5.0-win-x64.zip) - [No-AI notes](CSharp-Port/README-NoAI.md) |
 
-**Not sure which build to pick?** See [docs/DOWNLOADS.md](docs/DOWNLOADS.md) for a side-by-side comparison. In short: the root `Humble Baker Studio.exe` is the PowerShell studio (about 1.7 MB); `CSharp-Port/Humble Baker Studio (C#).exe` is the C# port (about 46.7 MB).
+**Not sure which build to pick?** See [docs/DOWNLOADS.md](docs/DOWNLOADS.md) for a side-by-side comparison. In short: the root `Humble Baker Studio.exe` is the PowerShell studio (about 1.7 MB); `CSharp-Port/Humble Baker Studio (C#).exe` is the C# port (about 46.7 MB); the No-AI edition is the same C# app with the AI tab replaced by a deterministic pattern library.
 
 The C# source is in [`src/`](src) and the port guide is [README-CSHARP.md](README-CSHARP.md). A copy of the portable exe is committed in [`CSharp-Port/`](CSharp-Port/); release assets also live under **Releases**.
 
@@ -74,6 +75,8 @@ No installer is required: the build is portable. FFmpeg and SuperCollider are di
 A native .NET port of the studio lives in `src/` and is documented in [README-CSHARP.md](README-CSHARP.md) and [docs/PORT.md](docs/PORT.md). It reads and writes the same `*.hbstudio.json` projects and includes the two-deck Live performance window, an instrument and sound library, and 64-bit VST3 effects and instruments on tracks and graph nodes (VST2 is not supported yet).
 
 Prebuilt portable build: [C# port v0.5.0](https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/csharp-port-v0.5.0) (self-contained Windows x64 exe, no .NET install required). The automation editor guide is [docs/AUTOMATION.md](docs/AUTOMATION.md).
+
+The **No-AI edition** removes the generative AI tab, toolbar button and menu entries and replaces them with a **Patterns** tab: a curated library of pre-programmed MIDI examples selected by role, style, mood, energy, complexity, density and a reproducible seed. Build it with `.\build.ps1 -NoAi` or download `Humble-Baker-Studio-CSharp-NoAI-0.5.0-win-x64.exe` from the same release.
 
 ## Features
 
