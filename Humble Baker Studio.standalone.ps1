@@ -1,4 +1,4 @@
-# Humble Baker Studio - standalone single-file build.
+﻿# Humble Baker Studio - standalone single-file build.
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 David Burr (Daiviey)
 Add-Type -AssemblyName System.Windows.Forms
@@ -15,9 +15,11 @@ Add-Type -ReferencedAssemblies System.Windows.Forms, System.Drawing, Microsoft.V
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Drawing;
 using System.Globalization;
 using System.IO;
+using System.IO.Pipes;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
@@ -894,6 +896,208 @@ public class Track {
     public string DrumKit = "Standard"; public string InstrumentName = "";
     public List<Note> Notes = new List<Note>();
     public List<AutoLane> Auto = new List<AutoLane>();
+    // Third-party VST3 plug-in (hosted by the out-of-process hbs-vst-bridge). Empty path = none.
+    public string PluginFormat = "vst3"; public string PluginPath = ""; public string PluginClass = "";
+    public string PluginName = ""; public string PluginState = ""; public bool PluginInstrument; public bool PluginBypass;
+}
+
+// One VST3 class reported by the bridge.
+public class VstPluginInfo {
+    public string Name = ""; public string Vendor = ""; public string Path = ""; public string ClassId = "";
+    public bool Instrument;
+    public string Kind { get { return Instrument ? "instrument" : "effect"; } }
+    public override string ToString() { return Name + (Instrument ? "  (instrument)" : "  (effect)"); }
+}
+
+// Named-pipe client for the .NET 9 hbs-vst-bridge process. The PowerShell studio cannot load the
+// net9 VST3 host directly, so plug-ins live in a separate process and audio is exchanged as blocks.
+public static class VstBridgeClient {
+    static readonly object Gate = new object();
+    static Process Proc;
+    static NamedPipeClientStream Pipe;
+    static BinaryReader Reader;
+    static BinaryWriter Writer;
+    public static string LastError = "";
+
+    public static bool Connected { get { lock (Gate) { return Pipe != null && Pipe.IsConnected; } } }
+
+    public static bool Start(string exePath) {
+        lock (Gate) {
+            if (Pipe != null && Pipe.IsConnected) return true;
+            StopNoLock();
+            try {
+                string name = "HBS.VstBridge." + Process.GetCurrentProcess().Id;
+                ProcessStartInfo psi = new ProcessStartInfo(exePath, "--pipe " + name);
+                psi.UseShellExecute = false;
+                psi.CreateNoWindow = true;
+                psi.WorkingDirectory = System.IO.Path.GetDirectoryName(exePath);
+                Proc = Process.Start(psi);
+                NamedPipeClientStream pipe = new NamedPipeClientStream(".", name, PipeDirection.InOut);
+                pipe.Connect(15000);
+                Pipe = pipe;
+                Reader = new BinaryReader(pipe, Encoding.UTF8, true);
+                Writer = new BinaryWriter(pipe, Encoding.UTF8, true);
+                Writer.Write(1); Writer.Flush();
+                Check();
+                ReadString();
+                Reader.ReadInt32();
+                return true;
+            } catch (Exception ex) {
+                LastError = ex.Message;
+                StopNoLock();
+                return false;
+            }
+        }
+    }
+
+    public static void Stop() { lock (Gate) { StopNoLock(); } }
+
+    static void StopNoLock() {
+        try { if (Writer != null) { Writer.Write(7); Writer.Flush(); } } catch { }
+        try { if (Pipe != null) Pipe.Dispose(); } catch { }
+        Pipe = null; Reader = null; Writer = null;
+        try { if (Proc != null && !Proc.HasExited) Proc.Kill(); } catch { }
+        Proc = null;
+    }
+
+    static void Ensure() {
+        if (Pipe == null || !Pipe.IsConnected) throw new InvalidOperationException("The VST3 bridge is not running.");
+    }
+
+    static string ReadString() {
+        int n = Reader.ReadInt32();
+        if (n < 0 || n > 1000000) throw new InvalidDataException("Bad string length.");
+        return Encoding.UTF8.GetString(Reader.ReadBytes(n));
+    }
+
+    static void WriteString(string s) {
+        byte[] b = Encoding.UTF8.GetBytes(s ?? "");
+        Writer.Write(b.Length); Writer.Write(b);
+    }
+
+    static void Check() {
+        int status = Reader.ReadInt32();
+        string msg = ReadString();
+        if (status != 0) throw new InvalidOperationException(msg);
+    }
+
+    static float[] ReadFloats() {
+        int n = Reader.ReadInt32();
+        float[] a = new float[n];
+        for (int i = 0; i < n; i++) a[i] = Reader.ReadSingle();
+        return a;
+    }
+
+    static void WriteFloats(float[] a) {
+        Writer.Write(a.Length);
+        for (int i = 0; i < a.Length; i++) Writer.Write(a[i]);
+    }
+
+    static byte[] StateOf(Track t) {
+        if (t == null || string.IsNullOrEmpty(t.PluginState)) return new byte[0];
+        try { return Convert.FromBase64String(t.PluginState); } catch { return new byte[0]; }
+    }
+
+    public static bool HasInstrument(Track t) {
+        return t != null && !t.PluginBypass && t.PluginInstrument && IsVst(t) && Connected && System.IO.File.Exists(t.PluginPath);
+    }
+
+    public static bool HasEffect(Track t) {
+        return t != null && !t.PluginBypass && !t.PluginInstrument && IsVst(t) && Connected && System.IO.File.Exists(t.PluginPath);
+    }
+
+    static bool IsVst(Track t) {
+        return !string.IsNullOrEmpty(t.PluginPath) && string.Equals(t.PluginFormat, "vst3", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public static List<VstPluginInfo> Scan() {
+        lock (Gate) {
+            Ensure();
+            Writer.Write(2); Writer.Flush();
+            Check();
+            int count = Reader.ReadInt32();
+            List<VstPluginInfo> list = new List<VstPluginInfo>(count);
+            for (int i = 0; i < count; i++) {
+                VstPluginInfo p = new VstPluginInfo();
+                p.Name = ReadString(); p.Vendor = ReadString(); p.Path = ReadString(); p.ClassId = ReadString();
+                p.Instrument = Reader.ReadBoolean();
+                list.Add(p);
+            }
+            return list;
+        }
+    }
+
+    public static void Release(Track t) {
+        if (t == null || !IsVst(t) || !Connected) return;
+        lock (Gate) {
+            try {
+                Ensure();
+                Writer.Write(6); Writer.Flush();
+                WriteString(t.PluginPath); WriteString(t.PluginClass); Writer.Flush();
+                Check();
+            } catch { }
+        }
+    }
+
+    public static void CaptureState(Track t) {
+        if (t == null || !IsVst(t) || !Connected) return;
+        lock (Gate) {
+            try {
+                Ensure();
+                Writer.Write(5); Writer.Flush();
+                WriteString(t.PluginPath); WriteString(t.PluginClass);
+                Writer.Write(44100); Writer.Flush();
+                Check();
+                int n = Reader.ReadInt32();
+                byte[] state = Reader.ReadBytes(n);
+                if (n > 0) t.PluginState = Convert.ToBase64String(state);
+            } catch { }
+        }
+    }
+
+    public static void ProcessEffect(Track t, float[] left, float[] right, double secondsPerBeat) {
+        lock (Gate) {
+            try {
+                Ensure();
+                Writer.Write(3); Writer.Flush();
+                WriteString(t.PluginPath); WriteString(t.PluginClass);
+                Writer.Write(44100);
+                byte[] state = StateOf(t);
+                Writer.Write(state.Length); Writer.Write(state);
+                Writer.Write(false);
+                WriteFloats(left); WriteFloats(right); Writer.Flush();
+                Check();
+                float[] l = ReadFloats(); float[] r = ReadFloats();
+                Array.Copy(l, left, Math.Min(l.Length, left.Length));
+                Array.Copy(r, right, Math.Min(r.Length, right.Length));
+                if (Reader.ReadBoolean()) { int n = Reader.ReadInt32(); Reader.ReadBytes(n); }
+            } catch (Exception ex) {
+                LastError = ex.Message;
+            }
+        }
+    }
+
+    public static float[][] RenderInstrument(Track t, List<Ev> events, double secondsPerBeat, int frames, bool loop) {
+        lock (Gate) {
+            Ensure();
+            Writer.Write(4); Writer.Flush();
+            WriteString(t.PluginPath); WriteString(t.PluginClass);
+            Writer.Write(44100);
+            byte[] state = StateOf(t);
+            Writer.Write(state.Length); Writer.Write(state);
+            Writer.Write(false);
+            Writer.Write(frames); Writer.Write(secondsPerBeat); Writer.Write(loop);
+            Writer.Write(events.Count);
+            foreach (Ev e in events) {
+                Writer.Write(e.Start); Writer.Write(e.Len); Writer.Write(e.Pitch); Writer.Write(e.Vel);
+            }
+            Writer.Flush();
+            Check();
+            float[] l = ReadFloats(); float[] r = ReadFloats();
+            if (Reader.ReadBoolean()) { int n = Reader.ReadInt32(); Reader.ReadBytes(n); }
+            return new float[][] { l, r };
+        }
+    }
 }
 
 public class GradientPanel : Panel {
@@ -2525,7 +2729,7 @@ public class PatchGraphControl : Control {
             using (SolidBrush gb = new SolidBrush(Color.FromArgb(26, gc))) g.FillRectangle(gb, box);
             using (Pen gp2 = new Pen(Color.FromArgb(150, gc), 2f) { DashStyle = System.Drawing.Drawing2D.DashStyle.Dash }) g.DrawRectangle(gp2, box);
             using (SolidBrush head = new SolidBrush(Color.FromArgb(210, gc))) g.FillRectangle(head, box.Left, box.Top, Math.Min(box.Width, 190), 22);
-            using (SolidBrush htxt = new SolidBrush(Color.FromArgb(20, 22, 28))) g.DrawString((pg.Name ?? "GROUP").ToUpperInvariant() + "  Â·  " + CountGroupTree(pg) + " modules", HeaderFont, htxt, new RectangleF(box.Left + 8, box.Top + 2, 300, 18));
+            using (SolidBrush htxt = new SolidBrush(Color.FromArgb(20, 22, 28))) g.DrawString((pg.Name ?? "GROUP").ToUpperInvariant() + "  Ã‚Â·  " + CountGroupTree(pg) + " modules", HeaderFont, htxt, new RectangleF(box.Left + 8, box.Top + 2, 300, 18));
         }
         // wires
         foreach (PatchLink l in gp.Links) {
@@ -2568,7 +2772,7 @@ public class PatchGraphControl : Control {
                     g.DrawString("GAIN", Font, sub, new RectangleF(gr.Left, gr.Top - 2, gr.Width, 12), sf);
                     g.DrawString("PAN " + n.Pan.ToString("0.00"), Font, sub, new RectangleF(r.X + 8, r.Y + 72, r.Width - 16, 16), sf);
                     string state = (pg != null && pg.Collapsed) ? "CONDENSED COMPONENT" : "GROUP MASTER";
-                    g.DrawString(state + " Â· " + (pg == null ? 0 : CountGroupTree(pg)) + " modules", Font, sub, new RectangleF(r.X + 8, r.Y + 26, r.Width - 16, 18), sf);
+                    g.DrawString(state + " Ã‚Â· " + (pg == null ? 0 : CountGroupTree(pg)) + " modules", Font, sub, new RectangleF(r.X + 8, r.Y + 26, r.Width - 16, 18), sf);
                     g.DrawString((pg != null && pg.Collapsed) ? "double-click to expand" : "double-click to condense", Font, sub, new RectangleF(r.X + 8, r.Y + 88, r.Width - 16, 16), sf);
                 }
                 else if (n.Kind == "out") { g.DrawString("master chain", Font, sub, new RectangleF(r.X + 8, r.Y + 26, r.Width - 16, 20), sf); }
@@ -3428,6 +3632,17 @@ public static class Dsp {
             bool pctx = isPatch && t.Patch.NeedsContext();
             List<AutoLane> planes = null;
             if (isPatch && t.Auto != null) foreach (AutoLane al in t.Auto) if (al.Param.StartsWith("p:") && al.Points.Count > 0) { if (planes == null) planes = new List<AutoLane>(); planes.Add(al); }
+            if (VstBridgeClient.HasInstrument(t)) {
+                // Third-party VST3 instrument: the bridge renders the note list and returns stereo audio.
+                try {
+                    List<Ev> vnotes = Engine.Events(p, t);
+                    float[][] vi = VstBridgeClient.RenderInstrument(t, vnotes, spb, N, loop);
+                    for (int i = 0; i < N; i++) {
+                        TL[i] += vi[0][i] * (float)(t.Vol * pl);
+                        TR[i] += vi[1][i] * (float)(t.Vol * pr);
+                    }
+                } catch { }
+            } else {
             int evi = 0;
             foreach (Ev e in Engine.Events(p, t)) {
                 evi++;
@@ -3452,6 +3667,8 @@ public static class Dsp {
                     TL[idx] += (float)(v * pl); TR[idx] += (float)(v * pr);
                 }
             }
+            }
+            if (VstBridgeClient.HasEffect(t)) VstBridgeClient.ProcessEffect(t, TL, TR, spb);
             if (t.Fx != null && t.Fx.Active && (!patchOn || !PatchRender.HasFxNode(p, t.Fx))) FxProc.Process(t.Fx, TL, TR, loop, spb);
             if (t.Auto != null && t.Auto.Count > 0 && (!patchOn || !PatchRender.HasFxNode(p, t.Fx))) AutoFx.Apply(t, TL, TR, spb);
             allT.Add(t); allL.Add(TL); allR.Add(TR); ghost.Add(t.Mute || offBySolo);
@@ -6736,6 +6953,7 @@ function Get-StudioProjectData($P) {
         [ordered]@{
             name = $t.Name; synth = $t.Synth; vol = $t.Vol; pan = $t.Pan; cutoff = $t.Cutoff; res = $t.Res; envamt = $t.EnvAmt
             atk = $t.Atk; rel = $t.Rel; crush = $t.Crush; mute = $t.Mute; solo = $t.Solo; bus = $t.Bus; uid = $t.Uid; drumKit = $t.DrumKit; instrumentName = $t.InstrumentName
+            pluginFormat = $t.PluginFormat; pluginPath = $t.PluginPath; pluginClass = $t.PluginClass; pluginName = $t.PluginName; pluginState = $t.PluginState; pluginInstrument = $t.PluginInstrument; pluginBypass = $t.PluginBypass
             patch = $(if ($t.Patch) { ConvertTo-StudioMap $t.Patch } else { $null })
             fx = ConvertTo-StudioMap $t.Fx
             sample = $(if ($t.Sample) { [HbStudio.Dsp]::SampleToBase64($t.Sample) } else { $null }); sampleRoot = $t.SampleRoot; sampleGate = $t.SampleGate; sampleMode = $t.SampleMode; notes = @($t.Notes | ForEach-Object { , @($_.Pitch, $_.Start, $_.Len, $_.Vel) }); auto = @($t.Auto | ForEach-Object { [ordered]@{ param = $_.Param; points = @($_.Points | ForEach-Object { , @($_[0], $_[1]) }) } })
@@ -6796,6 +7014,13 @@ function Read-StudioProjectData($d) {
         if ($null -ne $td.sampleMode) { $t.SampleMode = [int]$td.sampleMode }
         if ($td.drumKit) { $t.DrumKit = [string]$td.drumKit }
         if ($td.instrumentName) { $t.InstrumentName = [string]$td.instrumentName }
+        if ($td.pluginFormat) { $t.PluginFormat = [string]$td.pluginFormat }
+        if ($td.pluginPath) { $t.PluginPath = [string]$td.pluginPath }
+        if ($td.pluginClass) { $t.PluginClass = [string]$td.pluginClass }
+        if ($td.pluginName) { $t.PluginName = [string]$td.pluginName }
+        if ($td.pluginState) { $t.PluginState = [string]$td.pluginState }
+        if ($null -ne $td.pluginInstrument) { $t.PluginInstrument = [bool]$td.pluginInstrument }
+        if ($null -ne $td.pluginBypass) { $t.PluginBypass = [bool]$td.pluginBypass }
         if ($td.uid) { $t.Uid = [string]$td.uid }
         if ($t.Synth -eq 'patch' -and -not $t.Patch) { $t.Patch = New-Object HbStudio.Patch }
         foreach ($n in @($td.notes)) { if (@($n).Count -ge 4) { $t.Notes.Add((New-Object HbStudio.Note ([int]$n[0]), ([double]$n[1]), ([double]$n[2]), ([int]$n[3]))) } }
@@ -10624,6 +10849,12 @@ function Show-AudioStudio {
     $edit2 = @(@('Legato', 'legato'), @('Staccato', 'stacc'), @('Velocity up', 'velup'), @('Velocity down', 'veldn'), @('Random velocity', 'velrnd'), @('Accent offbeats', 'accent'), @('Invert pitches', 'inv'), @('Nudge later', 'nudge'), @('Nudge earlier', 'nudgeb'), @('Thin out', 'thin'), @('Add octave layer', 'octl'))
     $x = 8; foreach ($td in $edit2) { $b = Btn $td[0] $x 238 118 28; $b.Tag = $td[1]; $tTools.Controls.Add($b); $S["T_$($td[1])"] = $b; $x += 122; if ($x -gt 1260) { break } }
     $tTools.Controls.Add((Lbl 'Tip: Euclidean 5/16, 7/16, 11/16 plus Mutate and Break chop gives that skittering Drukqs feel.' 8 204 760))
+    # Third-party VST3 hosting. The bridge process is an optional download (see docs/PLUGINS.md).
+    $tTools.Controls.Add((Lbl 'VST3 plug-ins  (third-party, hosted out-of-process)' 8 272 420))
+    $S.BtnVst = Btn 'Choose plug-in...' 8 294 128 28; $tTools.Controls.Add($S.BtnVst)
+    $S.BtnVstClear = Btn 'Remove' 142 294 70 28; $tTools.Controls.Add($S.BtnVstClear)
+    $S.VstBypass = New-Object Windows.Forms.CheckBox; $S.VstBypass.Text = 'Bypass'; $S.VstBypass.SetBounds(222, 298, 70, 20); $S.VstBypass.ForeColor = $dk.Text; $tTools.Controls.Add($S.VstBypass)
+    $S.VstInfo = Lbl 'No VST3 plug-in on this track.' 300 298 560 18; $tTools.Controls.Add($S.VstInfo)
 
     # AI tab
     $tAi.Controls.Add((Lbl 'Model' 8 12 40)); $S.AiModel = Combo @('(auto: best general model)') 52 8 280 $true; $S.AiModel.SelectedIndex = 0
@@ -11248,7 +11479,7 @@ function Show-AudioStudio {
         }
     })
     $S.SmpClear.Add_Click({ Reset-SmpSlices; $S.SmpName.Text = 'Slices cleared.' })
-    $f.Add_FormClosing({ try { if ($S.MidiTimer) { $S.MidiTimer.Stop() }; if ($S.MidiPort) { $S.MidiPort.Close() } } catch { } })
+    $f.Add_FormClosing({ try { if ($S.MidiTimer) { $S.MidiTimer.Stop() }; if ($S.MidiPort) { $S.MidiPort.Close() } } catch { }; try { [HbStudio.VstBridgeClient]::Stop() } catch { } })
 
     $f.Controls.Add($center); $f.Controls.Add($left); $f.Controls.Add($S.Status); $f.Controls.Add($tabs); $f.Controls.Add($top)
     $null = Make-Resizer $top 'Top' 110 320
@@ -11281,11 +11512,116 @@ function Show-AudioStudio {
         else { $S.ScLbl.Text = 'SuperCollider not found (built-in preview works)'; $S.ScLbl.ForeColor = $dk.Muted }
     }
     function Get-CurTrack { $i = $S.TrackList.SelectedIndex; if ($i -lt 0 -or $i -ge $S.Proj.Tracks.Count) { return $null }; return $S.Proj.Tracks[$i] }
+
+    function Find-StudioVstBridge {
+        $candidates = @()
+        if ($script:StudioRoot) {
+            $candidates += (Join-Path $script:StudioRoot 'hbs-vst-bridge.exe')
+            $candidates += (Join-Path $script:StudioRoot 'VST3\hbs-vst-bridge.exe')
+        }
+        try { $procDir = Split-Path -Parent ([Diagnostics.Process]::GetCurrentProcess().MainModule.FileName); if ($procDir) { $candidates += (Join-Path $procDir 'hbs-vst-bridge.exe') } } catch { }
+        foreach ($c in $candidates) { if (Test-Path -LiteralPath $c -PathType Leaf) { return $c } }
+        return ''
+    }
+    function Initialize-StudioVst([bool]$Quiet = $false) {
+        if ([HbStudio.VstBridgeClient]::Connected) { return $true }
+        $exe = Find-StudioVstBridge
+        if (-not $exe) {
+            if (-not $Quiet) { Show-StudioMsg "VST3 hosting needs the free bridge process.`r`n`r`nDownload hbs-vst-bridge-win-x64.zip from the releases page, unzip it next to Humble Baker Studio.exe (or into a VST3 folder beside it), then try again." }
+            return $false
+        }
+        $ok = [HbStudio.VstBridgeClient]::Start($exe)
+        if (-not $ok -and -not $Quiet) { Show-StudioMsg ('Could not start the VST3 bridge: ' + [HbStudio.VstBridgeClient]::LastError) }
+        return $ok
+    }
+    function Update-VstUi {
+        if (-not $S.VstInfo) { return }
+        $t = Get-CurTrack
+        if (-not $t) { $S.VstInfo.Text = ''; return }
+        if ($t.PluginPath) {
+            $kind = if ($t.PluginInstrument) { 'instrument' } else { 'effect' }
+            $state = if ($t.PluginBypass) { '  [bypassed]' } else { '' }
+            $S.VstInfo.Text = ('{0}  ({1}){2}' -f $t.PluginName, $kind, $state)
+            $S.VstBypass.Checked = $t.PluginBypass
+        } else {
+            $S.VstInfo.Text = 'No VST3 plug-in on this track.'
+            $S.VstBypass.Checked = $false
+        }
+    }
+    function Clear-StudioVstPlugin {
+        $t = Get-CurTrack; if (-not $t) { return }
+        if (-not $t.PluginPath) { return }
+        [HbStudio.VstBridgeClient]::Release($t)
+        $t.PluginPath = ''; $t.PluginClass = ''; $t.PluginName = ''; $t.PluginState = ''
+        $t.PluginInstrument = $false; $t.PluginBypass = $false
+        Update-VstUi; Refresh-Tracks
+        $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit
+    }
+    function Show-VstPluginPicker {
+        $t = Get-CurTrack; if (-not $t) { return }
+        if (-not (Initialize-StudioVst)) { return }
+        $old = $f.Cursor
+        try {
+            if (-not $S.VstCatalog) {
+                $f.Cursor = 'WaitCursor'; Status 'Scanning VST3 plug-ins (this can take a few seconds)...'
+                $S.VstCatalog = @([HbStudio.VstBridgeClient]::Scan())
+                Status ('Found {0} VST3 plug-ins.' -f $S.VstCatalog.Count)
+            }
+        } catch {
+            Show-StudioMsg ('VST3 scan failed: ' + $_.Exception.Message); return
+        } finally { $f.Cursor = $old }
+
+        $dlg = New-Object Windows.Forms.Form
+        $dlg.Text = 'VST3 plug-in for "' + $t.Name + '"'
+        $dlg.Size = New-Object Drawing.Size(760, 560)
+        $dlg.StartPosition = 'CenterParent'; $dlg.FormBorderStyle = 'FixedDialog'; $dlg.MaximizeBox = $false; $dlg.MinimizeBox = $false
+        $dlg.BackColor = $dk.Panel; $dlg.ForeColor = $dk.Text
+        $q = New-Object Windows.Forms.TextBox; $q.SetBounds(12, 12, 500, 24); $q.BackColor = $dk.Field; $q.ForeColor = $dk.Text; $q.BorderStyle = 'FixedSingle'
+        $dlg.Controls.Add($q)
+        $count = New-Object Windows.Forms.Label; $count.SetBounds(524, 16, 210, 20); $count.ForeColor = $dk.Muted; $dlg.Controls.Add($count)
+        $list = New-Object Windows.Forms.ListBox; $list.SetBounds(12, 44, 722, 414); $list.BackColor = $dk.Field; $list.ForeColor = $dk.Text; $list.BorderStyle = 'FixedSingle'
+        $dlg.Controls.Add($list)
+        $ok = New-Object Windows.Forms.Button; $ok.Text = 'Assign'; $ok.SetBounds(534, 470, 96, 30); $ok.DialogResult = 'OK'
+        $cancel = New-Object Windows.Forms.Button; $cancel.Text = 'Cancel'; $cancel.SetBounds(638, 470, 96, 30); $cancel.DialogResult = 'Cancel'
+        $dlg.Controls.AddRange(@($ok, $cancel)); $dlg.AcceptButton = $ok; $dlg.CancelButton = $cancel
+        $fill = {
+            param([string]$text)
+            $list.BeginUpdate()
+            try {
+                $list.Items.Clear()
+                $needle = ($text + '').Trim()
+                foreach ($p in $S.VstCatalog) {
+                    if ($needle -and ($p.Name -notlike ('*' + $needle + '*')) -and ($p.Vendor -notlike ('*' + $needle + '*'))) { continue }
+                    [void]$list.Items.Add($p)
+                }
+                $count.Text = ('{0} shown' -f $list.Items.Count)
+                if ($list.Items.Count -gt 0) { $list.SelectedIndex = 0 }
+            } finally { $list.EndUpdate() }
+        }
+        & $fill ''
+        $q.Add_TextChanged({ & $fill $q.Text })
+        $list.Add_DoubleClick({ if ($list.SelectedIndex -ge 0) { $dlg.DialogResult = 'OK'; $dlg.Close() } })
+        if ($dlg.ShowDialog($f) -eq 'OK' -and $list.SelectedItem) {
+            $p = $list.SelectedItem
+            [HbStudio.VstBridgeClient]::Release($t)
+            $t.PluginFormat = 'vst3'; $t.PluginPath = [string]$p.Path; $t.PluginClass = [string]$p.ClassId
+            $t.PluginName = [string]$p.Name; $t.PluginInstrument = [bool]$p.Instrument
+            $t.PluginBypass = $false; $t.PluginState = ''
+            Update-VstUi; Refresh-Tracks
+            $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit
+            Status ('Assigned ' + $t.PluginName + ' to ' + $t.Name + '.')
+        }
+        $dlg.Dispose()
+    }
     function Refresh-Tracks([int]$Select = -1) {
         $S.Loading = $true
         $idx = if ($Select -ge 0) { $Select } else { $S.TrackList.SelectedIndex }
         $S.TrackList.Items.Clear()
-        foreach ($t in $S.Proj.Tracks) { [void]$S.TrackList.Items.Add($(if ($t.Mute) { "($($t.Name))" } elseif ($t.Solo) { "$($t.Name)  [S]" } else { $t.Name })) }
+        foreach ($t in $S.Proj.Tracks) {
+            $label = if ($t.Mute) { "($($t.Name))" } elseif ($t.Solo) { "$($t.Name)  [S]" } else { $t.Name }
+            if ($t.PluginPath) { $label += $(if ($t.PluginBypass) { '  [VST off]' } else { '  [VST]' }) }
+            [void]$S.TrackList.Items.Add($label)
+        }
         if ($idx -lt 0) { $idx = 0 }; if ($idx -ge $S.TrackList.Items.Count) { $idx = $S.TrackList.Items.Count - 1 }
         $S.TrackList.SelectedIndex = $idx
         $S.Loading = $false
@@ -11333,6 +11669,7 @@ function Show-AudioStudio {
         } catch { }
         $S.StripName.Text = $t.Name; $S.StripName.ForeColor = $(if ($t.Mute) { $dk.Muted } else { $dk.Accent })
         Refresh-StripBus
+        try { Update-VstUi } catch { }
         $S.Loading = $false
         $S.GridPatch.SelectedObject = $t.Patch; $S.GridFx.SelectedObject = $t.Fx; $S.LabRoot.Value = [decimal][math]::Max(0, [math]::Min(127, $t.SampleRoot)); $S.LabGate.Checked = $t.SampleGate; if ($S.LabMode) { $S.LabMode.SelectedIndex = [math]::Max(0, [math]::Min(2, [int]$t.SampleMode)) }
         $S.Roll.Cur = $t; $S.Roll.Sel.Clear()
@@ -14628,7 +14965,7 @@ Rules: prefer the user's saved instruments when one fits the goal. Use design_so
             $nm = if ($it.Pattern -ge 0 -and $it.Pattern -lt $P.Patterns.Count) { $P.Patterns[$it.Pattern].Name } else { '(missing)' }
             $pb = if ($it.Pattern -ge 0 -and $it.Pattern -lt $P.Patterns.Count) { $P.Patterns[$it.Pattern].Bars } else { 0 }
             $bars = '{0} bars{1}' -f $it.EffectiveBars($pb), $(if ($it.Bars -gt 0) { ' (override)' } else { '' })
-            [void]$S.SongList.Items.Add(('{0}. {1}  x{2}  · {3}' -f $n, $nm, $it.Repeats, $bars)); $n++
+            [void]$S.SongList.Items.Add(('{0}. {1}  x{2}  Â· {3}' -f $n, $nm, $it.Repeats, $bars)); $n++
         }
         if ($pi -ge 0 -and $pi -lt $S.PatList.Items.Count) { $S.PatList.SelectedIndex = $pi }
         if ($si -ge 0 -and $si -lt $S.SongList.Items.Count) { $S.SongList.SelectedIndex = $si }
@@ -14724,7 +15061,7 @@ Rules: prefer the user's saved instruments when one fits the goal. Use design_so
         $sel = $S.MarkerList.SelectedIndex
         $S.Loading = $true
         $S.MarkerList.Items.Clear()
-        foreach ($m in (Get-SortedMarkers)) { [void]$S.MarkerList.Items.Add(('{0:0.##} — {1} (energy {2})' -f $m.Beat, $m.Name, $m.Energy)) }
+        foreach ($m in (Get-SortedMarkers)) { [void]$S.MarkerList.Items.Add(('{0:0.##} â€” {1} (energy {2})' -f $m.Beat, $m.Name, $m.Energy)) }
         if ($sel -ge 0 -and $sel -lt $S.MarkerList.Items.Count) { $S.MarkerList.SelectedIndex = $sel }
         $S.Loading = $false
         Sync-MarkerFields
@@ -15175,6 +15512,14 @@ Rules: prefer the user's saved instruments when one fits the goal. Use design_so
     }
     $S.BtnTAddNode.Add_Click({ Add-SelectedTrackNode })
     $miAddNode.Add_Click({ Add-SelectedTrackNode })
+    $S.BtnVst.Add_Click({ Show-VstPluginPicker })
+    $S.BtnVstClear.Add_Click({ Clear-StudioVstPlugin })
+    $S.VstBypass.Add_Click({
+        $t = Get-CurTrack; if (-not $t) { return }
+        $t.PluginBypass = $S.VstBypass.Checked
+        Update-VstUi; Refresh-Tracks
+        $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit
+    })
     $roll.Add_BeginEdit({ Push-Undo })
     $roll.Add_Changed({ $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit })
     $roll.Add_MarkersChanged({ try { Refresh-Markers } catch { }; try { Refresh-SongUi } catch { } })
@@ -15197,6 +15542,7 @@ Rules: prefer the user's saved instruments when one fits the goal. Use design_so
         $d = New-Object Windows.Forms.SaveFileDialog; $d.Filter = 'Studio project|*.hbstudio.json'; $d.InitialDirectory = (Join-Path (Get-StudioDir) 'projects'); $d.FileName = 'project.hbstudio.json'
         if ($d.ShowDialog() -eq 'OK') {
             Sync-Project
+            foreach ($pt in $S.Proj.Tracks) { [HbStudio.VstBridgeClient]::CaptureState($pt) }
             $data = Get-StudioProjectData $S.Proj; $data['scCode'] = $S.ScCode.Text
             ($data | ConvertTo-Json -Depth 8) | Set-Content -LiteralPath $d.FileName -Encoding UTF8; $S.Dirty = $false; Log "Saved $($d.FileName)"
         }
@@ -15402,6 +15748,7 @@ Rules: prefer the user's saved instruments when one fits the goal. Use design_so
     }
     $tabs.Add_SelectedIndexChanged({ try { $tp = $tabs.SelectedTab; if ($tp) { $tp.AutoScrollPosition = New-Object Drawing.Point(0, 0) } } catch { } })
     $f.Add_Shown({ Initialize-UiLayout })
+    $f.Add_Shown({ try { if (Find-StudioVstBridge) { [void](Initialize-StudioVst $true) }; Update-VstUi } catch { } })
 
     $S.Roll.Proj = $S.Proj
     $S.Patch.Proj = $S.Proj
@@ -16332,898 +16679,4 @@ try { Show-AudioStudio } catch {
 
 
 
-
-# ===== Live performance mode (mirrors LivePerformanceImplementation.ps1) =====
-#requires -Version 5.1
-# SPDX-License-Identifier: MIT
-# Copyright (c) 2026 David Burr (Daiviey)
-<#
-  Live performance mode for Humble Baker Studio.
-
-  Two independent projects, two decks, one crossfader, an optional separate cue output,
-  per-deck gain and LP/HP filter, tempo sync and queues. The audio engine and window are
-  compiled as C# with Add-Type; project loading and rendering reuse the studio's own
-  HbStudio engine and project functions.
-
-  Dot-source this file from the studio implementation, then call Show-LivePerformance <project>.
-#>
-
-if (-not ('HbLive.LiveDeck' -as [type])) {
-Add-Type -ReferencedAssemblies System.Windows.Forms, System.Drawing -Language CSharp -TypeDefinition @'
-using System;
-using System.Collections.Generic;
-using System.Drawing;
-using System.Runtime.InteropServices;
-using System.Windows.Forms;
-
-namespace HbLive {
-
-public class LiveDeck {
-    object gate = new object();
-    float[] l = new float[0];
-    float[] r = new float[0];
-    double pos, lpL, lpR, lastFilter = double.NaN, a = 1;
-    public string Name = "";
-    public string SourcePath = "";
-    public string KeyText = "";
-    public double Bpm = 120;
-    public bool Playing;
-    public bool Loop = true;
-    public bool Cue;
-    public bool Ended;
-    public double Gain = 1;
-    public double Filter;
-    public double Rate = 1;
-
-    public int Frames { get { lock (gate) return l.Length; } }
-    public double Seconds { get { return Frames / 44100.0; } }
-    public double PositionSeconds { get { lock (gate) return pos / 44100.0; } }
-    public bool HasAudio { get { return Frames > 0; } }
-    public float[] GetLeft() { lock (gate) return l; }
-    public float[] GetRight() { lock (gate) return r; }
-
-    public void SetBuffer(string name, string path, float[] left, float[] right, double bpm, string keyText, bool songMode) {
-        lock (gate) {
-            Name = name; SourcePath = path;
-            l = left == null ? new float[0] : left;
-            r = right == null ? new float[0] : right;
-            Bpm = bpm <= 0 ? 120 : bpm;
-            KeyText = keyText; Loop = !songMode;
-            pos = 0; Ended = false; lpL = lpR = 0; lastFilter = double.NaN;
-            Playing = false;
-        }
-    }
-
-    public void Stop() { lock (gate) { Playing = false; pos = 0; Ended = false; } }
-    public void Restart() { lock (gate) { pos = 0; Ended = false; } }
-
-    public void Render(float[] dl, float[] dr, int off, int frames) {
-        lock (gate) {
-            if (!Playing || l.Length < 2 || frames <= 0) return;
-            int n = l.Length;
-            if (r.Length < n) n = r.Length;
-
-            double f = Math.Max(-1, Math.Min(1, Filter));
-            if (Math.Abs(f - lastFilter) > 0.0001) {
-                lastFilter = f;
-                double cutoff = f < 0 ? 20000.0 * Math.Pow(200.0 / 20000.0, -f)
-                    : f > 0 ? 20.0 * Math.Pow(8000.0 / 20.0, f) : 20000.0;
-                a = 1 - Math.Exp(-2 * Math.PI * cutoff / 44100.0);
-            }
-
-            for (int i = 0; i < frames; i++) {
-                if (pos >= n) {
-                    if (Loop) pos = pos % n;
-                    else { Ended = true; Playing = false; break; }
-                }
-                int i0 = (int)pos;
-                int i1 = i0 + 1;
-                if (i1 >= n) i1 = Loop ? 0 : n - 1;
-                double frac = pos - i0;
-                double sL = l[i0] * (1 - frac) + l[i1] * frac;
-                double sR = r[i0] * (1 - frac) + r[i1] * frac;
-                if (f < -0.001 || f > 0.001) {
-                    lpL += a * (sL - lpL);
-                    lpR += a * (sR - lpR);
-                    if (f < 0) { sL = lpL; sR = lpR; }
-                    else { sL -= lpL; sR -= lpR; }
-                }
-                dl[off + i] += (float)(sL * Gain);
-                dr[off + i] += (float)(sR * Gain);
-                pos += Rate;
-            }
-        }
-    }
-}
-
-public class LiveMixer {
-    public LiveDeck A = new LiveDeck();
-    public LiveDeck B = new LiveDeck();
-    public double Crossfade = 0.5;
-    public double MasterGain = 0.85;
-    public double CueLevel = 0.8;
-    public bool CueToMaster;
-    public double LastMasterPeak;
-    public double LastCuePeak;
-
-    float[] aL = new float[0], aR = new float[0], bL = new float[0], bR = new float[0];
-
-    public void Sync(LiveDeck deck) {
-        LiveDeck other = object.ReferenceEquals(deck, A) ? B : A;
-        if (deck.Bpm <= 0 || other.Bpm <= 0) return;
-        deck.Rate = Math.Max(0.5, Math.Min(2.0, other.Bpm / deck.Bpm));
-    }
-
-    public void Fill(float[] mL, float[] mR, float[] cL, float[] cR, int frames) {
-        Array.Clear(mL, 0, frames); Array.Clear(mR, 0, frames);
-        Array.Clear(cL, 0, frames); Array.Clear(cR, 0, frames);
-        if (frames <= 0) return;
-        if (aL.Length < frames) {
-            aL = new float[frames]; aR = new float[frames];
-            bL = new float[frames]; bR = new float[frames];
-        }
-        Array.Clear(aL, 0, frames); Array.Clear(aR, 0, frames);
-        Array.Clear(bL, 0, frames); Array.Clear(bR, 0, frames);
-
-        A.Render(aL, aR, 0, frames);
-        B.Render(bL, bR, 0, frames);
-
-        double x = Math.Max(0, Math.Min(1, Crossfade));
-        double ga = Math.Cos(x * Math.PI / 2);
-        double gb = Math.Sin(x * Math.PI / 2);
-        double mg = Math.Max(0, Math.Min(2, MasterGain));
-        double clv = Math.Max(0, Math.Min(2, CueLevel));
-        double pm = 0, pc = 0;
-
-        for (int i = 0; i < frames; i++) {
-            double ml = aL[i] * ga + bL[i] * gb;
-            double mr = aR[i] * ga + bR[i] * gb;
-            double cl = (A.Cue ? aL[i] : 0) + (B.Cue ? bL[i] : 0);
-            double cr = (A.Cue ? aR[i] : 0) + (B.Cue ? bR[i] : 0);
-            cl *= clv; cr *= clv;
-            if (CueToMaster) { ml += cl; mr += cr; }
-            double oL = Math.Max(-1, Math.Min(1, ml * mg));
-            double oR = Math.Max(-1, Math.Min(1, mr * mg));
-            mL[i] = (float)oL; mR[i] = (float)oR;
-            cL[i] = (float)Math.Max(-1, Math.Min(1, cl));
-            cR[i] = (float)Math.Max(-1, Math.Min(1, cr));
-            pm = Math.Max(pm, Math.Max(Math.Abs(oL), Math.Abs(oR)));
-            pc = Math.Max(pc, Math.Max(Math.Abs(cl), Math.Abs(cr)));
-        }
-        LastMasterPeak = pm; LastCuePeak = pc;
-    }
-}
-
-public static class LiveDevices {
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-    struct Caps {
-        public ushort wMid, wPid;
-        public uint vDriverVersion;
-        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string szPname;
-        public uint dwFormats;
-        public ushort wChannels, wReserved1;
-        public uint dwSupport;
-    }
-    [DllImport("winmm.dll")] static extern int waveOutGetNumDevs();
-    [DllImport("winmm.dll", CharSet = CharSet.Unicode)] static extern int waveOutGetDevCapsW(IntPtr device, ref Caps caps, int size);
-
-    public static string[] Get() {
-        int n = Math.Max(0, waveOutGetNumDevs());
-        string[] r = new string[n];
-        for (int i = 0; i < n; i++) {
-            Caps c = new Caps();
-            waveOutGetDevCapsW((IntPtr)i, ref c, Marshal.SizeOf(typeof(Caps)));
-            r[i] = string.IsNullOrEmpty(c.szPname) ? ("Output " + (i + 1)) : c.szPname;
-        }
-        return r;
-    }
-}
-
-public class LiveEngine {
-    [StructLayout(LayoutKind.Sequential)]
-    struct Wf { public short FormatTag, Channels; public int SamplesPerSec, AvgBytesPerSec; public short BlockAlign, BitsPerSample, Size; }
-    [StructLayout(LayoutKind.Sequential)]
-    struct Wh { public IntPtr Data; public int BufferLength, BytesRecorded; public IntPtr User; public int Flags, Loops; public IntPtr Next, Reserved; }
-    class Slot { public IntPtr Header, Data; }
-
-    const int Frames = 1024, Slots = 3, Prepared = 2, Done = 1;
-    [DllImport("winmm.dll")] static extern int waveOutOpen(out IntPtr h, int dev, ref Wf fmt, IntPtr cb, IntPtr inst, int flags);
-    [DllImport("winmm.dll")] static extern int waveOutPrepareHeader(IntPtr h, IntPtr hdr, int size);
-    [DllImport("winmm.dll")] static extern int waveOutUnprepareHeader(IntPtr h, IntPtr hdr, int size);
-    [DllImport("winmm.dll")] static extern int waveOutWrite(IntPtr h, IntPtr hdr, int size);
-    [DllImport("winmm.dll")] static extern int waveOutReset(IntPtr h);
-    [DllImport("winmm.dll")] static extern int waveOutClose(IntPtr h);
-
-    readonly LiveMixer mixer;
-    readonly float[] mL = new float[Frames], mR = new float[Frames], cL = new float[Frames], cR = new float[Frames];
-    readonly Queue<short[]> cueQ = new Queue<short[]>();
-    System.Threading.Thread thread;
-    volatile bool stop;
-    IntPtr master, cue;
-    bool cueOn;
-
-    public string LastError = "";
-    public bool IsRunning;
-    public LiveEngine(LiveMixer m) { mixer = m; }
-
-    public void Start(int masterDevice, int cueDevice) {
-        Stop();
-        stop = false; IsRunning = true;
-        thread = new System.Threading.Thread(delegate () { Run(masterDevice, cueDevice); });
-        thread.IsBackground = true;
-        thread.Priority = System.Threading.ThreadPriority.AboveNormal;
-        thread.Start();
-    }
-
-    public void Stop() {
-        stop = true;
-        if (thread != null && thread.IsAlive) { try { thread.Join(1200); } catch { } }
-        thread = null;
-        CloseAll(); IsRunning = false;
-    }
-
-    void CloseAll() {
-        if (master != IntPtr.Zero) { try { waveOutReset(master); } catch { } try { waveOutClose(master); } catch { } master = IntPtr.Zero; }
-        if (cue != IntPtr.Zero) { try { waveOutReset(cue); } catch { } try { waveOutClose(cue); } catch { } cue = IntPtr.Zero; }
-        lock (cueQ) cueQ.Clear();
-    }
-
-    Slot[] MakeSlots() {
-        int hs = Marshal.SizeOf(typeof(Wh));
-        Slot[] s = new Slot[Slots];
-        for (int i = 0; i < Slots; i++) {
-            s[i] = new Slot();
-            s[i].Header = Marshal.AllocHGlobal(hs);
-            s[i].Data = Marshal.AllocHGlobal(Frames * 4);
-            Wh w = new Wh();
-            Marshal.StructureToPtr(w, s[i].Header, false);
-        }
-        return s;
-    }
-
-    void FreeSlots(Slot[] s) {
-        foreach (Slot x in s) {
-            if (x.Header != IntPtr.Zero) Marshal.FreeHGlobal(x.Header);
-            if (x.Data != IntPtr.Zero) Marshal.FreeHGlobal(x.Data);
-        }
-    }
-
-    void Reclaim(Slot[] s, IntPtr dev, int hs) {
-        if (dev == IntPtr.Zero) return;
-        foreach (Slot x in s) {
-            Wh w = (Wh)Marshal.PtrToStructure(x.Header, typeof(Wh));
-            if ((w.Flags & Done) == 0) continue;
-            waveOutUnprepareHeader(dev, x.Header, hs);
-            w.Flags &= ~Prepared;
-            Marshal.StructureToPtr(w, x.Header, false);
-        }
-    }
-
-    Slot Free(Slot[] s) {
-        foreach (Slot x in s) {
-            Wh w = (Wh)Marshal.PtrToStructure(x.Header, typeof(Wh));
-            if ((w.Flags & Prepared) == 0) return x;
-        }
-        return null;
-    }
-
-    static short[] Pcm(float[] l, float[] r) {
-        short[] p = new short[l.Length * 2];
-        for (int i = 0; i < l.Length; i++) {
-            p[2 * i] = (short)(Math.Max(-1f, Math.Min(1f, l[i])) * 32767);
-            p[2 * i + 1] = (short)(Math.Max(-1f, Math.Min(1f, r[i])) * 32767);
-        }
-        return p;
-    }
-
-    void Write(IntPtr dev, Slot s, short[] p, int hs) {
-        Marshal.Copy(p, 0, s.Data, p.Length);
-        Wh w = new Wh(); w.Data = s.Data; w.BufferLength = p.Length * 2;
-        Marshal.StructureToPtr(w, s.Header, false);
-        if (waveOutPrepareHeader(dev, s.Header, hs) != 0) return;
-        waveOutWrite(dev, s.Header, hs);
-    }
-
-    void Run(int masterDevice, int cueDevice) {
-        int hs = Marshal.SizeOf(typeof(Wh));
-        Slot[] ms = MakeSlots();
-        Slot[] cs = MakeSlots();
-        Wf fmt = new Wf();
-        fmt.FormatTag = 1; fmt.Channels = 2; fmt.SamplesPerSec = 44100;
-        fmt.AvgBytesPerSec = 44100 * 4; fmt.BlockAlign = 4; fmt.BitsPerSample = 16;
-        try {
-            if (waveOutOpen(out master, masterDevice, ref fmt, IntPtr.Zero, IntPtr.Zero, 0) != 0) {
-                LastError = "Could not open the master output."; IsRunning = false; return;
-            }
-            cueOn = cueDevice >= 0 && cueDevice != masterDevice;
-            if (cueOn && waveOutOpen(out cue, cueDevice, ref fmt, IntPtr.Zero, IntPtr.Zero, 0) != 0) {
-                cueOn = false; LastError = "Cue output unavailable; cue is silent.";
-            }
-            while (!stop) {
-                Reclaim(ms, master, hs);
-                if (cueOn) Reclaim(cs, cue, hs);
-                Slot free = Free(ms);
-                if (free == null) { System.Threading.Thread.Sleep(2); continue; }
-
-                mixer.Fill(mL, mR, cL, cR, Frames);
-                Write(master, free, Pcm(mL, mR), hs);
-
-                if (cueOn) {
-                    lock (cueQ) {
-                        cueQ.Enqueue(Pcm(cL, cR));
-                        while (cueQ.Count > Slots + 1) cueQ.Dequeue();
-                    }
-                    Slot cf = Free(cs);
-                    short[] cp = null;
-                    lock (cueQ) { if (cf != null && cueQ.Count > 0) cp = cueQ.Dequeue(); }
-                    if (cf != null && cp != null) Write(cue, cf, cp, hs);
-                }
-            }
-        } catch (Exception ex) {
-            LastError = ex.Message;
-        } finally {
-            CloseAll(); FreeSlots(ms); FreeSlots(cs); IsRunning = false;
-        }
-    }
-}
-
-public class DeckWave : Control {
-    float[] l = new float[0], r = new float[0];
-    double ph = -1;
-    public DeckWave() {
-        DoubleBuffered = true; BackColor = Color.FromArgb(14, 16, 21);
-        SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
-    }
-    public double Playhead { get { return ph; } set { ph = value; Invalidate(); } }
-    public void SetData(float[] left, float[] right) { l = left == null ? new float[0] : left; r = right == null ? new float[0] : right; Invalidate(); }
-    protected override void OnPaint(PaintEventArgs e) {
-        Graphics g = e.Graphics; g.Clear(BackColor);
-        int w = Math.Max(1, Width - 2), h = Math.Max(1, Height - 2), y0 = 1 + h / 2;
-        using (Pen mid = new Pen(Color.FromArgb(40, 46, 58))) g.DrawLine(mid, 1, y0, 1 + w, y0);
-        int n = Math.Min(l.Length, r.Length);
-        if (n < 2) { using (Brush b = new SolidBrush(Color.FromArgb(150, 158, 175))) g.DrawString("Load a project to see its waveform.", Font, b, 8, 8); return; }
-        using (Pen p = new Pen(Color.FromArgb(100, 168, 255))) {
-            for (int px = 0; px < w; px++) {
-                int s0 = (int)((long)px * n / w), s1 = (int)((long)(px + 1) * n / w);
-                if (s1 <= s0) s1 = s0 + 1; if (s1 > n) s1 = n;
-                double mn = 0, mx = 0;
-                for (int i = s0; i < s1; i++) { double v = (l[i] + r[i]) * 0.5; if (v < mn) mn = v; if (v > mx) mx = v; }
-                g.DrawLine(p, 1 + px, y0 - (int)(mx * (h / 2 - 2)), 1 + px, y0 - (int)(mn * (h / 2 - 2)));
-            }
-        }
-        if (ph >= 0 && ph <= 1) {
-            int x = 1 + (int)(ph * (w - 1));
-            using (Pen p = new Pen(Color.FromArgb(255, 168, 92), 2f)) g.DrawLine(p, x, 1, x, 1 + h);
-        }
-        using (Pen b = new Pen(Color.FromArgb(70, 76, 94))) g.DrawRectangle(b, 0, 0, w + 1, h + 1);
-    }
-}
-
-public class LevelMeter : Control {
-    double level, peak;
-    public LevelMeter() {
-        DoubleBuffered = true; BackColor = Color.FromArgb(14, 16, 21); Height = 12; Width = 140;
-        SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
-    }
-    public void SetLevel(double v) { level = Math.Max(0, Math.Min(1, v)); peak = Math.Max(level, peak * 0.92); Invalidate(); }
-    protected override void OnPaint(PaintEventArgs e) {
-        Graphics g = e.Graphics; g.Clear(BackColor);
-        int w = Width - 2, h = Height - 2;
-        using (Brush b = new SolidBrush(Color.FromArgb(30, 34, 44))) g.FillRectangle(b, 1, 1, w, h);
-        int fill = (int)(level * w);
-        if (fill > 0) {
-            using (Brush b = new SolidBrush(Color.FromArgb(110, 220, 150))) g.FillRectangle(b, 1, 1, fill, h);
-        }
-        int pk = (int)(peak * w);
-        if (pk > 0) { using (Pen p = new Pen(Color.FromArgb(230, 236, 245), 2f)) g.DrawLine(p, 1 + Math.Min(pk, w - 1), 1, 1 + Math.Min(pk, w - 1), 1 + h); }
-        using (Pen p = new Pen(Color.FromArgb(70, 76, 94))) g.DrawRectangle(p, 0, 0, w + 1, h + 1);
-    }
-}
-
-public class DeckPanel : UserControl {
-    readonly LiveForm host;
-    readonly bool isA;
-    public readonly DeckWave Wave;
-    readonly Label title, source, info, status, gainText, filterText;
-    readonly Button play, cue, sync;
-    public readonly CheckBox Loop;
-    readonly TrackBar gain, filter;
-    public readonly ListBox Queue;
-    public readonly List<string> QueuePaths = new List<string>();
-    int queueIndex = -1;
-
-    public event Action LoadFile;
-    public event Action FromMain;
-    public event Action AddQueueRequested;
-    public event Action NewRequested;
-    public event Action<string> PathRequested;
-    public event Action LoopChanged;
-
-    public LiveDeck Deck { get { return isA ? host.Mixer.A : host.Mixer.B; } }
-
-    public DeckPanel(LiveForm h, bool a) {
-        host = h; isA = a;
-        BackColor = Color.FromArgb(32, 35, 44);
-        Padding = new Padding(8);
-
-        Panel bar = new Panel();
-        bar.Dock = DockStyle.Top; bar.Height = 38;
-        bar.BackColor = a ? Color.FromArgb(36, 52, 78) : Color.FromArgb(64, 42, 34);
-        Label tag = new Label();
-        tag.Text = a ? "A" : "B"; tag.Width = 32; tag.Dock = DockStyle.Left;
-        tag.TextAlign = ContentAlignment.MiddleCenter;
-        tag.Font = new Font("Segoe UI Semibold", 14f);
-        tag.ForeColor = Color.FromArgb(224, 228, 236);
-        title = new Label();
-        title.Text = a ? "Deck A" : "Deck B"; title.Dock = DockStyle.Fill;
-        title.TextAlign = ContentAlignment.MiddleLeft;
-        title.Font = new Font("Segoe UI Semibold", 11f);
-        title.ForeColor = Color.FromArgb(224, 228, 236);
-        bar.Controls.Add(title); bar.Controls.Add(tag);
-
-        Panel wavePanel = new Panel();
-        wavePanel.Dock = DockStyle.Top; wavePanel.Height = 104; wavePanel.Padding = new Padding(0, 4, 0, 4);
-        Wave = new DeckWave(); Wave.Dock = DockStyle.Fill;
-        wavePanel.Controls.Add(Wave);
-
-        Panel infoPanel = new Panel();
-        infoPanel.Dock = DockStyle.Top; infoPanel.Height = 44;
-        info = MakeLabel(2, 4); source = MakeLabel(2, 24); source.Font = new Font("Segoe UI", 8f);
-        source.ForeColor = Color.FromArgb(150, 158, 175);
-        infoPanel.Controls.Add(info); infoPanel.Controls.Add(source);
-
-        FlowLayoutPanel transport = new FlowLayoutPanel();
-        transport.Dock = DockStyle.Top; transport.Height = 70; transport.WrapContents = true;
-        transport.BackColor = Color.FromArgb(32, 35, 44);
-        play = Btn("Play", 74); cue = Btn("Cue", 58); sync = Btn("Sync", 56);
-        Loop = new CheckBox(); Loop.Text = "Loop"; Loop.AutoSize = true; Loop.Checked = true;
-        Loop.ForeColor = Color.FromArgb(224, 228, 236);
-        transport.Controls.Add(play); transport.Controls.Add(cue); transport.Controls.Add(sync);
-        transport.Controls.Add(Loop);
-        transport.Controls.Add(Btn("Load...", 66));
-        transport.Controls.Add(Btn("From main", 84));
-        transport.Controls.Add(Btn("New", 54));
-
-
-        TableLayoutPanel controls = new TableLayoutPanel();
-        controls.Dock = DockStyle.Top; controls.Height = 86; controls.ColumnCount = 2; controls.RowCount = 1;
-        controls.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-        controls.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-        Panel gcell = new Panel(); gcell.Dock = DockStyle.Fill;
-        Panel fcell = new Panel(); fcell.Dock = DockStyle.Fill;
-        gainText = new Label(); gainText.AutoSize = true; gainText.ForeColor = Color.FromArgb(150, 158, 175);
-        gainText.Location = new Point(2, 2); gainText.Text = "GAIN 100%";
-        filterText = new Label(); filterText.AutoSize = true; filterText.ForeColor = Color.FromArgb(150, 158, 175);
-        filterText.Location = new Point(2, 2); filterText.Text = "FILTER bypass";
-        gain = new TrackBar(); gain.Minimum = 0; gain.Maximum = 150; gain.Value = 100; gain.TickFrequency = 25;
-        gain.Location = new Point(0, 22); gain.Width = 200; gain.BackColor = Color.FromArgb(32, 35, 44);
-        filter = new TrackBar(); filter.Minimum = -100; filter.Maximum = 100; filter.Value = 0; filter.TickFrequency = 25;
-        filter.Location = new Point(0, 22); filter.Width = 200; filter.BackColor = Color.FromArgb(32, 35, 44);
-        gcell.Controls.Add(gain); gcell.Controls.Add(gainText);
-        fcell.Controls.Add(filter); fcell.Controls.Add(filterText);
-        controls.Controls.Add(gcell, 0, 0); controls.Controls.Add(fcell, 1, 0);
-
-        status = new Label(); status.AutoSize = true; status.ForeColor = Color.FromArgb(150, 158, 175);
-        status.Text = "No track loaded";
-
-        Label qcap = new Label();
-        qcap.Text = "QUEUE"; qcap.Dock = DockStyle.Top; qcap.Height = 18;
-        qcap.ForeColor = Color.FromArgb(40, 200, 170);
-        qcap.Font = new Font("Segoe UI Semibold", 8.5f);
-        FlowLayoutPanel qbtns = new FlowLayoutPanel();
-        qbtns.Dock = DockStyle.Bottom; qbtns.Height = 56; qbtns.WrapContents = true;
-        qbtns.BackColor = Color.FromArgb(32, 35, 44);
-        qbtns.Controls.Add(Btn("Next", 60));
-        qbtns.Controls.Add(Btn("Clear", 60));
-        qbtns.Controls.Add(Btn("Load selected", 96));
-        qbtns.Controls.Add(Btn("Add...", 56));
-        Queue = new ListBox();
-        Queue.Dock = DockStyle.Fill; Queue.BackColor = Color.FromArgb(26, 29, 38);
-        Queue.ForeColor = Color.FromArgb(224, 228, 236); Queue.BorderStyle = BorderStyle.FixedSingle;
-        Queue.IntegralHeight = false;
-        Panel qpanel = new Panel();
-        qpanel.Dock = DockStyle.Fill;
-        qpanel.Controls.Add(Queue); qpanel.Controls.Add(qbtns); qpanel.Controls.Add(qcap);
-
-        Controls.Add(qpanel); Controls.Add(controls); Controls.Add(transport);
-        Controls.Add(infoPanel); Controls.Add(wavePanel); Controls.Add(bar);
-
-        play.Click += delegate { TogglePlay(); };
-        cue.Click += delegate { Deck.Cue = !Deck.Cue; UpdateUi(); };
-        sync.Click += delegate { host.Mixer.Sync(Deck); UpdateUi(); };
-        Loop.CheckedChanged += delegate { if (!host.IsBuilding) { if (LoopChanged != null) LoopChanged(); } };
-        gain.ValueChanged += delegate { if (!host.IsBuilding) { Deck.Gain = gain.Value / 100.0; UpdateUi(); } };
-        filter.ValueChanged += delegate { if (!host.IsBuilding) { Deck.Filter = filter.Value / 100.0; UpdateUi(); } };
-        Button load = (Button)transport.Controls[3 + 1];
-        load.Click += delegate { if (LoadFile != null) LoadFile(); };
-        Button fromMain = (Button)transport.Controls[3 + 2];
-        Button newBtn = (Button)transport.Controls[3 + 3];
-        fromMain.Click += delegate { if (FromMain != null) FromMain(); };
-
-
-        newBtn.Click += delegate { if (NewRequested != null) NewRequested(); };
-        ((Button)qbtns.Controls[0]).Click += delegate { Next(); };
-        ((Button)qbtns.Controls[1]).Click += delegate { QueuePaths.Clear(); Queue.Items.Clear(); queueIndex = -1; };
-        ((Button)qbtns.Controls[2]).Click += delegate { LoadSelected(); };
-        ((Button)qbtns.Controls[3]).Click += delegate { if (AddQueueRequested != null) AddQueueRequested(); };
-        Queue.DoubleClick += delegate { LoadSelected(); };
-        UpdateUi();
-    }
-
-    Label MakeLabel(int x, int y) {
-        Label l = new Label(); l.AutoSize = true; l.Location = new Point(x, y);
-        l.ForeColor = Color.FromArgb(224, 228, 236); return l;
-    }
-
-    Button Btn(string text, int w) {
-        Button b = new Button();
-        b.Text = text; b.Width = w; b.Height = 26; b.FlatStyle = FlatStyle.Flat;
-        b.BackColor = Color.FromArgb(44, 48, 60); b.ForeColor = Color.FromArgb(224, 228, 236);
-        b.FlatAppearance.BorderColor = Color.FromArgb(70, 76, 94); b.Margin = new Padding(2);
-        return b;
-    }
-
-    public void SetBuffer(string name, string path, float[] l, float[] r, double bpm, string keyText, bool song) {
-        Deck.SetBuffer(name, path, l, r, bpm, keyText, song);
-        title.Text = "Deck " + (isA ? "A" : "B") + "  -  " + name;
-        source.Text = path == null || path.Length == 0 ? "Main project" : System.IO.Path.GetFileName(path);
-        Wave.SetData(l, r); Wave.Playhead = 0;
-        UpdateUi();
-    }
-
-    public void SetStatus(string text) { status.Text = text; }
-    public void SetLoop(bool on) { Loop.Checked = on; }
-
-    public void AddQueue(string[] files) {
-        if (files == null) return;
-        foreach (string f in files) {
-            QueuePaths.Add(f);
-            Queue.Items.Add(System.IO.Path.GetFileNameWithoutExtension(f));
-        }
-    }
-
-    void LoadSelected() {
-        int i = Queue.SelectedIndex;
-        if (i < 0 || i >= QueuePaths.Count) return;
-        queueIndex = i;
-        if (PathRequested != null) PathRequested(QueuePaths[i]);
-    }
-
-    public void Next() {
-        if (QueuePaths.Count == 0) return;
-        queueIndex = queueIndex < 0 ? 0 : (queueIndex + 1) % QueuePaths.Count;
-        if (PathRequested != null) PathRequested(QueuePaths[queueIndex]);
-    }
-
-    public bool AdvanceIfEnded() {
-        if (QueuePaths.Count == 0) return false;
-        Next(); return true;
-    }
-
-    public void TogglePlay() {
-        if (!Deck.HasAudio) { if (LoadFile != null) LoadFile(); return; }
-        Deck.Playing = !Deck.Playing;
-        if (Deck.Playing && Deck.PositionSeconds >= Deck.Seconds - 0.01) Deck.Restart();
-        UpdateUi();
-    }
-
-    public void UpdateUi() {
-        host.IsBuilding = true;
-        try {
-            play.Text = Deck.Playing ? "Pause" : "Play";
-            play.BackColor = Deck.Playing ? Color.FromArgb(54, 120, 84) : Color.FromArgb(54, 92, 156);
-            cue.BackColor = Deck.Cue ? Color.FromArgb(255, 168, 92) : Color.FromArgb(44, 48, 60);
-            sync.BackColor = Math.Abs(Deck.Rate - 1) > 0.001 ? Color.FromArgb(54, 92, 156) : Color.FromArgb(44, 48, 60);
-            gain.Value = Math.Max(gain.Minimum, Math.Min(gain.Maximum, (int)Math.Round(Deck.Gain * 100)));
-            filter.Value = Math.Max(filter.Minimum, Math.Min(filter.Maximum, (int)Math.Round(Deck.Filter * 100)));
-            info.Text = Deck.HasAudio
-                ? Deck.Bpm.ToString("0.##") + " BPM  -  " + Deck.KeyText + "  -  " + Deck.Seconds.ToString("0.0") + " s  -  rate " + Deck.Rate.ToString("0.000") + "x  -  " + (Deck.Loop ? "loop" : "song")
-                : "No track loaded";
-            if (Deck.Seconds > 0) Wave.Playhead = Math.Max(0, Math.Min(1, Deck.PositionSeconds / Deck.Seconds));
-            else Wave.Playhead = -1;
-            status.Text = Deck.HasAudio ? (Deck.Playing ? "Playing" : "Ready") : "Load a project to begin";
-            gainText.Text = "GAIN " + ((int)Math.Round(Deck.Gain * 100)) + "%";
-            filterText.Text = Math.Abs(Deck.Filter) < 0.01 ? "FILTER bypass" : (Deck.Filter < 0 ? "FILTER LP " + ((int)Math.Round(-Deck.Filter * 100)) + "%" : "FILTER HP " + ((int)Math.Round(Deck.Filter * 100)) + "%");
-        } finally {
-            host.IsBuilding = false;
-        }
-    }
-}
-
-public class LiveForm : Form {
-    public LiveMixer Mixer = new LiveMixer();
-    public LiveEngine Engine;
-    public bool IsBuilding;
-
-    readonly DeckPanel deckA, deckB;
-    readonly ComboBox masterOut, cueOut;
-    readonly NumericUpDown masterGain, cueLevel;
-    readonly CheckBox cueToMaster;
-    TrackBar crossfader;
-    LevelMeter masterMeter, cueMeter;
-    readonly Label engineState, state;
-    readonly Button audioBtn;
-    readonly Timer timer;
-    bool advA, advB;
-
-    public event Action<bool> LoadFileRequested;
-    public event Action<bool> FromMainRequested;
-    public event Action<bool> NewRequested;
-    public event Action<bool> AddQueueRequested;
-    public event Action<bool, string> PathRequested;
-    public event Action<bool> LoopChanged;
-
-    public LiveForm() {
-        Engine = new LiveEngine(Mixer);
-        Text = "Live Performance - Humble Baker Studio";
-        Size = new Size(1420, 820);
-        MinimumSize = new Size(1100, 640);
-        StartPosition = FormStartPosition.CenterScreen;
-        BackColor = Color.FromArgb(24, 26, 32);
-        ForeColor = Color.FromArgb(224, 228, 236);
-        Font = new Font("Segoe UI", 9f);
-        AutoScaleMode = AutoScaleMode.Dpi;
-
-        FlowLayoutPanel top = new FlowLayoutPanel();
-        top.Dock = DockStyle.Top; top.Height = 82; top.WrapContents = true;
-        top.BackColor = Color.FromArgb(32, 35, 44); top.Padding = new Padding(8, 6, 4, 4);
-        masterOut = Combo(230); cueOut = Combo(230);
-        masterGain = Num(85); cueLevel = Num(80);
-        cueToMaster = new CheckBox(); cueToMaster.Text = "Cue on master"; cueToMaster.AutoSize = true;
-        cueToMaster.ForeColor = Color.FromArgb(224, 228, 236);
-        audioBtn = new Button();
-        audioBtn.Text = "Audio off"; audioBtn.Width = 90; audioBtn.Height = 26; audioBtn.FlatStyle = FlatStyle.Flat;
-        Button apply = new Button();
-        apply.Text = "Apply outputs"; apply.Width = 100; apply.Height = 26; apply.FlatStyle = FlatStyle.Flat;
-        engineState = Small("Audio: stopped"); state = Small("120 BPM  -  120 BPM");
-        top.Controls.Add(Small("Master out")); top.Controls.Add(masterOut);
-        top.Controls.Add(Small("Cue out")); top.Controls.Add(cueOut);
-        top.Controls.Add(apply); top.Controls.Add(audioBtn);
-        top.Controls.Add(Small("Master")); top.Controls.Add(masterGain);
-        top.Controls.Add(Small("Cue")); top.Controls.Add(cueLevel);
-        top.Controls.Add(cueToMaster); top.Controls.Add(engineState); top.Controls.Add(state);
-
-        deckA = new DeckPanel(this, true); deckA.Dock = DockStyle.Fill;
-        deckB = new DeckPanel(this, false); deckB.Dock = DockStyle.Fill;
-
-        TableLayoutPanel cols = new TableLayoutPanel();
-        cols.Dock = DockStyle.Fill; cols.ColumnCount = 3; cols.RowCount = 1;
-        cols.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 39));
-        cols.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 22));
-        cols.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 39));
-        cols.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        cols.Controls.Add(deckA, 0, 0); cols.Controls.Add(BuildCenter(), 1, 0); cols.Controls.Add(deckB, 2, 0);
-
-        Controls.Add(cols); Controls.Add(top);
-
-        deckA.LoadFile += delegate { if (LoadFileRequested != null) LoadFileRequested(true); };
-        deckB.LoadFile += delegate { if (LoadFileRequested != null) LoadFileRequested(false); };
-        deckA.FromMain += delegate { if (FromMainRequested != null) FromMainRequested(true); };
-        deckB.FromMain += delegate { if (FromMainRequested != null) FromMainRequested(false); };
-        deckA.NewRequested += delegate { if (NewRequested != null) NewRequested(true); };
-        deckB.NewRequested += delegate { if (NewRequested != null) NewRequested(false); };
-        deckA.AddQueueRequested += delegate { if (AddQueueRequested != null) AddQueueRequested(true); };
-        deckB.AddQueueRequested += delegate { if (AddQueueRequested != null) AddQueueRequested(false); };
-        deckA.PathRequested += delegate (string p) { if (PathRequested != null) PathRequested(true, p); };
-        deckB.PathRequested += delegate (string p) { if (PathRequested != null) PathRequested(false, p); };
-        deckA.LoopChanged += delegate { if (LoopChanged != null) LoopChanged(true); };
-        deckB.LoopChanged += delegate { if (LoopChanged != null) LoopChanged(false); };
-
-        crossfader.ValueChanged += delegate { Mixer.Crossfade = (crossfader.Value + 100) / 200.0; };
-        masterGain.ValueChanged += delegate { Mixer.MasterGain = (double)masterGain.Value / 100.0; };
-        cueLevel.ValueChanged += delegate { Mixer.CueLevel = (double)cueLevel.Value / 100.0; };
-        cueToMaster.CheckedChanged += delegate { Mixer.CueToMaster = cueToMaster.Checked; };
-        apply.Click += delegate { StartAudio(); };
-        audioBtn.Click += delegate { if (Engine.IsRunning) StopAudio(); else StartAudio(); };
-
-        timer = new Timer(); timer.Interval = 60;
-        timer.Tick += delegate { Tick(); };
-        Shown += delegate { LoadDevices(); StartAudio(); timer.Start(); };
-        FormClosing += delegate { timer.Stop(); Engine.Stop(); Mixer.A.Stop(); Mixer.B.Stop(); };
-        ApplyTheme(this);
-    }
-
-    Label Small(string text) {
-        Label l = new Label(); l.Text = text; l.AutoSize = true;
-        l.ForeColor = Color.FromArgb(150, 158, 175); l.Margin = new Padding(8, 8, 2, 2);
-        return l;
-    }
-
-    ComboBox Combo(int w) {
-        ComboBox c = new ComboBox(); c.Width = w; c.DropDownStyle = ComboBoxStyle.DropDownList;
-        c.BackColor = Color.FromArgb(44, 48, 60); c.ForeColor = Color.FromArgb(224, 228, 236); c.FlatStyle = FlatStyle.Flat;
-        return c;
-    }
-
-    NumericUpDown Num(int v) {
-        NumericUpDown n = new NumericUpDown(); n.Minimum = 0; n.Maximum = 150; n.Value = v; n.Width = 56;
-        n.BackColor = Color.FromArgb(44, 48, 60); n.ForeColor = Color.FromArgb(224, 228, 236);
-        return n;
-    }
-
-    Control BuildCenter() {
-        Panel panel = new Panel(); panel.Dock = DockStyle.Fill;
-        panel.BackColor = Color.FromArgb(32, 35, 44); panel.Padding = new Padding(10);
-        FlowLayoutPanel stack = new FlowLayoutPanel();
-        stack.Dock = DockStyle.Fill; stack.FlowDirection = FlowDirection.TopDown;
-        stack.WrapContents = false; stack.AutoScroll = true; stack.BackColor = Color.FromArgb(32, 35, 44);
-        panel.Controls.Add(stack);
-
-        Label cap = new Label(); cap.Text = "CROSSFADER"; cap.AutoSize = true;
-        cap.ForeColor = Color.FromArgb(40, 200, 170); cap.Font = new Font("Segoe UI Semibold", 8.5f);
-        cap.Margin = new Padding(0, 8, 0, 0);
-        crossfader = new TrackBar(); crossfader.Minimum = -100; crossfader.Maximum = 100;
-        crossfader.TickFrequency = 25; crossfader.Value = 0; crossfader.Width = 230;
-        crossfader.BackColor = Color.FromArgb(32, 35, 44);
-        stack.Controls.Add(cap); stack.Controls.Add(crossfader);
-        FlowLayoutPanel ab = new FlowLayoutPanel(); ab.AutoSize = true; ab.WrapContents = false;
-        ab.BackColor = Color.FromArgb(32, 35, 44);
-        ab.Controls.Add(Small("A")); ab.Controls.Add(Small("<-  blend  ->")); ab.Controls.Add(Small("B"));
-        stack.Controls.Add(ab);
-        Button centre = new Button(); centre.Text = "Centre"; centre.Width = 80; centre.Height = 26;
-        centre.FlatStyle = FlatStyle.Flat; centre.Click += delegate { crossfader.Value = 0; };
-        stack.Controls.Add(centre);
-        stack.Controls.Add(Spacer());
-        stack.Controls.Add(Small("MASTER")); masterMeter = new LevelMeter(); masterMeter.Width = 210; stack.Controls.Add(masterMeter);
-        stack.Controls.Add(Small("CUE / HEADPHONES")); cueMeter = new LevelMeter(); cueMeter.Width = 210; stack.Controls.Add(cueMeter);
-        stack.Controls.Add(Spacer());
-        Button pause = new Button(); pause.Text = "Pause both"; pause.Width = 110; pause.Height = 26; pause.FlatStyle = FlatStyle.Flat;
-        pause.Click += delegate { Mixer.A.Playing = false; Mixer.B.Playing = false; deckA.UpdateUi(); deckB.UpdateUi(); };
-        Button stop = new Button(); stop.Text = "Stop both"; stop.Width = 110; stop.Height = 26; stop.FlatStyle = FlatStyle.Flat;
-        stop.Click += delegate { Mixer.A.Stop(); Mixer.B.Stop(); deckA.UpdateUi(); deckB.UpdateUi(); };
-        stack.Controls.Add(pause); stack.Controls.Add(stop); stack.Controls.Add(Spacer());
-        Label help = new Label();
-        help.Text = "Load a project into each deck. Play A, cue B in headphones, press Sync to match tempo, then move the crossfader.\n\nCue needs a second Windows output. Choose (none) to keep cue silent.\n\nLoop plays the current pattern; turn it off to render the song.";
-        help.AutoSize = false; help.Width = 230; help.Height = 240;
-        help.ForeColor = Color.FromArgb(150, 158, 175); help.Font = new Font("Segoe UI", 8.25f);
-        stack.Controls.Add(help);
-        return panel;
-    }
-
-    Control Spacer() { Panel p = new Panel(); p.Width = 8; p.Height = 8; p.BackColor = Color.FromArgb(32, 35, 44); return p; }
-
-    void ApplyTheme(Control root) {
-        root.BackColor = root is Form ? Color.FromArgb(24, 26, 32) : root.BackColor;
-        root.ForeColor = Color.FromArgb(224, 228, 236);
-        foreach (Control c in root.Controls) ApplyTheme(c);
-    }
-
-    void LoadDevices() {
-        string[] devs = LiveDevices.Get();
-        masterOut.Items.Clear(); cueOut.Items.Clear(); cueOut.Items.Add("(none)");
-        foreach (string d in devs) { masterOut.Items.Add(d); cueOut.Items.Add(d); }
-        if (devs.Length == 0) { masterOut.Items.Add("(no output devices)"); masterOut.Enabled = false; }
-        if (masterOut.Items.Count > 0) masterOut.SelectedIndex = 0;
-        cueOut.SelectedIndex = 0;
-    }
-
-    void StartAudio() {
-        int m = masterOut.SelectedIndex < 0 ? -1 : masterOut.SelectedIndex;
-        int c = cueOut.SelectedIndex <= 0 ? -1 : cueOut.SelectedIndex - 1;
-        Engine.Start(m, c);
-        audioBtn.Text = "Audio on"; audioBtn.BackColor = Color.FromArgb(54, 120, 84);
-        engineState.Text = c >= 0 ? "Audio: master + cue" : "Audio: master only";
-    }
-
-    void StopAudio() {
-        Engine.Stop(); audioBtn.Text = "Audio off"; audioBtn.BackColor = Color.FromArgb(44, 48, 60);
-        engineState.Text = "Audio: stopped";
-    }
-
-    void Tick() {
-        deckA.UpdateUi(); deckB.UpdateUi();
-        masterMeter.SetLevel(Mixer.LastMasterPeak); cueMeter.SetLevel(Mixer.LastCuePeak);
-        if (!Engine.IsRunning && Engine.LastError.Length > 0) engineState.Text = Engine.LastError;
-        if (Mixer.A.Ended && !Mixer.A.Playing && !advA && deckA.AdvanceIfEnded()) advA = true;
-        if (Mixer.B.Ended && !Mixer.B.Playing && !advB && deckB.AdvanceIfEnded()) advB = true;
-        state.Text = Mixer.A.Bpm.ToString("0.#") + " BPM  -  " + Mixer.B.Bpm.ToString("0.#") + " BPM";
-    }
-
-    public bool GetLoop(bool isA) { return isA ? deckA.Loop.Checked : deckB.Loop.Checked; }
-    public void SetLoop(bool isA, bool on) { if (isA) deckA.SetLoop(on); else deckB.SetLoop(on); }
-
-    public void SetDeckBuffer(bool isA, string name, string path, float[] l, float[] r, double bpm, string keyText, bool song) {
-        if (isA) { deckA.SetBuffer(name, path, l, r, bpm, keyText, song); advA = false; }
-        else { deckB.SetBuffer(name, path, l, r, bpm, keyText, song); advB = false; }
-        state.Text = "Loaded deck " + (isA ? "A" : "B") + ": " + name;
-    }
-
-    public void SetDeckStatus(bool isA, string text) { if (isA) deckA.SetStatus(text); else deckB.SetStatus(text); }
-    public void AddQueue(bool isA, string[] files) { if (isA) deckA.AddQueue(files); else deckB.AddQueue(files); }
-    public void ShowStatus(string text) { state.Text = text; }
-}
-}
-'@
-}
-
-$script:LivePerformanceForm = $null
-
-function Get-LiveProjectFile([string]$path) {
-    $json = Get-Content -Raw -LiteralPath $path | ConvertFrom-Json
-    return (Read-StudioProjectData $json)
-}
-
-function Set-LiveDeckProject($form, [bool]$isA, $proj, [string]$path) {
-    if ($null -eq $proj) { return }
-    if ($null -eq $script:LiveState) { $script:LiveState = @{ ProjA = $null; ProjB = $null; PathA = ''; PathB = '' } }
-    $song = (-not $form.GetLoop($isA)) -and ($proj.Song.Count -gt 0)
-    $form.SetDeckStatus($isA, $(if ($song) { 'Rendering song...' } else { 'Rendering loop...' }))
-    $form.Refresh()
-    try {
-        $l = $null; $r = $null
-        [HbStudio.Dsp]::Mix($proj, $song, (-not $song), [ref]$l, [ref]$r)
-        $names = @('C','C#','D','D#','E','F','F#','G','G#','A','A#','B')
-        $pc = (($proj.Key % 12) + 12) % 12
-        $key = $names[$pc] + ' ' + $proj.Scale
-        $name = if ($path) { [IO.Path]::GetFileNameWithoutExtension($path) } else { 'Main project' }
-        $form.SetDeckBuffer($isA, $name, $path, $l, $r, $proj.Bpm, $key, $song)
-        if ($isA) { $script:LiveState.ProjA = $proj; $script:LiveState.PathA = $path }
-        else { $script:LiveState.ProjB = $proj; $script:LiveState.PathB = $path }
-    } catch {
-        $form.SetDeckStatus($isA, 'Render failed')
-        [Windows.Forms.MessageBox]::Show(($_ | Out-String), 'Live performance') | Out-Null
-    }
-}
-function Show-LivePerformance {
-    param($CurrentProject)
-
-    if ($script:LivePerformanceForm -and -not $script:LivePerformanceForm.IsDisposed) {
-        $script:LivePerformanceForm.Show()
-        $script:LivePerformanceForm.Activate()
-        return
-    }
-
-    $form = New-Object HbLive.LiveForm
-    $script:LivePerformanceForm = $form
-    $script:LiveState = @{ ProjA = $null; ProjB = $null; PathA = ''; PathB = '' }
-
-    $form.add_LoadFileRequested({
-        param($isA)
-        $dlg = New-Object Windows.Forms.OpenFileDialog
-        $dlg.Filter = 'Humble Baker project (*.json;*.hbstudio.json)|*.json;*.hbstudio.json|All files (*.*)|*.*'
-        $dlg.Title = 'Load a project into deck ' + $(if ($isA) { 'A' } else { 'B' })
-        if ($dlg.ShowDialog($form) -ne [Windows.Forms.DialogResult]::OK) { return }
-        try { Set-LiveDeckProject $form $isA (Get-LiveProjectFile $dlg.FileName) $dlg.FileName }
-        catch { [Windows.Forms.MessageBox]::Show(($_ | Out-String), 'Live performance') | Out-Null }
-    })
-
-    $form.add_FromMainRequested({
-        param($isA)
-        $src = if ($script:S -and $script:S.Proj) { $script:S.Proj } else { $CurrentProject }
-        if ($null -eq $src) { return }
-        $clone = Read-StudioProjectData (Get-StudioProjectData $src)
-        Set-LiveDeckProject $form $isA $clone ''
-    })
-
-    $form.add_NewRequested({
-        param($isA)
-        $proj = New-StudioProject
-        try { Get-StudioDemoNotes $proj } catch { }
-        Set-LiveDeckProject $form $isA $proj 'New project'
-    })
-    $form.add_AddQueueRequested({
-        param($isA)
-        $dlg = New-Object Windows.Forms.OpenFileDialog
-        $dlg.Filter = 'Humble Baker project (*.json;*.hbstudio.json)|*.json;*.hbstudio.json|All files (*.*)|*.*'
-        $dlg.Multiselect = $true
-        $dlg.Title = 'Add projects to the deck queue'
-        if ($dlg.ShowDialog($form) -ne [Windows.Forms.DialogResult]::OK) { return }
-        $form.AddQueue($isA, $dlg.FileNames)
-    })
-
-    $form.add_PathRequested({
-        param($isA, $path)
-        try { Set-LiveDeckProject $form $isA (Get-LiveProjectFile $path) $path }
-        catch { [Windows.Forms.MessageBox]::Show(($_ | Out-String), 'Live performance') | Out-Null }
-    })
-
-    $form.add_LoopChanged({
-        param($isA)
-        $proj = if ($isA) { $script:LiveState.ProjA } else { $script:LiveState.ProjB }
-        $path = if ($isA) { $script:LiveState.PathA } else { $script:LiveState.PathB }
-        if ($null -ne $proj) { Set-LiveDeckProject $form $isA $proj $path }
-    })
-
-    $form.Show()
-}
 

@@ -5,7 +5,7 @@ macOS port. It is intentionally explicit about what is shipped and what is still
 
 Status values: **Done**, **Partial**, **Planned**, **Windows-only**.
 
-| Feature | Windows C# (standard) | Windows C# No-AI | PowerShell 1.0.22 | macOS core / CLI | macOS UI |
+| Feature | Windows C# (standard) | Windows C# No-AI | PowerShell 1.0.24 | macOS core / CLI | macOS UI |
 |---|---|---|---|---|---|
 | Project model and `*.hbstudio.json` | Done | Done | Done | **Done** | Planned |
 | Synths, drums, effects, mixing, mastering | Done | Done | Done | **Done** | Planned |
@@ -18,8 +18,8 @@ Status values: **Done**, **Partial**, **Planned**, **Windows-only**.
 | Automation layers, intersections, high-res, snapshots | Done | Done | **Partial** (high-res + fast lookup done; layers/intersections/snapshots missing) | Done (engine) | Planned |
 | Instrument library save/load (spectral/morph) | Done | Done | Done | Done (engine) | Planned |
 | Deterministic pattern library / No-AI edition | Done | Done | **Missing** | Done (engine) | Planned |
-| VST3 instruments and effects | Done | Done | Missing | Planned | Planned |
-| Audio Unit (AU) hosting | Not applicable | Not applicable | Not applicable | Planned | Planned |
+| VST3 instruments and effects | Done | Done | **Done** (optional `hbs-vst-bridge`; no editor window) | Planned | Planned |
+| Audio Unit (AU) hosting | Not applicable | Not applicable | Not applicable | Planned | **Discovery only** |
 | Two-deck Live mode | Done | Done | Done | Model done | Planned |
 | Local AI (Ollama) | Done | Missing by design | Done | Planned | Planned |
 | MIDI input recording | Done | Done | Done | Planned (CoreMIDI) | Planned |
@@ -94,8 +94,9 @@ painter. The workstream to reach C# parity is:
 5. validate by launching `Humble Baker Studio.ps1` from a PowerShell host and rebuilding the
    packaged exe with ps2exe
 
-PowerShell **1.0.23** ships the high-resolution automation canvas, LockBits rendering and
-binary-search lane lookup. The remaining steps are the snapshot/layer/intersection work, the
-deterministic pattern tab and VST3; the matrix above is the source of truth for what each build
-contains. Plug-in hosting designs for macOS AU and the PowerShell VST bridge are in
+PowerShell **1.0.24** ships the high-resolution automation canvas, LockBits rendering,
+binary-search lane lookup and VST3 hosting through the optional out-of-process
+`hbs-vst-bridge`. The remaining steps are the snapshot/layer/intersection work and the
+deterministic pattern tab; the matrix above is the source of truth for what each build
+contains. Plug-in architecture, the bridge protocol and the macOS AU status are in
 [`PLUGINS.md`](PLUGINS.md).

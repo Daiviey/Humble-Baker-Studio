@@ -17,6 +17,7 @@
     <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="10">
       <Button Content="Render demo WAV" Click="RenderDemo_Click" />
       <Button Content="Open project and render..." Click="RenderProject_Click" />
+      <Button Content="Audio Units..." Click="AudioUnits_Click" />
     </StackPanel>
     <Border Grid.Row="3" Margin="0,20,0,12" Padding="16"
             Background="#181B23" BorderBrush="#363D4E" BorderThickness="1"

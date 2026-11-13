@@ -40,6 +40,12 @@ The portable foundation is in place:
   `osx-x64` builds the same bundle for Intel. The bundles are unsigned and the full editor is
   still being ported.
 
+- The `.app` has an **Audio Units...** window. It uses `AudioComponentFindNext` /
+  `AudioComponentCopyName` in `src/HumbleBakerStudio.Mac/AudioUnits.cs` to list installed
+  instruments, effects, generators and format converters. This is discovery only: instantiation,
+  render callbacks and state save/restore still need a macOS build and test pass. See
+  [`PLUGINS.md`](PLUGINS.md).
+
 An early **CLI preview** is also attached to the
 [macOS CLI v0.1.0 release](https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/macos-cli-v0.1.0).
 

@@ -1,0 +1,25 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="HumbleBakerStudio.Mac.AudioUnitsWindow"
+        Title="Audio Units"
+        Width="660" Height="520"
+        MinWidth="480" MinHeight="360"
+        Background="#101218">
+  <Grid Margin="24" RowDefinitions="Auto,Auto,*,Auto">
+    <TextBlock Grid.Row="0"
+               Text="Audio Units"
+               FontSize="26" FontWeight="Bold" Foreground="#EAEEF6" />
+    <TextBlock Grid.Row="1"
+               Margin="0,6,0,14"
+               TextWrapping="Wrap"
+               Foreground="#96A1B6"
+               Text="Audio Units installed on this Mac. Discovery is live; instantiating a unit and running its audio render callback is the next milestone." />
+    <Border Grid.Row="2"
+            Background="#181B23" BorderBrush="#363D4E" BorderThickness="1" CornerRadius="6">
+      <ListBox x:Name="UnitList" Background="Transparent" Foreground="#EAEEF6" />
+    </Border>
+    <TextBlock x:Name="Status" Grid.Row="3"
+               Margin="0,12,0,0"
+               Foreground="#616B80" TextWrapping="Wrap" />
+  </Grid>
+</Window>

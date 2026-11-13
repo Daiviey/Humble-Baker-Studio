@@ -8,9 +8,11 @@ Add-Type -ReferencedAssemblies System.Windows.Forms, System.Drawing, Microsoft.V
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Drawing;
 using System.Globalization;
 using System.IO;
+using System.IO.Pipes;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
@@ -887,6 +889,208 @@ public class Track {
     public string DrumKit = "Standard"; public string InstrumentName = "";
     public List<Note> Notes = new List<Note>();
     public List<AutoLane> Auto = new List<AutoLane>();
+    // Third-party VST3 plug-in (hosted by the out-of-process hbs-vst-bridge). Empty path = none.
+    public string PluginFormat = "vst3"; public string PluginPath = ""; public string PluginClass = "";
+    public string PluginName = ""; public string PluginState = ""; public bool PluginInstrument; public bool PluginBypass;
+}
+
+// One VST3 class reported by the bridge.
+public class VstPluginInfo {
+    public string Name = ""; public string Vendor = ""; public string Path = ""; public string ClassId = "";
+    public bool Instrument;
+    public string Kind { get { return Instrument ? "instrument" : "effect"; } }
+    public override string ToString() { return Name + (Instrument ? "  (instrument)" : "  (effect)"); }
+}
+
+// Named-pipe client for the .NET 9 hbs-vst-bridge process. The PowerShell studio cannot load the
+// net9 VST3 host directly, so plug-ins live in a separate process and audio is exchanged as blocks.
+public static class VstBridgeClient {
+    static readonly object Gate = new object();
+    static Process Proc;
+    static NamedPipeClientStream Pipe;
+    static BinaryReader Reader;
+    static BinaryWriter Writer;
+    public static string LastError = "";
+
+    public static bool Connected { get { lock (Gate) { return Pipe != null && Pipe.IsConnected; } } }
+
+    public static bool Start(string exePath) {
+        lock (Gate) {
+            if (Pipe != null && Pipe.IsConnected) return true;
+            StopNoLock();
+            try {
+                string name = "HBS.VstBridge." + Process.GetCurrentProcess().Id;
+                ProcessStartInfo psi = new ProcessStartInfo(exePath, "--pipe " + name);
+                psi.UseShellExecute = false;
+                psi.CreateNoWindow = true;
+                psi.WorkingDirectory = System.IO.Path.GetDirectoryName(exePath);
+                Proc = Process.Start(psi);
+                NamedPipeClientStream pipe = new NamedPipeClientStream(".", name, PipeDirection.InOut);
+                pipe.Connect(15000);
+                Pipe = pipe;
+                Reader = new BinaryReader(pipe, Encoding.UTF8, true);
+                Writer = new BinaryWriter(pipe, Encoding.UTF8, true);
+                Writer.Write(1); Writer.Flush();
+                Check();
+                ReadString();
+                Reader.ReadInt32();
+                return true;
+            } catch (Exception ex) {
+                LastError = ex.Message;
+                StopNoLock();
+                return false;
+            }
+        }
+    }
+
+    public static void Stop() { lock (Gate) { StopNoLock(); } }
+
+    static void StopNoLock() {
+        try { if (Writer != null) { Writer.Write(7); Writer.Flush(); } } catch { }
+        try { if (Pipe != null) Pipe.Dispose(); } catch { }
+        Pipe = null; Reader = null; Writer = null;
+        try { if (Proc != null && !Proc.HasExited) Proc.Kill(); } catch { }
+        Proc = null;
+    }
+
+    static void Ensure() {
+        if (Pipe == null || !Pipe.IsConnected) throw new InvalidOperationException("The VST3 bridge is not running.");
+    }
+
+    static string ReadString() {
+        int n = Reader.ReadInt32();
+        if (n < 0 || n > 1000000) throw new InvalidDataException("Bad string length.");
+        return Encoding.UTF8.GetString(Reader.ReadBytes(n));
+    }
+
+    static void WriteString(string s) {
+        byte[] b = Encoding.UTF8.GetBytes(s ?? "");
+        Writer.Write(b.Length); Writer.Write(b);
+    }
+
+    static void Check() {
+        int status = Reader.ReadInt32();
+        string msg = ReadString();
+        if (status != 0) throw new InvalidOperationException(msg);
+    }
+
+    static float[] ReadFloats() {
+        int n = Reader.ReadInt32();
+        float[] a = new float[n];
+        for (int i = 0; i < n; i++) a[i] = Reader.ReadSingle();
+        return a;
+    }
+
+    static void WriteFloats(float[] a) {
+        Writer.Write(a.Length);
+        for (int i = 0; i < a.Length; i++) Writer.Write(a[i]);
+    }
+
+    static byte[] StateOf(Track t) {
+        if (t == null || string.IsNullOrEmpty(t.PluginState)) return new byte[0];
+        try { return Convert.FromBase64String(t.PluginState); } catch { return new byte[0]; }
+    }
+
+    public static bool HasInstrument(Track t) {
+        return t != null && !t.PluginBypass && t.PluginInstrument && IsVst(t) && Connected && System.IO.File.Exists(t.PluginPath);
+    }
+
+    public static bool HasEffect(Track t) {
+        return t != null && !t.PluginBypass && !t.PluginInstrument && IsVst(t) && Connected && System.IO.File.Exists(t.PluginPath);
+    }
+
+    static bool IsVst(Track t) {
+        return !string.IsNullOrEmpty(t.PluginPath) && string.Equals(t.PluginFormat, "vst3", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public static List<VstPluginInfo> Scan() {
+        lock (Gate) {
+            Ensure();
+            Writer.Write(2); Writer.Flush();
+            Check();
+            int count = Reader.ReadInt32();
+            List<VstPluginInfo> list = new List<VstPluginInfo>(count);
+            for (int i = 0; i < count; i++) {
+                VstPluginInfo p = new VstPluginInfo();
+                p.Name = ReadString(); p.Vendor = ReadString(); p.Path = ReadString(); p.ClassId = ReadString();
+                p.Instrument = Reader.ReadBoolean();
+                list.Add(p);
+            }
+            return list;
+        }
+    }
+
+    public static void Release(Track t) {
+        if (t == null || !IsVst(t) || !Connected) return;
+        lock (Gate) {
+            try {
+                Ensure();
+                Writer.Write(6); Writer.Flush();
+                WriteString(t.PluginPath); WriteString(t.PluginClass); Writer.Flush();
+                Check();
+            } catch { }
+        }
+    }
+
+    public static void CaptureState(Track t) {
+        if (t == null || !IsVst(t) || !Connected) return;
+        lock (Gate) {
+            try {
+                Ensure();
+                Writer.Write(5); Writer.Flush();
+                WriteString(t.PluginPath); WriteString(t.PluginClass);
+                Writer.Write(44100); Writer.Flush();
+                Check();
+                int n = Reader.ReadInt32();
+                byte[] state = Reader.ReadBytes(n);
+                if (n > 0) t.PluginState = Convert.ToBase64String(state);
+            } catch { }
+        }
+    }
+
+    public static void ProcessEffect(Track t, float[] left, float[] right, double secondsPerBeat) {
+        lock (Gate) {
+            try {
+                Ensure();
+                Writer.Write(3); Writer.Flush();
+                WriteString(t.PluginPath); WriteString(t.PluginClass);
+                Writer.Write(44100);
+                byte[] state = StateOf(t);
+                Writer.Write(state.Length); Writer.Write(state);
+                Writer.Write(false);
+                WriteFloats(left); WriteFloats(right); Writer.Flush();
+                Check();
+                float[] l = ReadFloats(); float[] r = ReadFloats();
+                Array.Copy(l, left, Math.Min(l.Length, left.Length));
+                Array.Copy(r, right, Math.Min(r.Length, right.Length));
+                if (Reader.ReadBoolean()) { int n = Reader.ReadInt32(); Reader.ReadBytes(n); }
+            } catch (Exception ex) {
+                LastError = ex.Message;
+            }
+        }
+    }
+
+    public static float[][] RenderInstrument(Track t, List<Ev> events, double secondsPerBeat, int frames, bool loop) {
+        lock (Gate) {
+            Ensure();
+            Writer.Write(4); Writer.Flush();
+            WriteString(t.PluginPath); WriteString(t.PluginClass);
+            Writer.Write(44100);
+            byte[] state = StateOf(t);
+            Writer.Write(state.Length); Writer.Write(state);
+            Writer.Write(false);
+            Writer.Write(frames); Writer.Write(secondsPerBeat); Writer.Write(loop);
+            Writer.Write(events.Count);
+            foreach (Ev e in events) {
+                Writer.Write(e.Start); Writer.Write(e.Len); Writer.Write(e.Pitch); Writer.Write(e.Vel);
+            }
+            Writer.Flush();
+            Check();
+            float[] l = ReadFloats(); float[] r = ReadFloats();
+            if (Reader.ReadBoolean()) { int n = Reader.ReadInt32(); Reader.ReadBytes(n); }
+            return new float[][] { l, r };
+        }
+    }
 }
 
 public class GradientPanel : Panel {
@@ -3421,6 +3625,17 @@ public static class Dsp {
             bool pctx = isPatch && t.Patch.NeedsContext();
             List<AutoLane> planes = null;
             if (isPatch && t.Auto != null) foreach (AutoLane al in t.Auto) if (al.Param.StartsWith("p:") && al.Points.Count > 0) { if (planes == null) planes = new List<AutoLane>(); planes.Add(al); }
+            if (VstBridgeClient.HasInstrument(t)) {
+                // Third-party VST3 instrument: the bridge renders the note list and returns stereo audio.
+                try {
+                    List<Ev> vnotes = Engine.Events(p, t);
+                    float[][] vi = VstBridgeClient.RenderInstrument(t, vnotes, spb, N, loop);
+                    for (int i = 0; i < N; i++) {
+                        TL[i] += vi[0][i] * (float)(t.Vol * pl);
+                        TR[i] += vi[1][i] * (float)(t.Vol * pr);
+                    }
+                } catch { }
+            } else {
             int evi = 0;
             foreach (Ev e in Engine.Events(p, t)) {
                 evi++;
@@ -3445,6 +3660,8 @@ public static class Dsp {
                     TL[idx] += (float)(v * pl); TR[idx] += (float)(v * pr);
                 }
             }
+            }
+            if (VstBridgeClient.HasEffect(t)) VstBridgeClient.ProcessEffect(t, TL, TR, spb);
             if (t.Fx != null && t.Fx.Active && (!patchOn || !PatchRender.HasFxNode(p, t.Fx))) FxProc.Process(t.Fx, TL, TR, loop, spb);
             if (t.Auto != null && t.Auto.Count > 0 && (!patchOn || !PatchRender.HasFxNode(p, t.Fx))) AutoFx.Apply(t, TL, TR, spb);
             allT.Add(t); allL.Add(TL); allR.Add(TR); ghost.Add(t.Mute || offBySolo);
@@ -6729,6 +6946,7 @@ function Get-StudioProjectData($P) {
         [ordered]@{
             name = $t.Name; synth = $t.Synth; vol = $t.Vol; pan = $t.Pan; cutoff = $t.Cutoff; res = $t.Res; envamt = $t.EnvAmt
             atk = $t.Atk; rel = $t.Rel; crush = $t.Crush; mute = $t.Mute; solo = $t.Solo; bus = $t.Bus; uid = $t.Uid; drumKit = $t.DrumKit; instrumentName = $t.InstrumentName
+            pluginFormat = $t.PluginFormat; pluginPath = $t.PluginPath; pluginClass = $t.PluginClass; pluginName = $t.PluginName; pluginState = $t.PluginState; pluginInstrument = $t.PluginInstrument; pluginBypass = $t.PluginBypass
             patch = $(if ($t.Patch) { ConvertTo-StudioMap $t.Patch } else { $null })
             fx = ConvertTo-StudioMap $t.Fx
             sample = $(if ($t.Sample) { [HbStudio.Dsp]::SampleToBase64($t.Sample) } else { $null }); sampleRoot = $t.SampleRoot; sampleGate = $t.SampleGate; sampleMode = $t.SampleMode; notes = @($t.Notes | ForEach-Object { , @($_.Pitch, $_.Start, $_.Len, $_.Vel) }); auto = @($t.Auto | ForEach-Object { [ordered]@{ param = $_.Param; points = @($_.Points | ForEach-Object { , @($_[0], $_[1]) }) } })
@@ -6789,6 +7007,13 @@ function Read-StudioProjectData($d) {
         if ($null -ne $td.sampleMode) { $t.SampleMode = [int]$td.sampleMode }
         if ($td.drumKit) { $t.DrumKit = [string]$td.drumKit }
         if ($td.instrumentName) { $t.InstrumentName = [string]$td.instrumentName }
+        if ($td.pluginFormat) { $t.PluginFormat = [string]$td.pluginFormat }
+        if ($td.pluginPath) { $t.PluginPath = [string]$td.pluginPath }
+        if ($td.pluginClass) { $t.PluginClass = [string]$td.pluginClass }
+        if ($td.pluginName) { $t.PluginName = [string]$td.pluginName }
+        if ($td.pluginState) { $t.PluginState = [string]$td.pluginState }
+        if ($null -ne $td.pluginInstrument) { $t.PluginInstrument = [bool]$td.pluginInstrument }
+        if ($null -ne $td.pluginBypass) { $t.PluginBypass = [bool]$td.pluginBypass }
         if ($td.uid) { $t.Uid = [string]$td.uid }
         if ($t.Synth -eq 'patch' -and -not $t.Patch) { $t.Patch = New-Object HbStudio.Patch }
         foreach ($n in @($td.notes)) { if (@($n).Count -ge 4) { $t.Notes.Add((New-Object HbStudio.Note ([int]$n[0]), ([double]$n[1]), ([double]$n[2]), ([int]$n[3]))) } }
@@ -10617,6 +10842,12 @@ function Show-AudioStudio {
     $edit2 = @(@('Legato', 'legato'), @('Staccato', 'stacc'), @('Velocity up', 'velup'), @('Velocity down', 'veldn'), @('Random velocity', 'velrnd'), @('Accent offbeats', 'accent'), @('Invert pitches', 'inv'), @('Nudge later', 'nudge'), @('Nudge earlier', 'nudgeb'), @('Thin out', 'thin'), @('Add octave layer', 'octl'))
     $x = 8; foreach ($td in $edit2) { $b = Btn $td[0] $x 238 118 28; $b.Tag = $td[1]; $tTools.Controls.Add($b); $S["T_$($td[1])"] = $b; $x += 122; if ($x -gt 1260) { break } }
     $tTools.Controls.Add((Lbl 'Tip: Euclidean 5/16, 7/16, 11/16 plus Mutate and Break chop gives that skittering Drukqs feel.' 8 204 760))
+    # Third-party VST3 hosting. The bridge process is an optional download (see docs/PLUGINS.md).
+    $tTools.Controls.Add((Lbl 'VST3 plug-ins  (third-party, hosted out-of-process)' 8 272 420))
+    $S.BtnVst = Btn 'Choose plug-in...' 8 294 128 28; $tTools.Controls.Add($S.BtnVst)
+    $S.BtnVstClear = Btn 'Remove' 142 294 70 28; $tTools.Controls.Add($S.BtnVstClear)
+    $S.VstBypass = New-Object Windows.Forms.CheckBox; $S.VstBypass.Text = 'Bypass'; $S.VstBypass.SetBounds(222, 298, 70, 20); $S.VstBypass.ForeColor = $dk.Text; $tTools.Controls.Add($S.VstBypass)
+    $S.VstInfo = Lbl 'No VST3 plug-in on this track.' 300 298 560 18; $tTools.Controls.Add($S.VstInfo)
 
     # AI tab
     $tAi.Controls.Add((Lbl 'Model' 8 12 40)); $S.AiModel = Combo @('(auto: best general model)') 52 8 280 $true; $S.AiModel.SelectedIndex = 0
@@ -11241,7 +11472,7 @@ function Show-AudioStudio {
         }
     })
     $S.SmpClear.Add_Click({ Reset-SmpSlices; $S.SmpName.Text = 'Slices cleared.' })
-    $f.Add_FormClosing({ try { if ($S.MidiTimer) { $S.MidiTimer.Stop() }; if ($S.MidiPort) { $S.MidiPort.Close() } } catch { } })
+    $f.Add_FormClosing({ try { if ($S.MidiTimer) { $S.MidiTimer.Stop() }; if ($S.MidiPort) { $S.MidiPort.Close() } } catch { }; try { [HbStudio.VstBridgeClient]::Stop() } catch { } })
 
     $f.Controls.Add($center); $f.Controls.Add($left); $f.Controls.Add($S.Status); $f.Controls.Add($tabs); $f.Controls.Add($top)
     $null = Make-Resizer $top 'Top' 110 320
@@ -11274,11 +11505,116 @@ function Show-AudioStudio {
         else { $S.ScLbl.Text = 'SuperCollider not found (built-in preview works)'; $S.ScLbl.ForeColor = $dk.Muted }
     }
     function Get-CurTrack { $i = $S.TrackList.SelectedIndex; if ($i -lt 0 -or $i -ge $S.Proj.Tracks.Count) { return $null }; return $S.Proj.Tracks[$i] }
+
+    function Find-StudioVstBridge {
+        $candidates = @()
+        if ($script:StudioRoot) {
+            $candidates += (Join-Path $script:StudioRoot 'hbs-vst-bridge.exe')
+            $candidates += (Join-Path $script:StudioRoot 'VST3\hbs-vst-bridge.exe')
+        }
+        try { $procDir = Split-Path -Parent ([Diagnostics.Process]::GetCurrentProcess().MainModule.FileName); if ($procDir) { $candidates += (Join-Path $procDir 'hbs-vst-bridge.exe') } } catch { }
+        foreach ($c in $candidates) { if (Test-Path -LiteralPath $c -PathType Leaf) { return $c } }
+        return ''
+    }
+    function Initialize-StudioVst([bool]$Quiet = $false) {
+        if ([HbStudio.VstBridgeClient]::Connected) { return $true }
+        $exe = Find-StudioVstBridge
+        if (-not $exe) {
+            if (-not $Quiet) { Show-StudioMsg "VST3 hosting needs the free bridge process.`r`n`r`nDownload hbs-vst-bridge-win-x64.zip from the releases page, unzip it next to Humble Baker Studio.exe (or into a VST3 folder beside it), then try again." }
+            return $false
+        }
+        $ok = [HbStudio.VstBridgeClient]::Start($exe)
+        if (-not $ok -and -not $Quiet) { Show-StudioMsg ('Could not start the VST3 bridge: ' + [HbStudio.VstBridgeClient]::LastError) }
+        return $ok
+    }
+    function Update-VstUi {
+        if (-not $S.VstInfo) { return }
+        $t = Get-CurTrack
+        if (-not $t) { $S.VstInfo.Text = ''; return }
+        if ($t.PluginPath) {
+            $kind = if ($t.PluginInstrument) { 'instrument' } else { 'effect' }
+            $state = if ($t.PluginBypass) { '  [bypassed]' } else { '' }
+            $S.VstInfo.Text = ('{0}  ({1}){2}' -f $t.PluginName, $kind, $state)
+            $S.VstBypass.Checked = $t.PluginBypass
+        } else {
+            $S.VstInfo.Text = 'No VST3 plug-in on this track.'
+            $S.VstBypass.Checked = $false
+        }
+    }
+    function Clear-StudioVstPlugin {
+        $t = Get-CurTrack; if (-not $t) { return }
+        if (-not $t.PluginPath) { return }
+        [HbStudio.VstBridgeClient]::Release($t)
+        $t.PluginPath = ''; $t.PluginClass = ''; $t.PluginName = ''; $t.PluginState = ''
+        $t.PluginInstrument = $false; $t.PluginBypass = $false
+        Update-VstUi; Refresh-Tracks
+        $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit
+    }
+    function Show-VstPluginPicker {
+        $t = Get-CurTrack; if (-not $t) { return }
+        if (-not (Initialize-StudioVst)) { return }
+        $old = $f.Cursor
+        try {
+            if (-not $S.VstCatalog) {
+                $f.Cursor = 'WaitCursor'; Status 'Scanning VST3 plug-ins (this can take a few seconds)...'
+                $S.VstCatalog = @([HbStudio.VstBridgeClient]::Scan())
+                Status ('Found {0} VST3 plug-ins.' -f $S.VstCatalog.Count)
+            }
+        } catch {
+            Show-StudioMsg ('VST3 scan failed: ' + $_.Exception.Message); return
+        } finally { $f.Cursor = $old }
+
+        $dlg = New-Object Windows.Forms.Form
+        $dlg.Text = 'VST3 plug-in for "' + $t.Name + '"'
+        $dlg.Size = New-Object Drawing.Size(760, 560)
+        $dlg.StartPosition = 'CenterParent'; $dlg.FormBorderStyle = 'FixedDialog'; $dlg.MaximizeBox = $false; $dlg.MinimizeBox = $false
+        $dlg.BackColor = $dk.Panel; $dlg.ForeColor = $dk.Text
+        $q = New-Object Windows.Forms.TextBox; $q.SetBounds(12, 12, 500, 24); $q.BackColor = $dk.Field; $q.ForeColor = $dk.Text; $q.BorderStyle = 'FixedSingle'
+        $dlg.Controls.Add($q)
+        $count = New-Object Windows.Forms.Label; $count.SetBounds(524, 16, 210, 20); $count.ForeColor = $dk.Muted; $dlg.Controls.Add($count)
+        $list = New-Object Windows.Forms.ListBox; $list.SetBounds(12, 44, 722, 414); $list.BackColor = $dk.Field; $list.ForeColor = $dk.Text; $list.BorderStyle = 'FixedSingle'
+        $dlg.Controls.Add($list)
+        $ok = New-Object Windows.Forms.Button; $ok.Text = 'Assign'; $ok.SetBounds(534, 470, 96, 30); $ok.DialogResult = 'OK'
+        $cancel = New-Object Windows.Forms.Button; $cancel.Text = 'Cancel'; $cancel.SetBounds(638, 470, 96, 30); $cancel.DialogResult = 'Cancel'
+        $dlg.Controls.AddRange(@($ok, $cancel)); $dlg.AcceptButton = $ok; $dlg.CancelButton = $cancel
+        $fill = {
+            param([string]$text)
+            $list.BeginUpdate()
+            try {
+                $list.Items.Clear()
+                $needle = ($text + '').Trim()
+                foreach ($p in $S.VstCatalog) {
+                    if ($needle -and ($p.Name -notlike ('*' + $needle + '*')) -and ($p.Vendor -notlike ('*' + $needle + '*'))) { continue }
+                    [void]$list.Items.Add($p)
+                }
+                $count.Text = ('{0} shown' -f $list.Items.Count)
+                if ($list.Items.Count -gt 0) { $list.SelectedIndex = 0 }
+            } finally { $list.EndUpdate() }
+        }
+        & $fill ''
+        $q.Add_TextChanged({ & $fill $q.Text })
+        $list.Add_DoubleClick({ if ($list.SelectedIndex -ge 0) { $dlg.DialogResult = 'OK'; $dlg.Close() } })
+        if ($dlg.ShowDialog($f) -eq 'OK' -and $list.SelectedItem) {
+            $p = $list.SelectedItem
+            [HbStudio.VstBridgeClient]::Release($t)
+            $t.PluginFormat = 'vst3'; $t.PluginPath = [string]$p.Path; $t.PluginClass = [string]$p.ClassId
+            $t.PluginName = [string]$p.Name; $t.PluginInstrument = [bool]$p.Instrument
+            $t.PluginBypass = $false; $t.PluginState = ''
+            Update-VstUi; Refresh-Tracks
+            $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit
+            Status ('Assigned ' + $t.PluginName + ' to ' + $t.Name + '.')
+        }
+        $dlg.Dispose()
+    }
     function Refresh-Tracks([int]$Select = -1) {
         $S.Loading = $true
         $idx = if ($Select -ge 0) { $Select } else { $S.TrackList.SelectedIndex }
         $S.TrackList.Items.Clear()
-        foreach ($t in $S.Proj.Tracks) { [void]$S.TrackList.Items.Add($(if ($t.Mute) { "($($t.Name))" } elseif ($t.Solo) { "$($t.Name)  [S]" } else { $t.Name })) }
+        foreach ($t in $S.Proj.Tracks) {
+            $label = if ($t.Mute) { "($($t.Name))" } elseif ($t.Solo) { "$($t.Name)  [S]" } else { $t.Name }
+            if ($t.PluginPath) { $label += $(if ($t.PluginBypass) { '  [VST off]' } else { '  [VST]' }) }
+            [void]$S.TrackList.Items.Add($label)
+        }
         if ($idx -lt 0) { $idx = 0 }; if ($idx -ge $S.TrackList.Items.Count) { $idx = $S.TrackList.Items.Count - 1 }
         $S.TrackList.SelectedIndex = $idx
         $S.Loading = $false
@@ -11326,6 +11662,7 @@ function Show-AudioStudio {
         } catch { }
         $S.StripName.Text = $t.Name; $S.StripName.ForeColor = $(if ($t.Mute) { $dk.Muted } else { $dk.Accent })
         Refresh-StripBus
+        try { Update-VstUi } catch { }
         $S.Loading = $false
         $S.GridPatch.SelectedObject = $t.Patch; $S.GridFx.SelectedObject = $t.Fx; $S.LabRoot.Value = [decimal][math]::Max(0, [math]::Min(127, $t.SampleRoot)); $S.LabGate.Checked = $t.SampleGate; if ($S.LabMode) { $S.LabMode.SelectedIndex = [math]::Max(0, [math]::Min(2, [int]$t.SampleMode)) }
         $S.Roll.Cur = $t; $S.Roll.Sel.Clear()
@@ -15168,6 +15505,14 @@ Rules: prefer the user's saved instruments when one fits the goal. Use design_so
     }
     $S.BtnTAddNode.Add_Click({ Add-SelectedTrackNode })
     $miAddNode.Add_Click({ Add-SelectedTrackNode })
+    $S.BtnVst.Add_Click({ Show-VstPluginPicker })
+    $S.BtnVstClear.Add_Click({ Clear-StudioVstPlugin })
+    $S.VstBypass.Add_Click({
+        $t = Get-CurTrack; if (-not $t) { return }
+        $t.PluginBypass = $S.VstBypass.Checked
+        Update-VstUi; Refresh-Tracks
+        $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit
+    })
     $roll.Add_BeginEdit({ Push-Undo })
     $roll.Add_Changed({ $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit })
     $roll.Add_MarkersChanged({ try { Refresh-Markers } catch { }; try { Refresh-SongUi } catch { } })
@@ -15190,6 +15535,7 @@ Rules: prefer the user's saved instruments when one fits the goal. Use design_so
         $d = New-Object Windows.Forms.SaveFileDialog; $d.Filter = 'Studio project|*.hbstudio.json'; $d.InitialDirectory = (Join-Path (Get-StudioDir) 'projects'); $d.FileName = 'project.hbstudio.json'
         if ($d.ShowDialog() -eq 'OK') {
             Sync-Project
+            foreach ($pt in $S.Proj.Tracks) { [HbStudio.VstBridgeClient]::CaptureState($pt) }
             $data = Get-StudioProjectData $S.Proj; $data['scCode'] = $S.ScCode.Text
             ($data | ConvertTo-Json -Depth 8) | Set-Content -LiteralPath $d.FileName -Encoding UTF8; $S.Dirty = $false; Log "Saved $($d.FileName)"
         }
@@ -15395,6 +15741,7 @@ Rules: prefer the user's saved instruments when one fits the goal. Use design_so
     }
     $tabs.Add_SelectedIndexChanged({ try { $tp = $tabs.SelectedTab; if ($tp) { $tp.AutoScrollPosition = New-Object Drawing.Point(0, 0) } } catch { } })
     $f.Add_Shown({ Initialize-UiLayout })
+    $f.Add_Shown({ try { if (Find-StudioVstBridge) { [void](Initialize-StudioVst $true) }; Update-VstUi } catch { } })
 
     $S.Roll.Proj = $S.Proj
     $S.Patch.Proj = $S.Proj

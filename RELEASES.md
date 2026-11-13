@@ -47,16 +47,18 @@ and as `Z:\LocalAI\Repo\release\Humble-Baker-Studio-CSharp-0.5.1-win-x64.zip`.
 
 | Version | Downloads | Notes |
 |---|---|---|
-| **App v0.1.0** | [Apple Silicon](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/macos-app-v0.1.0/Humble-Baker-Studio-macOS-osx-arm64-v0.1.0.zip) - [Intel](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/macos-app-v0.1.0/Humble-Baker-Studio-macOS-osx-x64-v0.1.0.zip) | Early native Avalonia `.app`. Renders the demo project or opens a `*.hbstudio.json` and renders WAV. The full editor, CoreAudio and plug-ins are next. |
+| **App v0.1.0** | [Apple Silicon](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/macos-app-v0.1.0/Humble-Baker-Studio-macOS-osx-arm64-v0.1.0.zip) - [Intel](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/macos-app-v0.1.0/Humble-Baker-Studio-macOS-osx-x64-v0.1.0.zip) | Early native Avalonia `.app`. Renders the demo project or opens a `*.hbstudio.json` and renders WAV, and lists installed Audio Units (discovery only). The full editor, CoreAudio and AU rendering are next. |
 | **CLI v0.1.0** | [Apple Silicon](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/macos-cli-v0.1.0/hbs-render-osx-arm64) - [Intel](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/macos-cli-v0.1.0/hbs-render-osx-x64) | Headless cross-platform renderer; not the full GUI. Loads `*.hbstudio.json`, renders stereo WAV. |
 
 ## PowerShell studio (stable)
 
 | Version | Downloads | Notes |
 |---|---|---|
-| **v1.0.23** | [Zip](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/v1.0.23/Humble-Baker-Studio-v1.0.23.zip) | Automation canvas 1024 x 256, faster LockBits rendering and binary-search lane lookup. The layered/intersection/snapshot automation, deterministic patterns and VST3 hosting remain C#-only or planned (see `docs/PARITY.md`). |
+| **v1.0.24** | [Zip](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/v1.0.24/Humble-Baker-Studio-v1.0.24.zip) - [VST3 bridge](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/v1.0.24/hbs-vst-bridge-win-x64.zip) | Third-party VST3 instruments/effects on tracks through the optional out-of-process **hbs-vst-bridge**: scan, assign, bypass, remove and save plug-in state. The bridge is a separate download so the studio stays about 1.9 MB. Also includes the 1024 x 256 automation canvas, LockBits rendering and binary-search lane lookup. Layered/intersection/snapshot automation and deterministic patterns remain C#-only (see `docs/PARITY.md`). |
+| v1.0.23 | [Zip](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/v1.0.23/Humble-Baker-Studio-v1.0.23.zip) | Automation canvas 1024 x 256, faster LockBits rendering and binary-search lane lookup. |
 
 The packaged app is tracked in this repository as `Humble Baker Studio.exe` (about 1.9 MB,
 PowerShell studio). Previous packaged versions are listed on the
 [Releases page](https://github.com/Daiviey/Humble-Baker-Studio/releases); the current version is
-**v1.0.23**.
+**v1.0.24**. VST3 hosting requires the optional
+[`hbs-vst-bridge-win-x64.zip`](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/v1.0.24/hbs-vst-bridge-win-x64.zip).

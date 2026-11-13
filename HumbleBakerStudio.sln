@@ -17,6 +17,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HumbleBakerStudio.Cli", "sr
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HumbleBakerStudio.Mac", "src\HumbleBakerStudio.Mac\HumbleBakerStudio.Mac.csproj", "{A9B7C89B-783D-4E03-90AF-AAAE963E01FF}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HumbleBakerStudio.VstBridge", "src\HumbleBakerStudio.VstBridge\HumbleBakerStudio.VstBridge.csproj", "{296017AF-B708-4674-BBA4-D69BEB4922BA}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -87,6 +89,18 @@ Global
 		{A9B7C89B-783D-4E03-90AF-AAAE963E01FF}.Release|x64.Build.0 = Release|Any CPU
 		{A9B7C89B-783D-4E03-90AF-AAAE963E01FF}.Release|x86.ActiveCfg = Release|Any CPU
 		{A9B7C89B-783D-4E03-90AF-AAAE963E01FF}.Release|x86.Build.0 = Release|Any CPU
+		{296017AF-B708-4674-BBA4-D69BEB4922BA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{296017AF-B708-4674-BBA4-D69BEB4922BA}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{296017AF-B708-4674-BBA4-D69BEB4922BA}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{296017AF-B708-4674-BBA4-D69BEB4922BA}.Debug|x64.Build.0 = Debug|Any CPU
+		{296017AF-B708-4674-BBA4-D69BEB4922BA}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{296017AF-B708-4674-BBA4-D69BEB4922BA}.Debug|x86.Build.0 = Debug|Any CPU
+		{296017AF-B708-4674-BBA4-D69BEB4922BA}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{296017AF-B708-4674-BBA4-D69BEB4922BA}.Release|Any CPU.Build.0 = Release|Any CPU
+		{296017AF-B708-4674-BBA4-D69BEB4922BA}.Release|x64.ActiveCfg = Release|Any CPU
+		{296017AF-B708-4674-BBA4-D69BEB4922BA}.Release|x64.Build.0 = Release|Any CPU
+		{296017AF-B708-4674-BBA4-D69BEB4922BA}.Release|x86.ActiveCfg = Release|Any CPU
+		{296017AF-B708-4674-BBA4-D69BEB4922BA}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -97,5 +111,6 @@ Global
 		{AFE145D0-9953-43F7-A08D-C8E837699A36} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{D524D32E-ADDF-4CA7-BCCA-D5B3ED4F3B08} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{A9B7C89B-783D-4E03-90AF-AAAE963E01FF} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
+		{296017AF-B708-4674-BBA4-D69BEB4922BA} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 	EndGlobalSection
 EndGlobal

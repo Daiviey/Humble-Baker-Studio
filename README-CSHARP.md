@@ -14,8 +14,9 @@ instruments are hosted on tracks and as graph FX nodes; VST2 is not supported ye
 gaps are the SuperCollider live session/OSC bridge, full effect-graph parity in the SC export,
 and the PowerShell-only FLUX photo mode in the spectral painter.
 See `docs/PORT.md` for the exact matrix and `docs/AUTOMATION.md` for the automation editor.
-VST3 is Windows-only today; macOS Audio Unit hosting and the PowerShell VST bridge are designed
-in [`docs/PLUGINS.md`](docs/PLUGINS.md).
+VST3 is Windows-only today. The PowerShell studio now reaches the same kind of hosting through
+the optional out-of-process `hbs-vst-bridge`; macOS Audio Unit hosting is discovery-only so far.
+See [`docs/PLUGINS.md`](docs/PLUGINS.md).
 
 ![Sequencer](docs/screenshot-sequencer.png)
 
@@ -67,6 +68,8 @@ Pass `-FrameworkDependent` to produce a small build that uses an installed .NET 
 | `src/HumbleBakerStudio.Audio` | Engine + project format. No UI dependencies beyond WinForms controls that are part of the instrument editors. |
 | `src/HumbleBakerStudio.Audio/Engine` | The DSP/model code imported from the PowerShell build (one file per type). |
 | `src/HumbleBakerStudio.App` | WinForms application: transport, piano roll, mixer, effects, synth, graph, mastering, AI, settings. |
+| `src/HumbleBakerStudio.VstBridge` | .NET 9 VST3 host process used by the PowerShell studio over a named pipe. |
+| `src/HumbleBakerStudio.Mac` | Avalonia `.app` shell; renders WAV and lists installed Audio Units. |
 | `tests/HumbleBakerStudio.Audio.Tests` | Render, determinism, project round-trip, WAV and MIDI tests. |
 | `tools/extract-engine.ps1` | One-way bootstrap that produced `Engine/` from the PowerShell source. Not part of the build. |
 | `docs/PORT.md` | What is ported, what is left, and the design decisions. |
@@ -138,9 +141,11 @@ The portable core is now in place: `HumbleBakerStudio.Audio` multi-targets `net8
 # dist-macos\app-osx-arm64\Humble Baker Studio.app
 ```
 
-`osx-x64` builds the Intel bundle. The full editor UI and CoreAudio output are the next
-milestones. See [`docs/MACOS.md`](docs/MACOS.md) and the platform matrix in
-[`docs/PARITY.md`](docs/PARITY.md).
+`osx-x64` builds the Intel bundle. The `.app` can also list installed **Audio Units** through
+AudioToolbox (`Audio Component` discovery); instantiating and rendering AUs still needs a macOS
+test machine. The full editor UI and CoreAudio output are the next milestones. See
+[`docs/MACOS.md`](docs/MACOS.md), [`docs/PLUGINS.md`](docs/PLUGINS.md) and the platform matrix
+in [`docs/PARITY.md`](docs/PARITY.md).
 
 ## Runtime dependencies
 

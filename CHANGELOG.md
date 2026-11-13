@@ -1,5 +1,17 @@
 # Changelog
 
+## PowerShell studio 1.0.24 - 2026-11-13
+
+- **VST3 instruments and effects in the PowerShell studio**, through the new optional out-of-process `hbs-vst-bridge`. **Tools -> VST3 plug-ins** scans installed 64-bit VST3 classes, assigns one to the selected track, bypasses or removes it, and stores the plug-in state in `*.hbstudio.json`.
+- The bridge is a separate self-contained download so the studio stays about 1.9 MB; it is located next to the studio or in a `VST3` folder beside it. If it is missing, the picker explains where to get it and the studio otherwise behaves normally.
+- A plug-in crash terminates the bridge instead of the studio; the next render restarts it.
+- Track list shows a `[VST]`/`[VST off]` marker, and the tool remembers the current plug-in per track.
+- Limitations: no plug-in editor window yet, 64-bit only, no VST2, effects must be 2-in/2-out.
+
+## macOS app 0.1.0 - 2026-11-13 (updated)
+
+- Added an **Audio Units...** window that enumerates installed AU instruments, effects, generators and format converters with `AudioComponentFindNext`/`AudioComponentCopyName`. Instantiation, render callbacks and CoreAudio output are the next milestone; see `docs/PLUGINS.md`.
+
 ## C# port 0.5.1 - 2026-11-13
 
 - **Arrangement and piano roll stay in sync**: editing a marker, changing the Song Order or changing a pattern length now refreshes the piano roll immediately.

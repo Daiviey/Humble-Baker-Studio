@@ -6,8 +6,8 @@ engine runs. Third-party plug-in hosting is platform-specific and is tracked sep
 | Platform / build | VST3 | Audio Unit (AU) | Notes |
 |---|---|---|---|
 | Windows C# | Done | Not applicable | VST3 instruments/effects on tracks and graph nodes via NAudio.Vst3; 64-bit only, no VST2. |
-| Windows PowerShell | Not yet | Not applicable | The studio is .NET Framework/WinForms. Hosting VST3 needs a separate native/COM or bridge process. |
-| macOS app | Not yet | Planned | The early Avalonia app has no audio output yet. AU hosting follows CoreAudio. |
+| Windows PowerShell | Done, optional bridge | Not applicable | Pick a VST3 in **Tools -> VST3 plug-ins**; `hbs-vst-bridge.exe` hosts it out-of-process. 64-bit only, effects and instruments, state saved in the project. No editor window or VST2 yet. |
+| macOS app | Not applicable | Discovery only | The `.app` lists installed AUs (`AudioComponent`). Instantiation, render and CoreAudio output are the next milestone. |
 
 ## Why AU/VST is not a checkbox
 
@@ -26,35 +26,56 @@ app installs a VST3 implementation at startup. The Mac app will install an Audio
 implementation the same way; the PowerShell studio needs a bridge because it targets .NET
 Framework.
 
-## macOS Audio Unit plan
+## macOS Audio Unit status
 
-1. Add CoreAudio output and an `IAudioOutput` abstraction first.
-2. Add a native (Objective-C/C# P/Invoke) AudioToolbox shim:
-   - `AudioComponent` discovery for `aumu`/`aufx`
-   - `AudioUnit`/`AUAudioUnit` instantiation
-   - render block feeding the engine's per-track buffer
-   - `AUViewController`/`NSView` hosting for editors
-   - component state save/restore
-3. Install the AU host through the existing `AudioPlugins.Host` interface.
-4. Ship it as an optional phase after the editors and CoreAudio; unsigned plug-ins need explicit
-   user approval on macOS.
+**Implemented:** `src/HumbleBakerStudio.Mac/AudioUnits.cs` calls `AudioComponentFindNext` /
+`AudioComponentCopyName` / `AudioComponentGetDescription` and the **Audio Units...** button
+lists `aumu`, `aufx`, `augn` and `aumf` components installed on the Mac.
+
+**Still to do (needs a macOS build and test machine):**
+
+1. CoreAudio output and an `IAudioOutput` abstraction.
+2. `AudioComponentInstanceNew` + stream-format setup.
+3. An input render callback (AUv2) or `AudioUnitProcess` (AUv3) feeding the engine buffer.
+4. `AudioUnitSetProperty` for component class/state save and restore.
+5. `AUViewController`/`NSView` hosting for plug-in editors.
+6. Install the host through `AudioPlugins.Host` so it looks like the Windows implementation.
+7. Code signing/notarization; unsigned plug-ins need explicit user approval on macOS.
 
 AUv3 extension hosting is a separate path from AUv2 and can follow once the AUv2 host is stable.
 
-## PowerShell VST plan
+## PowerShell VST bridge (implemented)
 
-The PowerShell studio cannot load the net8 VST host assembly directly. Two viable routes:
+The PowerShell studio targets .NET Framework, so it cannot load the net9 `NAudio.Vst3` host.
+`src/HumbleBakerStudio.VstBridge` is a self-contained .NET 9 console process that owns the
+VST3 modules and speaks a small binary protocol over a named pipe:
 
-- **Bridge process (recommended):** a small .NET 8 helper process owns the VST3 host and the
-  native plug-in; the PowerShell studio communicates audio blocks and parameter/state changes
-  over shared memory/named pipes. The bridge gets the same VST3 implementation as the C# app.
-- **Native/COM shim:** build a .NET Framework-compatible VST3 wrapper around the VST3 SDK. This
-  duplicates the host work and is harder to maintain.
+| Op | Purpose |
+|---|---|
+| 1 | Ping/version |
+| 2 | Scan installed VST3 classes |
+| 3 | Process a stereo effect buffer |
+| 4 | Render an instrument from a note list |
+| 5 | Capture the opaque plug-in state |
+| 6 | Release an instance |
+| 7 | Shut down |
 
-The bridge route also keeps VST3 crashes away from the PowerShell UI process.
+Each request is `int32 op`, then length-prefixed UTF-8 strings, 32-bit integers, doubles and
+`float[]` buffers written one sample at a time. The studio embeds a matching
+`HbStudio.VstBridgeClient` in its Add-Type block. Audio is passed a whole track at a time (the
+engine renders a loop offline), so the pipe is not on a real-time per-block path.
+
+The bridge is a separate download so the PowerShell studio stays about 1.9 MB. Unzip
+`hbs-vst-bridge.exe` next to `Humble Baker Studio.exe`, then **Tools -> VST3 plug-ins ->
+Choose plug-in...**. If the bridge is missing, the button explains how to install it and the
+studio otherwise works normally. A plug-in crash terminates the bridge, not the studio; the
+next render starts a fresh process.
+
+Limitations: no plug-in editor windows yet (parameters keep their defaults/state), 64-bit only,
+no VST2, and effects must be 2-in/2-out.
 
 ## What is in the early macOS app
 
-The first `.app` renders the demo or a project to WAV. It does **not** have audio output or
-plug-in hosting yet. AU support will land after CoreAudio, not before; see
-[`MACOS.md`](MACOS.md) and [`PARITY.md`](PARITY.md).
+The `.app` renders the demo or a project to WAV and lists Audio Units. It does **not** have
+CoreAudio output or AU audio rendering yet. See [`MACOS.md`](MACOS.md) and
+[`PARITY.md`](PARITY.md).

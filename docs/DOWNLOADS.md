@@ -7,7 +7,7 @@ format, so projects open in both.
 |---|---|---|---|
 | **Find it in the repo** | `Humble Baker Studio.exe` | `CSharp-Port/Humble Baker Studio (C#).exe` | build with `.\build.ps1 -NoAi`; release asset `Humble-Baker-Studio-CSharp-NoAI-...` |
 | **Approx. size** | 1.9 MB | 46.7 MB | 46.7 MB |
-| **Release tag** | `v1.0.23` (tags without a prefix) | `csharp-port-v0.5.1` (tags start with `csharp-port-`) | `csharp-port-v0.5.1` (separate asset) |
+| **Release tag** | `v1.0.24` (tags without a prefix) | `csharp-port-v0.5.1` (tags start with `csharp-port-`) | `csharp-port-v0.5.1` (separate asset) |
 | **Release asset name** | `Humble-Baker-Studio-v<version>.zip` / the repo exe | `Humble-Baker-Studio-CSharp-<version>-win-x64.exe` | `Humble-Baker-Studio-CSharp-NoAI-<version>-win-x64.exe` |
 | **Runtime** | Windows PowerShell 5.1 + .NET Framework 4.8 | Self-contained; no .NET install required | Self-contained; no .NET install required |
 | **UI** | PowerShell/WinForms | Native .NET/WinForms | Native .NET/WinForms |
@@ -22,7 +22,8 @@ format, so projects open in both.
 
 ## Download links
 
-- **PowerShell studio (stable)**: [latest release](https://github.com/Daiviey/Humble-Baker-Studio/releases) - the packaged app is also committed as `Humble Baker Studio.exe`.
+- **PowerShell studio (stable)**: [v1.0.24](https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/v1.0.24) - the packaged app is also committed as `Humble Baker Studio.exe`.
+- **PowerShell VST3 bridge (optional)**: [hbs-vst-bridge-win-x64.zip](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/v1.0.24/hbs-vst-bridge-win-x64.zip) - unzip `hbs-vst-bridge.exe` next to the studio to enable third-party VST3 instruments and effects.
 - **C# port v0.5.1**:
   - [Portable exe](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.5.1/Humble-Baker-Studio-CSharp-0.5.1-win-x64.exe)
   - [Zip](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.5.1/Humble-Baker-Studio-CSharp-0.5.1-win-x64.zip)
@@ -43,12 +44,14 @@ The C# port additionally has:
 - the expanded automation painter with layered splines, crossing-stroke/intersection
   separation, canvases up to 4096 x 512, amplitude normalization and exact painted-canvas
   snapshots
-- native VST3 instrument and effect hosting on tracks and graph nodes
+- built-in VST3 instrument and effect hosting on tracks and graph nodes, including plug-in editors
 - a self-contained single-file exe
 
 The PowerShell studio has:
 
 - a 1024 x 256 automation canvas, fast LockBits rendering and binary-search lane lookup
+- VST3 instrument/effect hosting through the optional out-of-process `hbs-vst-bridge`
+  (no plug-in editor window yet)
 - the SuperCollider live session/OSC bridge
 - the FLUX photo/illustration mode in the spectral painter
 - the original PowerShell scripting and automation hooks

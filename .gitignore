@@ -12,6 +12,8 @@ chats/
 dist/
 dist-noai/
 dist-macos/
+dist-vst-bridge/
+/hbs-vst-bridge.exe
 .vs/
 *.user
 

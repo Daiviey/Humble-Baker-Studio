@@ -12,6 +12,9 @@ public partial class MainWindow : Window
         InitializeComponent();
     }
 
+    private void AudioUnits_Click(object? sender, RoutedEventArgs e) =>
+        new AudioUnitsWindow().ShowDialog(this);
+
     private async void RenderDemo_Click(object? sender, RoutedEventArgs e)
     {
         Status.Text = "Rendering the demo project...";
