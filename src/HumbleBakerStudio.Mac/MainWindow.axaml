@@ -1,34 +1,63 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="using:HumbleBakerStudio.Mac"
         x:Class="HumbleBakerStudio.Mac.MainWindow"
         Title="Humble Baker Studio"
-        Width="760" Height="560"
-        MinWidth="620" MinHeight="440"
+        Width="1120" Height="760"
+        MinWidth="820" MinHeight="560"
         Background="#101218">
-  <Grid Margin="28" RowDefinitions="Auto,Auto,Auto,*,Auto">
-    <TextBlock Grid.Row="0"
-               Text="Humble Baker Studio"
-               FontSize="32" FontWeight="Bold" Foreground="#EAEEF6" />
-    <TextBlock Grid.Row="1"
-               Margin="0,8,0,20"
-               TextWrapping="Wrap"
-               Foreground="#96A1B6"
-               Text="macOS early port. This native shell uses the cross-platform Humble Baker Studio engine to load *.hbstudio.json projects and render stereo WAV audio. The editors, CoreAudio playback and plug-in hosting are the next milestones." />
-    <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="10">
-      <Button Content="Render demo WAV" Click="RenderDemo_Click" />
-      <Button Content="Open project and render..." Click="RenderProject_Click" />
-      <Button Content="Audio Units..." Click="AudioUnits_Click" />
-    </StackPanel>
-    <Border Grid.Row="3" Margin="0,20,0,12" Padding="16"
-            Background="#181B23" BorderBrush="#363D4E" BorderThickness="1"
-            CornerRadius="6">
-      <TextBlock x:Name="Status"
-                 Foreground="#EAEEF6"
-                 TextWrapping="Wrap"
-                 Text="Ready." />
-    </Border>
-    <TextBlock Grid.Row="4"
-               Foreground="#616B80"
-               Text="The full editor is being ported in phases. Engine/project format: Done. Native UI/audio: in progress." />
+  <Grid Margin="18" RowDefinitions="Auto,*,Auto">
+
+    <Grid Grid.Row="0" ColumnDefinitions="Auto,Auto,Auto,*,Auto,Auto,Auto,Auto">
+      <Button x:Name="PlayButton" Grid.Column="0" Content="Play" Click="Play_Click" Margin="0,0,6,0" />
+      <Button x:Name="StopButton" Grid.Column="1" Content="Stop" Click="Stop_Click" Margin="0,0,12,0" />
+      <CheckBox x:Name="LoopBox" Grid.Column="2" Content="Loop" IsChecked="True" Foreground="#EAEEF6" Margin="0,0,16,0" />
+      <TextBlock x:Name="ProjectInfo" Grid.Column="3" VerticalAlignment="Center" Foreground="#96A1B6"
+                 Text="No project loaded." />
+      <Button Grid.Column="4" Content="Open..." Click="Open_Click" Margin="0,0,6,0" />
+      <Button Grid.Column="5" Content="Save" Click="Save_Click" Margin="0,0,6,0" />
+      <Button Grid.Column="6" Content="Render WAV..." Click="Render_Click" Margin="0,0,6,0" />
+      <Button Grid.Column="7" Content="Audio Units..." Click="AudioUnits_Click" />
+    </Grid>
+
+    <Grid Grid.Row="1" ColumnDefinitions="230,10,*" Margin="0,14,0,10">
+      <Border Grid.Column="0" Background="#181B23" BorderBrush="#363D4E" BorderThickness="1" CornerRadius="6" Padding="10">
+        <Grid RowDefinitions="Auto,Auto,*,Auto,Auto,Auto,Auto,Auto">
+          <TextBlock Text="Tracks" FontSize="16" FontWeight="SemiBold" Foreground="#EAEEF6" />
+          <TextBlock Grid.Row="1" Margin="0,4,0,8" Foreground="#616B80" FontSize="11"
+                     Text="Click a track, then click the roll to add notes." TextWrapping="Wrap" />
+          <ListBox x:Name="TrackList" Grid.Row="2" Background="Transparent" Foreground="#EAEEF6" />
+
+          <Grid Grid.Row="3" ColumnDefinitions="52,*" Margin="0,8,0,2">
+            <TextBlock Text="Volume" VerticalAlignment="Center" Foreground="#96A1B6" FontSize="11" />
+            <Slider x:Name="Volume" Grid.Column="1" Minimum="0" Maximum="1.5" Value="0.8" />
+          </Grid>
+          <Grid Grid.Row="4" ColumnDefinitions="52,*" Margin="0,2">
+            <TextBlock Text="Pan" VerticalAlignment="Center" Foreground="#96A1B6" FontSize="11" />
+            <Slider x:Name="Pan" Grid.Column="1" Minimum="-1" Maximum="1" Value="0" />
+          </Grid>
+          <Grid Grid.Row="5" ColumnDefinitions="Auto,*,Auto" Margin="0,4">
+            <CheckBox x:Name="Mute" Content="Mute" Foreground="#EAEEF6" />
+            <TextBlock Text="BPM" Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Right"
+                       Margin="0,0,8,0" Foreground="#96A1B6" FontSize="11" />
+            <TextBox x:Name="BpmBox" Grid.Column="2" Width="58" Text="140" />
+          </Grid>
+          <Button Grid.Row="6" Content="Add track" Click="AddTrack_Click" Margin="0,8,0,0" />
+          <Button Grid.Row="7" Content="Delete track" Click="DeleteTrack_Click" Margin="0,6,0,0" />
+        </Grid>
+      </Border>
+
+      <Border Grid.Column="2" Background="#181B23" BorderBrush="#363D4E" BorderThickness="1" CornerRadius="6">
+        <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+          <local:PianoRollView x:Name="Roll" />
+        </ScrollViewer>
+      </Border>
+    </Grid>
+
+    <Grid Grid.Row="2" ColumnDefinitions="*,Auto">
+      <TextBlock x:Name="Status" Foreground="#96A1B6" TextWrapping="Wrap"
+                 Text="Ready. Open a *.hbstudio.json project or start editing the demo." />
+      <TextBlock x:Name="Transport" Grid.Column="1" Foreground="#616B80" Margin="12,0,0,0" />
+    </Grid>
   </Grid>
 </Window>

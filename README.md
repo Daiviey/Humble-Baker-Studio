@@ -15,7 +15,7 @@
 | **VST3 bridge** (optional, for the PowerShell studio) | [hbs-vst-bridge-win-x64.zip](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/v1.0.24/hbs-vst-bridge-win-x64.zip) - unzip `hbs-vst-bridge.exe` next to `Humble Baker Studio.exe` to enable VST3 instruments/effects |
 | **C# port** (alpha, Windows x64, no .NET install needed) | `CSharp-Port/Humble Baker Studio (C#).exe` (**46.7 MB**) - [Portable exe](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.5.1/Humble-Baker-Studio-CSharp-0.5.1-win-x64.exe) · [Zip](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.5.1/Humble-Baker-Studio-CSharp-0.5.1-win-x64.zip) · [Release notes](https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/csharp-port-v0.5.1) |
 | **C# No-AI edition** (alpha, deterministic patterns, no generative AI) | [Portable exe](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.5.1/Humble-Baker-Studio-CSharp-NoAI-0.5.1-win-x64.exe) - [Zip](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.5.1/Humble-Baker-Studio-CSharp-NoAI-0.5.1-win-x64.zip) - [No-AI notes](CSharp-Port/README-NoAI.md) |
-| **macOS app** (early, unsigned) | [Apple Silicon](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/macos-app-v0.1.1/Humble-Baker-Studio-macOS-osx-arm64-v0.1.1.zip) - [Intel](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/macos-app-v0.1.1/Humble-Baker-Studio-macOS-osx-x64-v0.1.1.zip) - renders WAV and lists Audio Units |
+| **macOS app** (early, unsigned) | [Apple Silicon](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/macos-app-v0.2.0/Humble-Baker-Studio-macOS-osx-arm64-v0.2.0.zip) - [Intel](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/macos-app-v0.2.0/Humble-Baker-Studio-macOS-osx-x64-v0.2.0.zip) - CoreAudio playback, piano-roll editing, WAV export, Audio Unit discovery |
 
 **Not sure which build to pick?** See [docs/DOWNLOADS.md](docs/DOWNLOADS.md) for a side-by-side comparison. In short: the root `Humble Baker Studio.exe` is the PowerShell studio (about 1.9 MB); `CSharp-Port/Humble Baker Studio (C#).exe` is the C# port (about 46.7 MB); the No-AI edition is the same C# app with the AI tab replaced by a deterministic pattern library.
 
@@ -85,7 +85,7 @@ Prebuilt portable build: [C# port v0.5.1](https://github.com/Daiviey/Humble-Bake
 
 The **No-AI edition** removes the generative AI tab, toolbar button and menu entries and replaces them with a **Patterns** tab: a curated library of pre-programmed MIDI examples selected by role, style, mood, energy, complexity, density and a reproducible seed. Build it with `.\build.ps1 -NoAi` or download `Humble-Baker-Studio-CSharp-NoAI-0.5.1-win-x64.exe` from the same release.
 
-The **macOS port** has started: the engine targets `net8.0`, a headless renderer publishes for Apple Silicon and Intel, and an early native **Avalonia `.app`** can render the demo or a project to WAV. The `.app` also lists installed Audio Units, but AU instantiation/audio and CoreAudio output are not wired up yet; that needs a macOS build and test pass. See [docs/MACOS.md](docs/MACOS.md), [docs/PLUGINS.md](docs/PLUGINS.md) and [docs/PARITY.md](docs/PARITY.md).
+The **macOS port** has started: the engine targets `net8.0`, a headless renderer publishes for Apple Silicon and Intel, and the native **Avalonia `.app`** (v0.2.0) now has **CoreAudio playback**, a transport, a track list, a click-to-edit piano roll, project open/save, WAV export and Audio Unit discovery. AU instantiation/render and the remaining editors are still being ported; that needs a macOS test pass. See [docs/MACOS.md](docs/MACOS.md), [docs/PLUGINS.md](docs/PLUGINS.md) and [docs/PARITY.md](docs/PARITY.md).
 
 ## Features
 
@@ -115,6 +115,7 @@ The **macOS port** has started: the engine targets `net8.0`, a headless renderer
 - **VST3 instruments and effects** (PowerShell studio, optional bridge): scan the installed 64-bit VST3 plug-ins, assign one to the selected track, bypass/remove it, and keep its state in `*.hbstudio.json`. Instruments render the track's notes; effects process the track after its volume/pan. The bridge runs out-of-process for crash isolation. AU/VST2 are not supported here.
 - **SuperCollider export** (`.scd`) and **MIDI export**.
 - **Live performance (Live mix)**: open two independent projects at once in a two-deck window with an equal-power crossfader, per-deck gain and a one-knob LP/HP filter, tempo **Sync**, per-deck queues, and a separate **cue/headphone output**. Click **Live mix** in the toolbar. Cue needs a second Windows audio output; everything else works on one device.
+- **macOS app (early)**: CoreAudio playback with transport and playhead, track list with volume/pan/mute, click-to-edit piano roll, project open/save, WAV export, and Audio Unit discovery. See [docs/MACOS.md](docs/MACOS.md).
 
 ## Files
 

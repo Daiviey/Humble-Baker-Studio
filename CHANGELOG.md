@@ -1,5 +1,12 @@
 # Changelog
 
+## macOS app 0.2.0 - 2026-11-13
+
+- **CoreAudio playback**: the `.app` renders the loop with the portable engine and streams it through AudioQueue, with Play/Stop and a live transport playhead.
+- **Editor shell**: track list plus a click-to-edit piano roll (click adds a 1/16-snapped note, right-click removes it), project open/save, and WAV export.
+- **Audio Unit discovery** remains available from the Audio Units window. AU instantiation/render and CoreAudio AU hosting are the next milestone.
+- Everything is cross-compiled for Apple Silicon and Intel; the builds are unsigned and still need a real macOS test pass for the audio path.
+
 ## PowerShell studio 1.0.24 - 2026-11-13
 
 - **VST3 instruments and effects in the PowerShell studio**, through the new optional out-of-process `hbs-vst-bridge`. **Tools -> VST3 plug-ins** scans installed 64-bit VST3 classes, assigns one to the selected track, bypasses or removes it, and stores the plug-in state in `*.hbstudio.json`.

@@ -34,22 +34,28 @@ The portable foundation is in place:
   ```powershell
   .\build-macos-app.ps1 -Runtime osx-arm64
   # dist-macos\app-osx-arm64\Humble Baker Studio.app
-  # dist-macos\Humble-Baker-Studio-macOS-osx-arm64-v0.1.1.zip
+  # dist-macos\Humble-Baker-Studio-macOS-osx-arm64-v0.2.0.zip
   ```
 
   `osx-x64` builds the same bundle for Intel. The bundles are unsigned and the full editor is
   still being ported.
 
+- **App v0.2.0** adds **CoreAudio playback** through AudioQueue (`MacAudioOutput.cs`), Play/Stop
+  and a live playhead, a track list, a click-to-edit piano roll (`PianoRollView.cs`), project
+  open/save and WAV export.
 - The `.app` has an **Audio Units...** window. It uses `AudioComponentFindNext` /
   `AudioComponentCopyName` in `src/HumbleBakerStudio.Mac/AudioUnits.cs` to list installed
   instruments, effects, generators and format converters. This is discovery only: instantiation,
   render callbacks and state save/restore still need a macOS build and test pass. See
   [`PLUGINS.md`](PLUGINS.md).
 
+The remaining macOS milestones are the effects/mixer/automation editors, CoreMIDI, AU
+instantiation/render and a real hardware test pass for the CoreAudio path.
+
 An early **CLI preview** is also attached to the
 [macOS CLI v0.1.0 release](https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/macos-cli-v0.1.0).
 
-The next milestone is the full editor UI and CoreAudio output. See
+The next milestone is the effects/mixer/automation editors, CoreMIDI and AU rendering. See
 [`PARITY.md`](PARITY.md) for the feature matrix and workstreams.
 
 The PowerShell studio is Windows-only as well (Windows PowerShell 5.1, .NET Framework and

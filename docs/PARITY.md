@@ -1,4 +1,4 @@
-# Platform parity matrix
+﻿# Platform parity matrix
 
 This matrix tracks feature parity between the Windows builds, the PowerShell studio and the
 macOS port. It is intentionally explicit about what is shipped and what is still planned.
@@ -7,10 +7,10 @@ Status values: **Done**, **Partial**, **Planned**, **Windows-only**.
 
 | Feature | Windows C# (standard) | Windows C# No-AI | PowerShell 1.0.24 | macOS core / CLI | macOS UI |
 |---|---|---|---|---|---|
-| Project model and `*.hbstudio.json` | Done | Done | Done | **Done** | Planned |
+| Project model and `*.hbstudio.json` | Done | Done | Done | **Done** | Done (open/save) |
 | Synths, drums, effects, mixing, mastering | Done | Done | Done | **Done** | Planned |
-| Render and WAV export | Done | Done | Done | **Done** (CLI) | Planned |
-| Piano roll, tracks, arrangement, song order | Done | Done | Done | Done (model) | Planned |
+| Render and WAV export | Done | Done | Done | **Done** (CLI) | Done |
+| Piano roll, tracks, arrangement, song order | Done | Done | Done | Done (model) | **Partial** (track list + click-to-edit roll; no arrangement editor) |
 | Sample lab and sound library | Done | Done | Done | Done (model) | Planned |
 | Spectral painting | Done | Done | Done (incl. FLUX) | Done (engine) | Planned |
 | Meta synth | Done | Done | Done | Done (engine) | Planned |
@@ -20,6 +20,7 @@ Status values: **Done**, **Partial**, **Planned**, **Windows-only**.
 | Deterministic pattern library / No-AI edition | Done | Done | **Missing** | Done (engine) | Planned |
 | VST3 instruments and effects | Done | Done | **Done** (optional `hbs-vst-bridge`; no editor window) | Planned | Planned |
 | Audio Unit (AU) hosting | Not applicable | Not applicable | Not applicable | Planned | **Discovery only** |
+| CoreAudio playback | Done (waveOut) | Done (waveOut) | Done | Not applicable | **Done** (AudioQueue) |
 | Two-deck Live mode | Done | Done | Done | Model done | Planned |
 | Local AI (Ollama) | Done | Missing by design | Done | Planned | Planned |
 | MIDI input recording | Done | Done | Done | Planned (CoreMIDI) | Planned |
@@ -61,10 +62,11 @@ And it publishes for Apple Silicon:
 
 ### P1 - native macOS UI (next)
 
-- Avalonia shell: transport, project open/save, track list, piano roll, mixer, effects, export.
-- CoreAudio output behind an `IAudioOutput` abstraction.
+- Avalonia shell: transport, project open/save, track list and click-to-edit piano roll (done).
+- CoreAudio output via AudioQueue (done).
+- Mixer, effects, automation and arrangement editors (next).
 - Project-format compatibility tests on macOS.
-- Publish an unsigned `.app`/binary for Apple Silicon and Intel.
+- Publish an unsigned `.app`/binary for Apple Silicon and Intel (done).
 
 ### P2 - editing parity
 
