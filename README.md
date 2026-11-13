@@ -3,7 +3,7 @@
 <p align="center"><img src="icon.png" width="180" alt="Humble Baker Studio icon"></p>
 
 <p align="center">
-  <a href="https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/csharp-port-v0.5.0"><img alt="Download the C# port" src="https://img.shields.io/badge/Download_C%23_port-v0.5.0-6caaff?style=for-the-badge"></a>
+  <a href="https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/csharp-port-v0.5.1"><img alt="Download the C# port" src="https://img.shields.io/badge/Download_C%23_port-v0.5.1-6caaff?style=for-the-badge"></a>
   <a href="https://github.com/Daiviey/Humble-Baker-Studio/releases"><img alt="All releases" src="https://img.shields.io/badge/All_releases-GitHub-23272f?style=for-the-badge"></a>
 </p>
 
@@ -12,8 +12,8 @@
 | Build | Get it |
 |---|---|
 | **PowerShell studio** (stable) | `Humble Baker Studio.exe` (**1.9 MB**, PowerShell) in this repository, or the [latest release](https://github.com/Daiviey/Humble-Baker-Studio/releases) |
-| **C# port** (alpha, Windows x64, no .NET install needed) | `CSharp-Port/Humble Baker Studio (C#).exe` (**46.7 MB**) - [Portable exe](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.5.0/Humble-Baker-Studio-CSharp-0.5.0-win-x64.exe) · [Zip](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.5.0/Humble-Baker-Studio-CSharp-0.5.0-win-x64.zip) · [Release notes](https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/csharp-port-v0.5.0) |
-| **C# No-AI edition** (alpha, deterministic patterns, no generative AI) | [Portable exe](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.5.0/Humble-Baker-Studio-CSharp-NoAI-0.5.0-win-x64.exe) - [Zip](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.5.0/Humble-Baker-Studio-CSharp-NoAI-0.5.0-win-x64.zip) - [No-AI notes](CSharp-Port/README-NoAI.md) |
+| **C# port** (alpha, Windows x64, no .NET install needed) | `CSharp-Port/Humble Baker Studio (C#).exe` (**46.7 MB**) - [Portable exe](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.5.1/Humble-Baker-Studio-CSharp-0.5.1-win-x64.exe) · [Zip](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.5.1/Humble-Baker-Studio-CSharp-0.5.1-win-x64.zip) · [Release notes](https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/csharp-port-v0.5.1) |
+| **C# No-AI edition** (alpha, deterministic patterns, no generative AI) | [Portable exe](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.5.1/Humble-Baker-Studio-CSharp-NoAI-0.5.1-win-x64.exe) - [Zip](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.5.1/Humble-Baker-Studio-CSharp-NoAI-0.5.1-win-x64.zip) - [No-AI notes](CSharp-Port/README-NoAI.md) |
 
 **Not sure which build to pick?** See [docs/DOWNLOADS.md](docs/DOWNLOADS.md) for a side-by-side comparison. In short: the root `Humble Baker Studio.exe` is the PowerShell studio (about 1.9 MB); `CSharp-Port/Humble Baker Studio (C#).exe` is the C# port (about 46.7 MB); the No-AI edition is the same C# app with the AI tab replaced by a deterministic pattern library.
 
@@ -47,6 +47,7 @@ powershell -ExecutionPolicy Bypass -File ".\Humble Baker Studio.ps1"
 | [Which build?](docs/DOWNLOADS.md) | PowerShell studio vs C# port, file names, sizes and release tags |
 | [macOS plan](docs/MACOS.md) | what a Mac port would take, what is reusable and the recommended phases |
 | [Platform parity](docs/PARITY.md) | feature matrix and workstreams for Windows, PowerShell and macOS |
+| [Plug-in status](docs/PLUGINS.md) | VST3 on Windows, Audio Unit plans for macOS, and the PowerShell bridge design |
 
 ## Requirements
 
@@ -75,9 +76,9 @@ No installer is required: the build is portable. FFmpeg and SuperCollider are di
 
 A native .NET port of the studio lives in `src/` and is documented in [README-CSHARP.md](README-CSHARP.md) and [docs/PORT.md](docs/PORT.md). It reads and writes the same `*.hbstudio.json` projects and includes the two-deck Live performance window, an instrument and sound library, and 64-bit VST3 effects and instruments on tracks and graph nodes (VST2 is not supported yet).
 
-Prebuilt portable build: [C# port v0.5.0](https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/csharp-port-v0.5.0) (self-contained Windows x64 exe, no .NET install required). The automation editor guide is [docs/AUTOMATION.md](docs/AUTOMATION.md).
+Prebuilt portable build: [C# port v0.5.1](https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/csharp-port-v0.5.1) (self-contained Windows x64 exe, no .NET install required). The automation editor guide is [docs/AUTOMATION.md](docs/AUTOMATION.md).
 
-The **No-AI edition** removes the generative AI tab, toolbar button and menu entries and replaces them with a **Patterns** tab: a curated library of pre-programmed MIDI examples selected by role, style, mood, energy, complexity, density and a reproducible seed. Build it with `.\build.ps1 -NoAi` or download `Humble-Baker-Studio-CSharp-NoAI-0.5.0-win-x64.exe` from the same release.
+The **No-AI edition** removes the generative AI tab, toolbar button and menu entries and replaces them with a **Patterns** tab: a curated library of pre-programmed MIDI examples selected by role, style, mood, energy, complexity, density and a reproducible seed. Build it with `.\build.ps1 -NoAi` or download `Humble-Baker-Studio-CSharp-NoAI-0.5.1-win-x64.exe` from the same release.
 
 The **macOS port** has started: the engine targets `net8.0`, a headless renderer publishes for Apple Silicon and Intel, and an early native **Avalonia `.app`** can render the demo or a project to WAV. The full editor UI and CoreAudio are the next phase. See [docs/MACOS.md](docs/MACOS.md) and [docs/PARITY.md](docs/PARITY.md).
 

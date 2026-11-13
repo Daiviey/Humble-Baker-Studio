@@ -1,6 +1,6 @@
 # Humble Baker Studio - C# port (No-AI edition)
 
-**Version 0.5.0** - Windows 10/11 x64 - self-contained, no .NET install required.
+**Version 0.5.1** - Windows 10/11 x64 - self-contained, no .NET install required.
 
 This is the deterministic edition of the C# port. It is the same app as the standard C# build,
 without the generative AI tab, toolbar button, AI menu entries or AI design buttons in the

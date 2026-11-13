@@ -19,6 +19,7 @@ Status values: **Done**, **Partial**, **Planned**, **Windows-only**.
 | Instrument library save/load (spectral/morph) | Done | Done | Done | Done (engine) | Planned |
 | Deterministic pattern library / No-AI edition | Done | Done | **Missing** | Done (engine) | Planned |
 | VST3 instruments and effects | Done | Done | Missing | Planned | Planned |
+| Audio Unit (AU) hosting | Not applicable | Not applicable | Not applicable | Planned | Planned |
 | Two-deck Live mode | Done | Done | Done | Model done | Planned |
 | Local AI (Ollama) | Done | Missing by design | Done | Planned | Planned |
 | MIDI input recording | Done | Done | Done | Planned (CoreMIDI) | Planned |
@@ -96,4 +97,5 @@ painter. The workstream to reach C# parity is:
 PowerShell **1.0.23** ships the high-resolution automation canvas, LockBits rendering and
 binary-search lane lookup. The remaining steps are the snapshot/layer/intersection work, the
 deterministic pattern tab and VST3; the matrix above is the source of truth for what each build
-contains.
+contains. Plug-in hosting designs for macOS AU and the PowerShell VST bridge are in
+[`PLUGINS.md`](PLUGINS.md).

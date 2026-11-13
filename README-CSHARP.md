@@ -14,6 +14,8 @@ instruments are hosted on tracks and as graph FX nodes; VST2 is not supported ye
 gaps are the SuperCollider live session/OSC bridge, full effect-graph parity in the SC export,
 and the PowerShell-only FLUX photo mode in the spectral painter.
 See `docs/PORT.md` for the exact matrix and `docs/AUTOMATION.md` for the automation editor.
+VST3 is Windows-only today; macOS Audio Unit hosting and the PowerShell VST bridge are designed
+in [`docs/PLUGINS.md`](docs/PLUGINS.md).
 
 ![Sequencer](docs/screenshot-sequencer.png)
 
@@ -33,10 +35,10 @@ See `docs/PORT.md` for the exact matrix and `docs/AUTOMATION.md` for the automat
 
 ## Download
 
-A prebuilt portable build is attached to the [C# port release](https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/csharp-port-v0.5.0):
+A prebuilt portable build is attached to the [C# port release](https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/csharp-port-v0.5.1):
 
-- `Humble-Baker-Studio-CSharp-0.5.0-win-x64.exe` — self-contained single file, no .NET install required.
-- `Humble-Baker-Studio-CSharp-0.5.0-win-x64.zip` — the same exe plus this README and the license.
+- `Humble-Baker-Studio-CSharp-0.5.1-win-x64.exe` — self-contained single file, no .NET install required.
+- `Humble-Baker-Studio-CSharp-0.5.1-win-x64.zip` — the same exe plus this README and the license.
 - `SHA256SUMS.txt` — checksums for both.
 
 The build is unsigned, so Windows SmartScreen may ask for confirmation.

@@ -7,7 +7,7 @@ format, so projects open in both.
 |---|---|---|---|
 | **Find it in the repo** | `Humble Baker Studio.exe` | `CSharp-Port/Humble Baker Studio (C#).exe` | build with `.\build.ps1 -NoAi`; release asset `Humble-Baker-Studio-CSharp-NoAI-...` |
 | **Approx. size** | 1.9 MB | 46.7 MB | 46.7 MB |
-| **Release tag** | `v1.0.23` (tags without a prefix) | `csharp-port-v0.5.0` (tags start with `csharp-port-`) | `csharp-port-v0.5.0` (separate asset) |
+| **Release tag** | `v1.0.23` (tags without a prefix) | `csharp-port-v0.5.1` (tags start with `csharp-port-`) | `csharp-port-v0.5.1` (separate asset) |
 | **Release asset name** | `Humble-Baker-Studio-v<version>.zip` / the repo exe | `Humble-Baker-Studio-CSharp-<version>-win-x64.exe` | `Humble-Baker-Studio-CSharp-NoAI-<version>-win-x64.exe` |
 | **Runtime** | Windows PowerShell 5.1 + .NET Framework 4.8 | Self-contained; no .NET install required | Self-contained; no .NET install required |
 | **UI** | PowerShell/WinForms | Native .NET/WinForms | Native .NET/WinForms |
@@ -23,12 +23,12 @@ format, so projects open in both.
 ## Download links
 
 - **PowerShell studio (stable)**: [latest release](https://github.com/Daiviey/Humble-Baker-Studio/releases) - the packaged app is also committed as `Humble Baker Studio.exe`.
-- **C# port v0.5.0**:
-  - [Portable exe](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.5.0/Humble-Baker-Studio-CSharp-0.5.0-win-x64.exe)
-  - [Zip](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.5.0/Humble-Baker-Studio-CSharp-0.5.0-win-x64.zip)
-  - [No-AI edition exe](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.5.0/Humble-Baker-Studio-CSharp-NoAI-0.5.0-win-x64.exe)
-  - [No-AI edition zip](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.5.0/Humble-Baker-Studio-CSharp-NoAI-0.5.0-win-x64.zip)
-  - [Release notes](https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/csharp-port-v0.5.0)
+- **C# port v0.5.1**:
+  - [Portable exe](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.5.1/Humble-Baker-Studio-CSharp-0.5.1-win-x64.exe)
+  - [Zip](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.5.1/Humble-Baker-Studio-CSharp-0.5.1-win-x64.zip)
+  - [No-AI edition exe](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.5.1/Humble-Baker-Studio-CSharp-NoAI-0.5.1-win-x64.exe)
+  - [No-AI edition zip](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.5.1/Humble-Baker-Studio-CSharp-NoAI-0.5.1-win-x64.zip)
+  - [Release notes](https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/csharp-port-v0.5.1)
 
 The C# portable exe is also committed in [`CSharp-Port/`](../CSharp-Port/) as
 `Humble Baker Studio (C#).exe`.

@@ -1,5 +1,12 @@
 # Changelog
 
+## C# port 0.5.1 - 2026-11-13
+
+- **Arrangement and piano roll stay in sync**: editing a marker, changing the Song Order or changing a pattern length now refreshes the piano roll immediately.
+- Song Order sections are drawn on the piano roll as labelled colour bands, so the arrangement structure is visible while editing notes.
+- No-AI edition: the same arrangement/piano-roll sync and section bands.
+- Tests: 48 passing (standard and No-AI).
+
 ## macOS app 0.1.0 - 2026-11-13
 
 - Added the first native macOS `.app`: an Avalonia shell around the portable engine. It can render the demo project or open a `*.hbstudio.json` and render a stereo WAV.
