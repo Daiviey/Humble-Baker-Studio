@@ -6,10 +6,14 @@ application.
 
 **Status: feature-complete alpha.** The project model, synthesis engine, 113-effect DSP,
 mixing, mastering, piano roll, project format, WAV export and local-AI helpers are in place,
-together with the sample lab, MIDI recording, spectral/meta synth, arrangement editor with editable Song Order bars overrides and marker-driven energy, ruler marker sketching, the timeline-wide piano roll, undo/redo,
-SuperCollider export and a dual-deck live performance window. 64-bit VST3 effects and instruments are hosted on tracks and as graph FX nodes; VST2 is not supported yet. Remaining gaps are the
-SuperCollider live session/OSC bridge and full effect-graph parity in the SC export.
-See `docs/PORT.md` for the exact matrix.
+together with the sample lab, MIDI recording, spectral painting, the meta synth, automation
+painting with layered splines, the arrangement editor with editable Song Order bars overrides
+and marker-driven energy, ruler marker sketching, the timeline-wide piano roll, undo/redo,
+SuperCollider export and a dual-deck live performance window. 64-bit VST3 effects and
+instruments are hosted on tracks and as graph FX nodes; VST2 is not supported yet. Remaining
+gaps are the SuperCollider live session/OSC bridge, full effect-graph parity in the SC export,
+and the PowerShell-only FLUX photo mode in the spectral painter.
+See `docs/PORT.md` for the exact matrix and `docs/AUTOMATION.md` for the automation editor.
 
 ![Sequencer](docs/screenshot-sequencer.png)
 
@@ -25,10 +29,10 @@ See `docs/PORT.md` for the exact matrix.
 
 ## Download
 
-A prebuilt portable build is attached to the [C# port release](https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/csharp-port-v0.4.0):
+A prebuilt portable build is attached to the [C# port release](https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/csharp-port-v0.5.0):
 
-- `Humble-Baker-Studio-CSharp-0.4.0-win-x64.exe` — self-contained single file, no .NET install required.
-- `Humble-Baker-Studio-CSharp-0.4.0-win-x64.zip` — the same exe plus this README and the license.
+- `Humble-Baker-Studio-CSharp-0.5.0-win-x64.exe` — self-contained single file, no .NET install required.
+- `Humble-Baker-Studio-CSharp-0.5.0-win-x64.zip` — the same exe plus this README and the license.
 - `SHA256SUMS.txt` — checksums for both.
 
 The build is unsigned, so Windows SmartScreen may ask for confirmation.
@@ -74,6 +78,23 @@ projects at once:
 - Decks render once on load, then mix live at 1024-frame blocks, so transitions are seamless.
 
 ![Live performance](docs/screenshot-live.png)
+
+## Automation painting
+
+Open **Tools -> Automation paint**. Paint a parameter curve, then write it to a track, bus or
+patch-graph module. The editor supports:
+
+- 512 x 128 to 4096 x 512 canvases, seven brushes, Z-axis brightness and four mapping modes.
+- Per-stroke layers. Crossing strokes stay separate, so intersecting waves can be assigned to
+  different parameters or mixed into the same lane.
+- Amplitude normalization and `Add`, `Multiply`, `Max` and `Replace` layer mixing.
+- A compressed display snapshot in every written lane, restoring the exact painting at the
+  resolution it was drawn at.
+- `O(log n)` lane lookup, so dense automation does not slow playback.
+
+![Automation painting](docs/screenshot-automation.png)
+
+Full guide: [`docs/AUTOMATION.md`](docs/AUTOMATION.md).
 
 ## Runtime dependencies
 

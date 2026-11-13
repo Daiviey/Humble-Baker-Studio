@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Nodes;
 
 namespace HumbleBakerStudio.Audio;
@@ -26,6 +27,8 @@ public sealed class InstrumentDef
     public JsonObject? Fx;
     public JsonObject? Grid;
     public JsonObject? Spectral;
+    public JsonArray? Slots;
+    public JsonObject? Meta;
 
     /// <summary>Set for entries that do not come from a JSON file (drum kits).</summary>
     public string? CategoryOverride { get; set; }
@@ -143,7 +146,9 @@ public static class InstrumentLibrary
                 Patch = o["patch"] as JsonObject,
                 Fx = o["fx"] as JsonObject,
                 Grid = o["grid"] as JsonObject,
-                Spectral = o["spectral"] as JsonObject
+                Spectral = o["spectral"] as JsonObject,
+                Slots = o["slots"] as JsonArray,
+                Meta = o["meta"] as JsonObject
             };
             return def;
         }
@@ -161,7 +166,27 @@ public static class InstrumentLibrary
         track.Fx = new Fx();
         track.InstrumentName = def.Name;
 
-        if (def.Kind is "patch" or "morph")
+        if (def.Kind == "morph")
+        {
+            // Morph instruments store four corner patches plus the morph position, not a single
+            // patch. Reproduce the blend the PowerShell studio would apply for this instrument.
+            var slots = new Patch[4];
+            for (int i = 0; i < slots.Length; i++)
+            {
+                slots[i] = new Patch();
+                if (def.Slots != null && def.Slots.Count > 0)
+                {
+                    int at = Math.Min(i, def.Slots.Count - 1);
+                    if (def.Slots[at] is JsonObject src) ApplyMap(slots[i], src);
+                }
+            }
+            var meta = new MetaSettings();
+            if (def.Meta != null) ApplyMap(meta, def.Meta);
+            track.Patch = MetaSynth.Bilinear(slots, meta.X, meta.Y);
+            track.Synth = "patch";
+            track.Sample = null;
+        }
+        else if (def.Kind == "patch")
         {
             track.Patch = new Patch();
             if (def.Patch != null) ApplyMap(track.Patch, def.Patch);
@@ -360,5 +385,141 @@ public static class InstrumentLibrary
         }
         catch { }
         return fallback;
+    }
+
+    // ---- writing instruments -------------------------------------------------------------
+    // The C# port shares the PowerShell studio's instrument folder, so a spectral canvas or
+    // four-corner morph saved here is immediately usable from either app.
+
+    /// <summary>Folder new instruments are written to (the first existing shared library root).</summary>
+    public static string InstrumentDirectory
+    {
+        get
+        {
+            var env = Environment.GetEnvironmentVariable("HUMBLEBAKER_INSTRUMENTS");
+            if (!string.IsNullOrWhiteSpace(env))
+            {
+                try { Directory.CreateDirectory(env); return env!; } catch { }
+            }
+
+            string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            var preferred = new[]
+            {
+                @"Z:\LocalAI\Audio\studio\instruments",
+                Path.Combine(local, "HumbleBakerAudio", "studio", "instruments"),
+                Path.Combine(local, "HumbleBakerStudio", "instruments")
+            };
+            foreach (string dir in preferred)
+            {
+                try { if (Directory.Exists(dir)) return dir; } catch { }
+            }
+
+            string created = Path.Combine(local, "HumbleBakerAudio", "studio", "instruments");
+            Directory.CreateDirectory(created);
+            return created;
+        }
+    }
+
+    /// <summary>The slug used for the file name, matching the PowerShell studio.</summary>
+    public static string Slug(string name)
+    {
+        string s = System.Text.RegularExpressions.Regex.Replace((name ?? "").Trim().ToLowerInvariant(), "[^a-z0-9]+", "-").Trim('-');
+        return s.Length == 0 ? "instrument" : s;
+    }
+
+    /// <summary>Reflects a bounded parameter object into the JSON map used by instrument files.</summary>
+    public static JsonObject MapOf(object o)
+    {
+        var obj = new JsonObject();
+        if (o == null) return obj;
+        foreach (var pi in o.GetType().GetProperties())
+        {
+            if (!pi.CanWrite || pi.GetIndexParameters().Length > 0) continue;
+            object? v = pi.GetValue(o);
+            obj[pi.Name] = v switch
+            {
+                null => null,
+                bool b => JsonValue.Create(b),
+                Enum e => JsonValue.Create(e.ToString()),
+                string s => JsonValue.Create(s),
+                double d => JsonValue.Create(d),
+                float f => JsonValue.Create((double)f),
+                int i => JsonValue.Create((double)i),
+                long l => JsonValue.Create((double)l),
+                _ => JsonValue.Create(Convert.ToString(v, CultureInfo.InvariantCulture))
+            };
+        }
+        return obj;
+    }
+
+    /// <summary>One byte per cell (0-255) keeps spectral canvases small and portable.</summary>
+    public static JsonObject GridData(SpectralGrid grid)
+    {
+        var data = new byte[grid.A.Length];
+        for (int i = 0; i < data.Length; i++)
+            data[i] = (byte)Math.Round(Math.Clamp(grid.A[i], 0f, 1f) * 255);
+        return new JsonObject
+        {
+            ["cols"] = grid.Cols,
+            ["rows"] = grid.Rows,
+            ["data"] = Convert.ToBase64String(data)
+        };
+    }
+
+    static JsonObject Base(string name, string kind, string role, int octave, string notes) => new()
+    {
+        ["version"] = 1,
+        ["name"] = (name ?? "").Trim(),
+        ["kind"] = kind,
+        ["role"] = string.IsNullOrWhiteSpace(role) ? "any" : role,
+        ["octave"] = Math.Clamp(octave, 0, 8),
+        ["notes"] = notes ?? "",
+        ["created"] = DateTime.Now.ToString("s")
+    };
+
+    public static string Save(JsonObject instrument)
+    {
+        string dir = InstrumentDirectory;
+        Directory.CreateDirectory(dir);
+        string path = Path.Combine(dir, Slug(GetString(instrument, "name", "instrument")) + ".json");
+        File.WriteAllText(path, instrument.ToJsonString(new JsonSerializerOptions { WriteIndented = true }), new System.Text.UTF8Encoding(true));
+        return path;
+    }
+
+    public static string SavePatch(string name, Patch patch, Fx? fx, string role, int octave, string notes)
+    {
+        var inst = Base(name, "patch", role, octave, notes);
+        inst["patch"] = MapOf(patch);
+        if (fx != null) inst["fx"] = MapOf(fx);
+        return Save(inst);
+    }
+
+    public static string SaveSpectral(string name, SpectralGrid grid, SpectralSettings settings, int root, bool gate, string role, int octave, string notes)
+    {
+        var inst = Base(name, "spectral", role, octave, notes);
+        inst["grid"] = GridData(grid);
+        inst["spectral"] = MapOf(settings);
+        inst["root"] = Math.Clamp(root, 0, 127);
+        inst["gate"] = gate;
+        return Save(inst);
+    }
+
+    public static string SaveMorph(string name, Patch[] slots, MetaSettings meta, string role, int octave, string notes)
+    {
+        var inst = Base(name, "morph", role, octave, notes);
+        var arr = new JsonArray();
+        foreach (var slot in slots) arr.Add((JsonNode)MapOf(slot));
+        inst["slots"] = arr;
+        inst["meta"] = MapOf(meta);
+        return Save(inst);
+    }
+
+    /// <summary>Finds an existing instrument by name (case-insensitive), for overwrite checks.</summary>
+    public static InstrumentDef? Find(string name, IEnumerable<string> roots)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return null;
+        foreach (var def in LoadAll(roots))
+            if (string.Equals(def.Name, name.Trim(), StringComparison.OrdinalIgnoreCase)) return def;
+        return null;
     }
 }

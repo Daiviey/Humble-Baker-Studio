@@ -3,24 +3,62 @@
 
 public class SpectralGrid {
     public int Cols, Rows; public float[] A;
-    public SpectralGrid(int cols, int rows) { Cols = Math.Max(8, Math.Min(512, cols)); Rows = Math.Max(8, Math.Min(256, rows)); A = new float[Cols * Rows]; }
+    public SpectralGrid(int cols, int rows) { Cols = Math.Max(8, Math.Min(4096, cols)); Rows = Math.Max(8, Math.Min(512, rows)); A = new float[Cols * Rows]; }
     public float Get(int c, int r) { return A[c * Rows + r]; }
     public void Clear() { Array.Clear(A, 0, A.Length); }
 
     // Soft round brush in cell coordinates. Row 0 is the lowest frequency.
     public void Dab(double cx, double cy, double radius, double amount, bool erase) {
-        radius = Math.Max(0.5, radius);
-        int x0 = Math.Max(0, (int)Math.Floor(cx - radius)), x1 = Math.Min(Cols - 1, (int)Math.Ceiling(cx + radius));
-        int y0 = Math.Max(0, (int)Math.Floor(cy - radius)), y1 = Math.Min(Rows - 1, (int)Math.Ceiling(cy + radius));
+        DabEllipse(cx, cy, radius, radius, amount, erase);
+    }
+    /// <summary>
+    /// Elliptical brush. A 4096-column / 512-row canvas is stretched by the control, so the
+    /// painter uses separate radii to keep the on-screen brush round at any resolution.
+    /// </summary>
+    public void DabEllipse(double cx, double cy, double rx, double ry, double amount, bool erase) {
+        rx = Math.Max(0.5, rx); ry = Math.Max(0.5, ry);
+        int x0 = Math.Max(0, (int)Math.Floor(cx - rx)), x1 = Math.Min(Cols - 1, (int)Math.Ceiling(cx + rx));
+        int y0 = Math.Max(0, (int)Math.Floor(cy - ry)), y1 = Math.Min(Rows - 1, (int)Math.Ceiling(cy + ry));
         for (int c = x0; c <= x1; c++) for (int r = y0; r <= y1; r++) {
-            double d = Math.Sqrt((c - cx) * (c - cx) + (r - cy) * (r - cy)) / radius; if (d > 1) continue;
-            float w = (float)(1 - d * d); int i = c * Rows + r;
+            double dx = (c - cx) / rx, dy = (r - cy) / ry;
+            double d2 = dx * dx + dy * dy; if (d2 > 1) continue;
+            float w = (float)(1 - d2); int i = c * Rows + r;
             if (erase) A[i] = A[i] * (1 - w * (float)Math.Min(1, amount * 1.5)); else A[i] = Math.Max(A[i], (float)amount * w);
         }
     }
     public void Line(double x0, double y0, double x1, double y1, double radius, double amount, bool erase) {
+        LineEllipse(x0, y0, x1, y1, radius, radius, amount, erase);
+    }
+    public void LineEllipse(double x0, double y0, double x1, double y1, double rx, double ry, double amount, bool erase) {
         double len = Math.Max(Math.Abs(x1 - x0), Math.Abs(y1 - y0)); int n = Math.Max(1, (int)Math.Ceiling(len * 2));
-        for (int i = 0; i <= n; i++) { double t = (double)i / n; Dab(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, radius, amount, erase); }
+        for (int i = 0; i <= n; i++) { double t = (double)i / n; DabEllipse(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, rx, ry, amount, erase); }
+    }
+    /// <summary>Bilinear resample used when the automation canvas resolution changes.</summary>
+    public SpectralGrid Resample(int cols, int rows) {
+        var dst = new SpectralGrid(cols, rows);
+        if (dst.Cols == Cols && dst.Rows == Rows) { Array.Copy(A, dst.A, A.Length); return dst; }
+
+        // Upsampling is nearest-neighbour so thin painted strokes keep their brightness;
+        // downsampling is bilinear so the reduction does not alias.
+        bool upsample = dst.Cols >= Cols && dst.Rows >= Rows;
+        for (int c = 0; c < dst.Cols; c++) {
+            double sx = dst.Cols <= 1 ? 0 : c / (double)(dst.Cols - 1) * (Cols - 1);
+            int x0 = Math.Max(0, (int)Math.Floor(sx)), x1 = Math.Min(Cols - 1, x0 + 1); double fx = sx - x0;
+            for (int r = 0; r < dst.Rows; r++) {
+                if (upsample) {
+                    int nc = Math.Min(Cols - 1, (int)Math.Round(sx));
+                    int nr = Math.Min(Rows - 1, (int)Math.Round(r / (double)(dst.Rows - 1) * (Rows - 1)));
+                    dst.A[c * dst.Rows + r] = A[nc * Rows + nr];
+                    continue;
+                }
+                double sy = dst.Rows <= 1 ? 0 : r / (double)(dst.Rows - 1) * (Rows - 1);
+                int y0 = Math.Max(0, (int)Math.Floor(sy)), y1 = Math.Min(Rows - 1, y0 + 1); double fy = sy - y0;
+                double v = A[x0 * Rows + y0] * (1 - fx) * (1 - fy) + A[x1 * Rows + y0] * fx * (1 - fy)
+                         + A[x0 * Rows + y1] * (1 - fx) * fy + A[x1 * Rows + y1] * fx * fy;
+                dst.A[c * dst.Rows + r] = (float)Math.Max(0, Math.Min(1, v));
+            }
+        }
+        return dst;
     }
     // A harmonic stack: fundamental plus overtones from column c0 to c1, each overtone quieter by rolloff.
     public void Harmonics(double fundHz, int c0, int c1, int count, double rolloff, double amount, double minHz, double maxHz) {
@@ -58,12 +96,23 @@ public class SpectralGrid {
         }
     }
     public Bitmap ToBitmap() {
-        Bitmap b = new Bitmap(Cols, Rows);
+        // LockBits keeps the 512 x 128 automation canvas smooth while the user paints.
+        Bitmap b = new Bitmap(Cols, Rows, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        System.Drawing.Imaging.BitmapData data = b.LockBits(new Rectangle(0, 0, Cols, Rows), System.Drawing.Imaging.ImageLockMode.WriteOnly, b.PixelFormat);
+        int stride = data.Stride;
+        byte[] buf = new byte[stride * Rows];
         for (int c = 0; c < Cols; c++) for (int r = 0; r < Rows; r++) {
             double v = Math.Max(0, Math.Min(1, A[c * Rows + r]));
             int R = (int)(255 * Math.Min(1, v * 2.2)), G = (int)(255 * Math.Max(0, Math.Min(1, v * 2.2 - 0.8))), B2 = (int)(200 * Math.Max(0, 1 - v * 1.5) + 255 * Math.Max(0, v - 0.85));
-            b.SetPixel(c, Rows - 1 - r, Color.FromArgb(Math.Min(255, R / 2 + (int)(B2 * 0.2)), G, Math.Min(255, B2 + R / 4)));
+            int rr = Math.Min(255, R / 2 + (int)(B2 * 0.2)), bb = Math.Min(255, B2 + R / 4);
+            int i = (Rows - 1 - r) * stride + c * 4;
+            buf[i] = (byte)Math.Max(0, Math.Min(255, bb));
+            buf[i + 1] = (byte)Math.Max(0, Math.Min(255, G));
+            buf[i + 2] = (byte)Math.Max(0, Math.Min(255, rr));
+            buf[i + 3] = 255;
         }
+        System.Runtime.InteropServices.Marshal.Copy(buf, 0, data.Scan0, buf.Length);
+        b.UnlockBits(data);
         return b;
     }
 }

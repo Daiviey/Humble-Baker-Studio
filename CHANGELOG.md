@@ -1,5 +1,17 @@
 # Changelog
 
+## C# port 0.5.0 - 2026-11-13
+
+- **Spectral paint parity**: seven brushes, image import, spectrogram from a track, harmonic stacks, undo, audition, WAV/sample-track export, AI shape drawing, the shared instrument library and full meta-synth parity (morph pad, apply/render, AI patch design, morph instrument save/load).
+- **Automation painting**: a full 2D editor for tracks, buses and patch-graph FX/group/bus modules. Includes seven brushes, a screen-pixel brush size, Z-axis brightness, Exact/Smooth/Quantize/Linear mapping, shape detail modes, Clear Canvas/Lane and Reset Track Auto.
+- **Layered spectral splines**: extract multiple painted waves into layers, assign each layer a parameter, normalize layers by amplitude, and combine same-parameter layers with Add, Multiply, Max or Replace.
+- **Intersections**: each mouse stroke is captured separately, so crossing/intersecting waves stay as independent layers instead of merging into one connected region.
+- **High-resolution automation**: canvas options from 512 x 128 to 4096 x 512. Lane lookup uses binary search (`O(log n)`), the canvas is rendered at screen resolution, and brush radii are elliptical so the brush stays round at any resolution.
+- **Exact visual preservation**: every written lane stores a Deflate-compressed, display-only snapshot of the painted canvas at its original resolution. The editor restores the exact painting and resolution; playback ignores the snapshot.
+- Automation points now carry optional brightness and vertical-extent values so redrawn lanes preserve stroke weight as well as the curve. Older readers use only beat/value.
+- Added `docs/AUTOMATION.md` and refreshed `README-CSHARP.md`, `docs/PORT.md`, `RELEASES.md` and the portable-build README.
+- Tests: 45 passing.
+
 ## 1.0.22 - 2026-11-12
 
 - Arrangement **Song Order entries are editable**: each entry gets a **Bars override** (0 = use the pattern's own bars) next to Repeats, so one pattern can be laid out as a 2-bar fill in one place and an 8-bar section in another. Overrides are saved in the project file and honoured by song playback, export and the SuperCollider export.

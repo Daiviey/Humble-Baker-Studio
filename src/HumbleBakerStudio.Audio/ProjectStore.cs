@@ -396,16 +396,31 @@ public static class ProjectStore
 
     private static JsonArray WriteAutoLanes(List<AutoLane> lanes)
     {
-        return new JsonArray(lanes.Select(l => (JsonNode)new JsonObject
+        return new JsonArray(lanes.Select(l =>
         {
-            ["param"] = l.Param,
-            ["points"] = WritePoints(l)
+            var obj = new JsonObject
+            {
+                ["param"] = l.Param,
+                ["points"] = WritePoints(l)
+            };
+            if (l.Preview != null && l.Preview.Length > 0)
+            {
+                // Display-only snapshot of the painted canvas. The renderer ignores it;
+                // it lets the automation editor restore the exact painted image later.
+                obj["previewCols"] = l.PreviewCols;
+                obj["previewRows"] = l.PreviewRows;
+                obj["preview"] = Convert.ToBase64String(l.Preview);
+            }
+            return (JsonNode)obj;
         }).ToArray());
     }
 
     private static JsonArray WritePoints(AutoLane lane)
     {
-        return new JsonArray(lane.Points.Select(pt => (JsonNode)new JsonArray { pt[0], pt[1] }).ToArray());
+        // Painted lanes may carry extra values after the beat/value pair (brightness and the
+        // painted vertical extent). Older readers use the first two and ignore the rest.
+        return new JsonArray(lane.Points.Select(pt =>
+            (JsonNode)new JsonArray(pt.Select(v => (JsonNode?)JsonValue.Create(v)).ToArray())).ToArray());
     }
 
     private static List<AutoLane> ReadAutoLanes(JsonNode? node, int track)
@@ -416,6 +431,17 @@ public static class ProjectStore
         {
             var lane = new AutoLane(GetInt(ad, "track", track), GetString(ad, "param", "vol"));
             ReadPoints(ad["points"], lane);
+            try
+            {
+                string preview = GetString(ad, "preview", "");
+                if (preview.Length > 0)
+                {
+                    lane.Preview = Convert.FromBase64String(preview);
+                    lane.PreviewCols = GetInt(ad, "previewCols", 0);
+                    lane.PreviewRows = GetInt(ad, "previewRows", 0);
+                }
+            }
+            catch { }
             lanes.Add(lane);
         }
         return lanes;
@@ -427,7 +453,14 @@ public static class ProjectStore
         foreach (var pt in pts)
         {
             if (pt is not JsonArray pair || pair.Count < 2) continue;
-            lane.Points.Add(new[] { pair[0]!.GetValue<double>(), pair[1]!.GetValue<double>() });
+            var values = new double[pair.Count];
+            bool ok = true;
+            for (int i = 0; i < pair.Count; i++)
+            {
+                if (pair[i] is JsonValue v && v.TryGetValue<double>(out double d)) values[i] = d;
+                else { ok = false; break; }
+            }
+            if (ok) lane.Points.Add(values);
         }
     }
 

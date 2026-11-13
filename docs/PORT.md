@@ -27,7 +27,7 @@ files alone on purpose.
 | Project save/load (`*.hbstudio.json`) | Done, schema-compatible |
 | Synth engine (subtractive, FM, additive, wavetable, vowel, pluck, modal) | Done |
 | Drum kits (procedural + WAV sample kits) | Done |
-| Track effects, buses, graph FX, automation | Done (engine); editors expose the full parameter set |
+| Track effects, buses, graph FX, automation | Done (engine + painting editor for tracks, buses and graph modules) |
 | VST3 instruments and effects on tracks and graph nodes | Done (64-bit; VST2 not supported) |
 | Mixing, sidechain, mix rules, mastering, LUFS analysis | Done |
 | Piano roll editing, scales, snap, velocity lane, timeline-wide writing area, ruler marker sketching | Done |
@@ -39,7 +39,8 @@ files alone on purpose.
 | Undo/redo | Done (snapshot history, coalesced gestures, Ctrl+Z/Y) |
 | Sample import, waveform editing and slicing UI | Done (normalize, reverse, trim, onset/equal slicing, export slices) |
 | SuperCollider `.scd` export | Done (voices, drums, sample buffers, per-track patterns, global delay/reverb, song flattening) |
-| Spectral painting / meta-synth | Done (paintable grid, settings, render to WAV or sample track; four-corner meta synth) |
+| Spectral painting / meta-synth | Done (7 brushes, image import, track spectrogram, harmonic stacks, undo, audition, WAV/sample-track/instrument export, AI shape drawing; four-corner meta synth with morph pad, apply/render, instrument saving and AI patch design) |
+| Automation painting / layered splines | Done (high-resolution canvas, brushes, track/bus/graph targets, Z axis, mapping modes, per-stroke layers, crossing-stroke separation, amplitude normalization, Add/Multiply/Max/Replace mixing, compressed display snapshots) |
 | Song import and transcription | Done (audio track + monophonic melody + drum hits + section markers) |
 | MIDI input recording | Done (device selection, live log, quantized recording into the selected track) |
 | Marker and song arrangement editing | Done (patterns, song order, repeats with bars override, markers and energy) |
@@ -47,6 +48,24 @@ files alone on purpose.
 | SuperCollider live sessions and OSC bridge | Not yet (export only) |
 | Full effect-graph parity in the SC export | Approximate (global delay/reverb + per-voice filter) |
 | MIDI note monitoring through the track voice | Not yet |
+
+## Automation painting
+
+The automation editor is documented in [`AUTOMATION.md`](AUTOMATION.md). Key design points:
+
+- Canvas resolution is selectable from 512 x 128 to 4096 x 512. Painting is stored as a
+  `SpectralGrid`; the display is sampled at screen resolution so displayed cost is independent
+  of the stored resolution.
+- Lane lookup uses binary search (`AutoLane.At`), keeping dense lanes (`O(log n)` per lookup)
+  cheap during playback. Automation is evaluated at the audio block rate, not per sample.
+- Layers are captured per mouse stroke, so crossing/intersecting waves stay separate instead
+  of merging into one connected region.
+- Each wrote lane can store a Deflate-compressed, display-only snapshot of the painting at its
+  original resolution. The renderer ignores it; the editor uses it to restore the exact image.
+- Automation points are `[beat, value, brightness, verticalLow, verticalHigh]`. Older readers
+  only use the first two values.
+- Parameters the renderer does not process yet are still writable, and the status bar warns
+  about them.
 
 ## Architecture
 
@@ -69,6 +88,12 @@ files alone on purpose.
   mode; the title bar and all custom-drawn controls are dark.
 - The extracted engine exposes more features than the current UI shows. They remain reachable
   from future tabs without changing the audio library.
+- The PowerShell-only FLUX photo/illustration mode in the spectral painter is not ported; the
+  C# port has text-to-spectrogram AI drawing instead.
+- Some graph-node parameters are display-only for now. The automation editor labels them when
+  they are not processed by the renderer.
+- The PowerShell studio drops automation display snapshots when it saves a project; the
+  automation points and playback are unaffected.
 
 ## Live performance mode
 

@@ -3,7 +3,7 @@
 <p align="center"><img src="icon.png" width="180" alt="Humble Baker Studio icon"></p>
 
 <p align="center">
-  <a href="https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/csharp-port-v0.4.0"><img alt="Download the C# port" src="https://img.shields.io/badge/Download_C%23_port-v0.4.0-6caaff?style=for-the-badge"></a>
+  <a href="https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/csharp-port-v0.5.0"><img alt="Download the C# port" src="https://img.shields.io/badge/Download_C%23_port-v0.5.0-6caaff?style=for-the-badge"></a>
   <a href="https://github.com/Daiviey/Humble-Baker-Studio/releases"><img alt="All releases" src="https://img.shields.io/badge/All_releases-GitHub-23272f?style=for-the-badge"></a>
 </p>
 
@@ -12,7 +12,7 @@
 | Build | Get it |
 |---|---|
 | **PowerShell studio** (stable) | `Humble Baker Studio.exe` in this repository, or the [latest release](https://github.com/Daiviey/Humble-Baker-Studio/releases) |
-| **C# port** (alpha, Windows x64, no .NET install needed) | [Portable exe](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.4.0/Humble-Baker-Studio-CSharp-0.4.0-win-x64.exe) · [Zip](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.4.0/Humble-Baker-Studio-CSharp-0.4.0-win-x64.zip) · [Release notes](https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/csharp-port-v0.4.0) |
+| **C# port** (alpha, Windows x64, no .NET install needed) | [Portable exe](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.5.0/Humble-Baker-Studio-CSharp-0.5.0-win-x64.exe) · [Zip](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.5.0/Humble-Baker-Studio-CSharp-0.5.0-win-x64.zip) · [Release notes](https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/csharp-port-v0.5.0) |
 
 The C# source is in [`src/`](src) and the port guide is [README-CSHARP.md](README-CSHARP.md). A copy of the portable exe is committed in [`CSharp-Port/`](CSharp-Port/); release assets also live under **Releases**.
 
@@ -39,6 +39,7 @@ powershell -ExecutionPolicy Bypass -File ".\Humble Baker Studio.ps1"
 | [Effect Reference](docs/EFFECTS.md) | all 113 effects, every control, range and description |
 | [Synth Patch Reference](docs/SYNTH.md) | every synth parameter |
 | [Settings Reference](docs/SETTINGS.md) | mastering, mix rules, spectral and meta settings |
+| [Automation Painting](docs/AUTOMATION.md) | curves, layers, intersections, resolution, normalization and performance |
 
 ## Requirements
 
@@ -67,7 +68,7 @@ No installer is required: the build is portable. FFmpeg and SuperCollider are di
 
 A native .NET port of the studio lives in `src/` and is documented in [README-CSHARP.md](README-CSHARP.md) and [docs/PORT.md](docs/PORT.md). It reads and writes the same `*.hbstudio.json` projects and includes the two-deck Live performance window, an instrument and sound library, and 64-bit VST3 effects and instruments on tracks and graph nodes (VST2 is not supported yet).
 
-Prebuilt portable build: [C# port v0.4.0](https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/csharp-port-v0.4.0) (self-contained Windows x64 exe, no .NET install required).
+Prebuilt portable build: [C# port v0.5.0](https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/csharp-port-v0.5.0) (self-contained Windows x64 exe, no .NET install required). The automation editor guide is [docs/AUTOMATION.md](docs/AUTOMATION.md).
 
 ## Features
 
@@ -81,7 +82,11 @@ Prebuilt portable build: [C# port v0.4.0](https://github.com/Daiviey/Humble-Bake
   - paint a curve on the canvas; the horizontal axis spans the whole track/song
   - vertical position sets the value; brightness is a real **Z axis** (depth/value)
   - targets: **Track**, graph **Node** (e.g. a shared REVERB), or **Bus**
-  - saved lanes redraw in the canvas when you select the target or reload the project
+  - canvas resolutions from 512 x 128 up to 4096 x 512, with a screen-pixel brush
+  - **layered splines**: extract multiple waves, assign each its own parameter, normalize by amplitude and mix with Add/Multiply/Max/Replace
+  - **crossing strokes stay separate**, so intersecting automation waves can be layered instead of merged
+  - saved lanes restore an exact compressed snapshot of the painted canvas at its original resolution
+  - logarithmic lane lookup keeps dense automation fast during playback
 - **Export dialog**:
   - current pattern with 1–64 seamless loops, or the whole arrangement
   - tempo override, metronome click

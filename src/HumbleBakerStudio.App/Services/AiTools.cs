@@ -134,6 +134,169 @@ internal sealed class AiTools
         return reply.Trim();
     }
 
+    /// <summary>
+    /// Paints a spectrogram from a text description. The model returns line, curve, blob, band
+    /// and harmonic shapes in 0..1 canvas space; they are stamped into the grid and then the
+    /// normal additive resynthesis turns the picture into sound.
+    /// </summary>
+    public async Task<int> DrawSpectralAsync(SpectralGrid grid, SpectralSettings settings, string description, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(description))
+            throw new InvalidOperationException("Describe the sound or picture first.");
+        string doc = PropIO.Describe(typeof(SpectralSettings));
+        string system =
+            "You design sounds by drawing on a spectrogram. The canvas is 0..1 in both axes: " +
+            "x = time (0 start, 1 end), y = pitch (0 lowest, 1 highest, logarithmic). " +
+            "Reply with ONE JSON object and nothing else (no markdown):\n" +
+            "{\"shapes\":[...],\"settings\":{...optional...}}\n" +
+            "Shape types (all numbers 0..1 except hz, count):\n" +
+            "{\"type\":\"line\",\"x0\":0,\"y0\":0.2,\"x1\":1,\"y1\":0.8,\"width\":0.3,\"amp\":0.9} a pitch sweep\n" +
+            "{\"type\":\"curve\",\"points\":[[0,0.3],[0.3,0.7],[0.6,0.4],[1,0.5]],\"width\":0.2,\"amp\":0.9} a melodic contour\n" +
+            "{\"type\":\"harmonics\",\"hz\":110,\"count\":10,\"rolloff\":0.75,\"x0\":0,\"x1\":1,\"amp\":0.8} a tone with overtones\n" +
+            "{\"type\":\"blob\",\"x\":0.5,\"y\":0.5,\"r\":0.2,\"amp\":0.7} a soft patch of sound\n" +
+            "{\"type\":\"band\",\"x0\":0.4,\"x1\":0.6,\"y0\":0.6,\"y1\":0.9,\"amp\":0.6} a burst of noise\n" +
+            "Use 4 to 14 shapes that match the description. Optional settings (numbers inside ranges):\n" + doc;
+
+        var reply = await _ollama.ChatAsync(Model, system, "Sound wanted: " + description, json: true, ct);
+        var obj = ParseObject(reply);
+        if (obj["shapes"] is not JsonArray shapes || shapes.Count < 3)
+            throw new InvalidOperationException("The model did not return a usable shapes array.");
+
+        grid.Clear();
+        int count = ApplyShapes(grid, shapes, settings);
+        if (count == 0) throw new InvalidOperationException("None of the shapes were recognised.");
+        if (obj["settings"] is JsonObject map) ApplyMap(settings, map);
+        return count;
+    }
+
+    /// <summary>Designs four related patches for the four-corner morph synth.</summary>
+    public async Task<int> DesignMorphAsync(Patch[] slots, string description, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(description))
+            throw new InvalidOperationException("Describe the journey first.");
+        if (slots == null || slots.Length < 4) throw new ArgumentException("Four slots are required.", nameof(slots));
+
+        string pdoc = PropIO.Describe(typeof(Patch));
+        string system =
+            "You are a synthesizer sound designer building a morphing instrument from 4 patches. " +
+            "Patch A is the start, B and C are the middle stages, D is the end. Make the four patches " +
+            "clearly different from each other but related to the description. Reply with ONE JSON object " +
+            "and nothing else (no markdown): {\"patches\":[{A},{B},{C},{D}]}. Each patch uses only these " +
+            "parameter names with numeric values inside their ranges and enum names as strings; set only " +
+            "6 to 14 parameters per patch and keep the reply short. Example: {\"patches\":[{\"Osc1\":\"sine\"," +
+            "\"Cutoff\":800,\"Attack\":0.4},{\"Osc1\":\"saw\",\"Cutoff\":3000,\"Drive\":0.5},{\"Osc1\":\"square\"," +
+            "\"Detune2\":9},{\"Osc1\":\"noise\",\"Resonance\":0.8}]}\n" + pdoc;
+
+        var reply = await _ollama.ChatAsync(Model, system, "Morph wanted: " + description, json: true, ct);
+        var obj = ParseObject(reply);
+        if (obj["patches"] is not JsonArray patches || patches.Count < 2)
+            throw new InvalidOperationException("The JSON must have a patches array of 4 patch objects.");
+
+        int applied = 0;
+        for (int i = 0; i < 4; i++)
+        {
+            var patch = new Patch();
+            if (patches[Math.Min(i, patches.Count - 1)] is JsonObject src) applied += ApplyMap(patch, src);
+            slots[i] = patch;
+        }
+        return applied;
+    }
+
+    static int ApplyShapes(SpectralGrid g, JsonArray shapes, SpectralSettings settings)
+    {
+        int cw = g.Cols - 1, rh = g.Rows - 1, n = 0;
+        foreach (var item in shapes)
+        {
+            if (item is not JsonObject sh) continue;
+            string type = GetText(sh, "type").ToLowerInvariant();
+            double amp = Clamp01(GetNum(sh, "amp", 0.8));
+            double width = sh.ContainsKey("width") ? 0.6 + Clamp01(GetNum(sh, "width", 0.5)) * 6 : 1.5;
+
+            if (type is "line" or "sweep")
+            {
+                g.Line(Clamp01(GetNum(sh, "x0", 0)) * cw, Clamp01(GetNum(sh, "y0", 0)) * rh,
+                      Clamp01(GetNum(sh, "x1", 1)) * cw, Clamp01(GetNum(sh, "y1", 1)) * rh, width, amp, false);
+                n++;
+            }
+            else if (type is "curve" or "path")
+            {
+                if (sh["points"] is JsonArray pts)
+                {
+                    for (int k = 1; k < pts.Count; k++)
+                    {
+                        if (pts[k - 1] is not JsonArray a || pts[k] is not JsonArray b || a.Count < 2 || b.Count < 2) continue;
+                        g.Line(Clamp01(Num(a[0])) * cw, Clamp01(Num(a[1])) * rh,
+                              Clamp01(Num(b[0])) * cw, Clamp01(Num(b[1])) * rh, width, amp, false);
+                    }
+                }
+                n++;
+            }
+            else if (type is "blob" or "circle")
+            {
+                g.Dab(Clamp01(GetNum(sh, "x", 0.5)) * cw, Clamp01(GetNum(sh, "y", 0.5)) * rh,
+                      1 + Clamp01(GetNum(sh, "r", 0.5)) * rh * 0.5, amp, false);
+                n++;
+            }
+            else if (type is "band" or "noise")
+            {
+                int x0 = (int)(Clamp01(GetNum(sh, "x0", 0)) * cw);
+                int x1 = (int)(Clamp01(GetNum(sh, "x1", 1)) * cw);
+                int r0 = (int)(Clamp01(GetNum(sh, "y0", 0)) * rh);
+                int r1 = (int)(Clamp01(GetNum(sh, "y1", 1)) * rh);
+                if (r1 < r0) (r0, r1) = (r1, r0);
+                var rnd = new Random(3);
+                for (int c = Math.Max(0, x0); c <= Math.Min(g.Cols - 1, x1); c++)
+                    for (int r = Math.Max(0, r0); r <= Math.Min(g.Rows - 1, r1); r++)
+                        g.A[c * g.Rows + r] = Math.Max(g.A[c * g.Rows + r], (float)(amp * (0.3 + 0.7 * rnd.NextDouble())));
+                n++;
+            }
+            else if (type.StartsWith("harmonic"))
+            {
+                double hz = Math.Max(20, GetNum(sh, "hz", 110));
+                int count = (int)Math.Clamp(GetNum(sh, "count", 8), 1, 40);
+                double rolloff = Math.Clamp(GetNum(sh, "rolloff", 0.75), 0.3, 1);
+                int x0 = sh.ContainsKey("x0") ? (int)(Clamp01(GetNum(sh, "x0", 0)) * cw) : 0;
+                int x1 = sh.ContainsKey("x1") ? (int)(Clamp01(GetNum(sh, "x1", 1)) * cw) : cw;
+                g.Harmonics(hz, x0, x1, count, rolloff, amp, settings.MinHz, settings.MaxHz);
+                n++;
+            }
+        }
+        return n;
+    }
+
+    static double Clamp01(double v) => Math.Max(0, Math.Min(1, v));
+    static double Num(JsonNode? node)
+    {
+        if (node is JsonValue v && v.TryGetValue<double>(out var d)) return d;
+        if (node is JsonValue s && s.TryGetValue<string>(out var text) &&
+            double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed)) return parsed;
+        return 0;
+    }
+
+    static string GetText(JsonObject o, string key)
+    {
+        if (o[key] is JsonValue v)
+        {
+            if (v.TryGetValue<string>(out var s)) return s;
+            return v.ToJsonString().Trim('"');
+        }
+        return "";
+    }
+
+    static int ApplyMap(object target, JsonObject obj)
+    {
+        int n = 0;
+        foreach (var (key, node) in obj)
+        {
+            if (node == null || node is JsonObject or JsonArray) continue;
+            string text = node is JsonValue v
+                ? (v.TryGetValue<string>(out var s) ? s : node.ToJsonString())
+                : node.ToJsonString();
+            if (PropIO.Set(target, key, text)) n++;
+        }
+        return n;
+    }
+
     // ---- parsing ---------------------------------------------------------
 
     public static List<Note> ParseNotes(string reply, double loopBeats)

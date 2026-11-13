@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using HumbleBakerStudio.Audio;
 
 namespace HumbleBakerStudio.Audio.Tests;
@@ -663,5 +664,269 @@ public class ArrangementTests
         loaded.Song[0].Bars = 0;
         loaded = ProjectStore.LoadFromJson(ProjectStore.SaveToJson(loaded));
         Assert.Equal(0, loaded.Song[0].Bars);
+    }
+
+    [Fact]
+    public void SpectralGridData_EncodesOneBytePerCellAndRoundTrips()
+    {
+        var grid = new SpectralGrid(16, 8);
+        for (int i = 0; i < grid.A.Length; i++) grid.A[i] = i / (float)(grid.A.Length - 1);
+        var data = InstrumentLibrary.GridData(grid);
+
+        Assert.Equal(16, data["cols"]!.GetValue<int>());
+        Assert.Equal(8, data["rows"]!.GetValue<int>());
+        byte[] bytes = Convert.FromBase64String(data["data"]!.GetValue<string>());
+        Assert.Equal(grid.A.Length, bytes.Length);
+        Assert.Equal(0, bytes[0]);
+        Assert.Equal(255, bytes[^1]);
+    }
+
+    [Fact]
+    public void AutomationPaint_MapsColumnHeightAndBrightnessToLaneValues()
+    {
+        var grid = new SpectralGrid(16, 8);
+        for (int c = 0; c < grid.Cols; c++) grid.Dab(c, 4, 1, 1, false);
+
+        var centred = AutomationPaint.Paint(grid, "vol", 0, 2, 16, "Exact shape", "Off (position only)", 1, 1);
+        Assert.Equal(16, centred.Count);
+        Assert.All(centred, p => Assert.InRange(p[1], 1.0, 1.3));
+        Assert.All(centred, p => Assert.Equal(5, p.Length));
+        Assert.All(centred, p => Assert.True(p[3] <= p[4]));
+        Assert.Equal(centred.OrderBy(p => p[0]).Select(p => p[0]), centred.Select(p => p[0]));
+
+        // Direct Z ignores the vertical position and uses the column's brightness.
+        grid.Clear();
+        for (int c = 0; c < grid.Cols; c++) grid.Dab(c, 0, 1, 1, false);
+        var direct = AutomationPaint.Paint(grid, "vol", 0, 2, 16, "Exact shape", "Direct value", 1, 1);
+        Assert.All(direct, p => Assert.Equal(2.0, p[1], 6));
+
+        // Depth scales toward the neutral value (0 here), so a half-bright column lands halfway.
+        grid.Clear();
+        for (int c = 0; c < grid.Cols; c++) grid.Dab(c, 7, 1, 0.5, false);
+        var depth = AutomationPaint.Paint(grid, "vol", 0, 2, 16, "Exact shape", "Depth (scale value)", 1, 0);
+        Assert.All(depth, p => Assert.InRange(p[1], 0.95, 1.05));
+    }
+
+    [Fact]
+    public void AutomationPaint_QuantizesToTheRequestedStepGrid()
+    {
+        var grid = new SpectralGrid(16, 8);
+        for (int c = 0; c < grid.Cols; c++) grid.Dab(c, 3, 1, 1, false);
+
+        var points = AutomationPaint.Paint(grid, "vol", 0, 2, 16, "Quantize steps", "Off (position only)", 1, 1);
+        Assert.NotEmpty(points);
+        foreach (var point in points)
+        {
+            double steps = point[1] / 2.0 * 16;
+            Assert.Equal(Math.Round(steps), steps, 6);
+        }
+    }
+
+    [Fact]
+    public void AutomationPaint_StrokeDetailKeepsThePaintedVerticalExtent()
+    {
+        var grid = new SpectralGrid(4, 16);
+        for (int c = 0; c < grid.Cols; c++)
+            for (int r = 4; r <= 12; r++)
+                grid.A[c * grid.Rows + r] = 1;
+
+        var curve = AutomationPaint.Paint(grid, "vol", 0, 2, 16, "Exact shape", "Off (position only)", 1, 1);
+        var stroke = AutomationPaint.Paint(grid, "vol", 0, 2, 16, "Exact shape", "Off (position only)", 1, 1, "Stroke (follow rows)");
+
+        Assert.Equal(grid.Cols, curve.Count);
+        Assert.True(stroke.Count > curve.Count);
+        Assert.True(stroke.Max(p => p[1]) > curve.Max(p => p[1]));
+        Assert.True(stroke.Min(p => p[1]) < curve.Min(p => p[1]));
+    }
+
+    [Fact]
+    public void AutoLane_DenseLaneLookupIsExactAndFast()
+    {
+        var lane = new AutoLane(0, "vol");
+        for (int i = 0; i < 20000; i++) lane.Points.Add(new[] { i * 0.01, (double)(i % 100) });
+
+        Assert.Equal(1.0, lane.At(-1), 9);              // before the first point: neutral
+        Assert.Equal(0.5, lane.At(50.005), 9);           // halfway between two dense points
+        Assert.Equal(99.0, lane.At(1_000_000), 9);       // after the last point: held
+    }
+
+    [Fact]
+    public void SpectralGrid_ResampleKeepsShapeAtHigherResolution()
+    {
+        var grid = new SpectralGrid(512, 128);
+        grid.A[100 * grid.Rows + 40] = 1;
+        grid.A[200 * grid.Rows + 80] = 0.5f;
+
+        var high = grid.Resample(2048, 512);
+
+        Assert.Equal(2048, high.Cols);
+        Assert.Equal(512, high.Rows);
+        Assert.True(high.Peak() > 0.9);
+        Assert.True(high.Peak() <= 1.0);
+    }
+
+    [Fact]
+    public void AutomationLayers_CrossingStrokeBuffersStaySeparate()
+    {
+        var a = new float[64 * 32];
+        var b = new float[64 * 32];
+        for (int c = 0; c < 64; c++)
+        {
+            a[c * 32 + 16] = 1;   // both strokes cross the same pixels
+            b[c * 32 + 16] = 1;
+        }
+
+        var first = AutomationLayers.FromData(a, 64, 32);
+        var second = AutomationLayers.FromData(b, 64, 32);
+
+        Assert.NotNull(first);
+        Assert.NotNull(second);
+        Assert.NotSame(first, second);
+        Assert.NotSame(first!.Data, second!.Data); // independent stroke buffers
+
+        var clone = first.Clone();
+        Assert.NotSame(first.Data, clone.Data);
+        Assert.Equal(first.Amplitude, clone.Amplitude, 9);
+    }
+
+    [Fact]
+    public void AutomationLayers_ExtractSeparatePaintedWaves()
+    {
+        var grid = new SpectralGrid(64, 32);
+        for (int c = 0; c < grid.Cols; c++) grid.Dab(c, 8, 1, 1, false);
+        for (int c = 0; c < grid.Cols; c++) grid.Dab(c, 24, 1, 1, false);
+
+        var layers = AutomationLayers.Extract(grid, 0.02, 8);
+
+        Assert.Equal(2, layers.Count);
+        Assert.True(layers[0].CentroidY > layers[1].CentroidY); // top wave first
+        Assert.All(layers, l => Assert.True(l.Amplitude > 0.5));
+        Assert.All(layers, l => Assert.True(l.Contour.Count > 10));
+    }
+
+    [Fact]
+    public void AutomationLayers_NormalizeByAmplitudeAndMix()
+    {
+        var grid = new SpectralGrid(64, 32);
+        for (int c = 0; c < grid.Cols; c++) grid.Dab(c, 8, 1, 1, false);
+        for (int c = 0; c < grid.Cols; c++) grid.Dab(c, 24, 1, 1, false);
+        var layers = AutomationLayers.Extract(grid, 0.02, 8);
+
+        var add = AutomationLayers.Combine(layers, "vol", 0, 2, 16, "Exact shape", 1, "Curve (single value)", true, 1, "Add");
+        Assert.NotEmpty(add);
+        Assert.All(add, p => Assert.InRange(p[1], 1.0, 1.15));
+
+        var max = AutomationLayers.Combine(layers, "vol", 0, 2, 16, "Exact shape", 1, "Curve (single value)", true, 1, "Max");
+        Assert.All(max, p => Assert.InRange(p[1], 1.4, 1.7));
+
+        // A quieter layer is boosted by normalisation and not by the raw amplitude weighting.
+        layers[1].Amplitude = 0.5;
+        var normalised = AutomationLayers.Combine(layers, "vol", 0, 2, 16, "Exact shape", 1, "Curve (single value)", true, 1, "Add");
+        var raw = AutomationLayers.Combine(layers, "vol", 0, 2, 16, "Exact shape", 1, "Curve (single value)", false, 1, "Add");
+        Assert.True(normalised[0][1] < raw[0][1]);
+    }
+
+    [Fact]
+    public void AutomationPreview_RoundTripsPaintingAtFullResolution()
+    {
+        var grid = new SpectralGrid(256, 64);
+        for (int c = 0; c < grid.Cols; c++)
+            for (int r = 16; r < 48; r++)
+                grid.A[c * grid.Rows + r] = (float)(0.2 + 0.8 * (r - 16) / 32.0);
+
+        var compressed = AutomationPreview.Encode(grid);
+        var restored = AutomationPreview.Decode(compressed, 256, 64);
+
+        Assert.Equal(256, restored.Cols);
+        Assert.Equal(64, restored.Rows);
+        for (int c = 0; c < grid.Cols; c += 17)
+            for (int r = 0; r < grid.Rows; r += 7)
+            {
+                int i = c * grid.Rows + r;
+                Assert.InRange(restored.A[i], grid.A[i] - 1 / 255f, grid.A[i] + 1 / 255f);
+            }
+        Assert.True(compressed.Length < grid.A.Length); // filled regions compress well
+    }
+
+    [Fact]
+    public void AutomationLane_PreviewRoundTripsThroughProjectStore()
+    {
+        var p = ProjectStore.CreateDefault();
+        var lane = new AutoLane(0, "f:Cutoff");
+        lane.Points.Add(new[] { 0.0, 800.0, 1.0, 0.2, 0.8 });
+        var grid = new SpectralGrid(128, 32);
+        for (int i = 0; i < grid.A.Length; i++) grid.A[i] = 0.5f;
+        lane.Preview = AutomationPreview.Encode(grid);
+        lane.PreviewCols = 128;
+        lane.PreviewRows = 32;
+        p.Tracks[0].Auto.Add(lane);
+
+        var loaded = ProjectStore.LoadFromJson(ProjectStore.SaveToJson(p));
+        var lane2 = loaded.Tracks[0].Auto.Single(l => l.Param == "f:Cutoff");
+
+        Assert.NotNull(lane2.Preview);
+        Assert.Equal(128, lane2.PreviewCols);
+        Assert.Equal(32, lane2.PreviewRows);
+        var restored = AutomationPreview.Decode(lane2.Preview, lane2.PreviewCols, lane2.PreviewRows);
+        Assert.Equal(128, restored.Cols);
+        Assert.InRange(restored.A[1000], 0.49f, 0.51f);
+    }
+
+    [Fact]
+    public void AutomationLane_RoundTripsPaintedShapeDetail()
+    {
+        var p = ProjectStore.CreateDefault();
+        var lane = new AutoLane(0, "p:Cutoff");
+        lane.Points.Add(new[] { 1.0, 800.0, 0.9, 0.2, 0.8 });
+        lane.Points.Add(new[] { 2.0, 2400.0, 0.6, 0.4, 0.9 });
+        p.Tracks[0].Auto.Add(lane);
+
+        var loaded = ProjectStore.LoadFromJson(ProjectStore.SaveToJson(p));
+        var points = loaded.Tracks[0].Auto.Single(l => l.Param == "p:Cutoff").Points;
+
+        Assert.Equal(2, points.Count);
+        Assert.Equal(5, points[0].Length);
+        Assert.Equal(800.0, points[0][1], 6);
+        Assert.Equal(0.9, points[0][2], 6);
+        Assert.Equal(0.2, points[0][3], 6);
+        Assert.Equal(0.8, points[0][4], 6);
+    }
+
+    [Fact]
+    public void MorphInstrument_LoadsFourSlotsAndAppliesTheBlend()
+    {
+        var json = new JsonObject
+        {
+            ["version"] = 1,
+            ["name"] = "test morph",
+            ["kind"] = "morph",
+            ["role"] = "pad",
+            ["octave"] = 3,
+            ["slots"] = new JsonArray(
+                new JsonObject { ["Cutoff"] = 200, ["Sustain"] = 0.1, ["Osc1"] = "sine" },
+                new JsonObject { ["Cutoff"] = 2000, ["Sustain"] = 0.9, ["Osc1"] = "saw" },
+                new JsonObject { ["Cutoff"] = 400, ["Sustain"] = 0.3, ["Osc1"] = "tri" },
+                new JsonObject { ["Cutoff"] = 6000, ["Sustain"] = 1.0, ["Osc1"] = "noise" }),
+            ["meta"] = new JsonObject { ["X"] = 0.75, ["Y"] = 0.25 }
+        };
+        string path = Path.Combine(Path.GetTempPath(), "hbs-morph-" + Guid.NewGuid().ToString("N") + ".json");
+        File.WriteAllText(path, json.ToJsonString());
+        try
+        {
+            var def = InstrumentLibrary.LoadFile(path);
+            Assert.NotNull(def);
+            Assert.Equal("morph", def!.Kind);
+            Assert.Equal(4, def.Slots!.Count);
+
+            var track = new Track();
+            Assert.True(InstrumentLibrary.Apply(def, track, Array.Empty<string>(), out string error), error);
+            Assert.Equal("patch", track.Synth);
+            Assert.NotNull(track.Patch);
+            Assert.InRange(track.Patch!.Cutoff, 200, 6000);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 }

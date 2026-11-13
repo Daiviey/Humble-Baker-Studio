@@ -8,6 +8,7 @@ internal sealed class ToolsTab : UserControl
     private readonly SampleTab _sample;
     private readonly MidiTab _midi;
     private readonly SpectralTab _spectral;
+    private readonly AutomationTab _automation;
     private readonly TabControl _inner = new() { Dock = DockStyle.Fill };
 
     public ToolsTab(MainForm host)
@@ -16,10 +17,12 @@ internal sealed class ToolsTab : UserControl
         _sample = new SampleTab(host);
         _midi = new MidiTab(host);
         _spectral = new SpectralTab(host);
+        _automation = new AutomationTab(host);
 
         _inner.TabPages.Add(Page("Sample lab", _sample));
         _inner.TabPages.Add(Page("MIDI input", _midi));
         _inner.TabPages.Add(Page("Spectral / Meta", _spectral));
+        _inner.TabPages.Add(Page("Automation paint", _automation));
         Theme.StyleTabs(_inner);
         Controls.Add(_inner);
     }
@@ -37,6 +40,7 @@ internal sealed class ToolsTab : UserControl
         _sample.RefreshView();
         _midi.RefreshView();
         _spectral.RefreshView();
+        _automation.RefreshView();
     }
 
     public void Select(string pageTitle)
