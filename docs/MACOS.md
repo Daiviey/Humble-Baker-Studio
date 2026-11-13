@@ -34,7 +34,7 @@ The portable foundation is in place:
   ```powershell
   .\build-macos-app.ps1 -Runtime osx-arm64
   # dist-macos\app-osx-arm64\Humble Baker Studio.app
-  # dist-macos\Humble-Baker-Studio-macOS-osx-arm64-v0.1.0.zip
+  # dist-macos\Humble-Baker-Studio-macOS-osx-arm64-v0.1.1.zip
   ```
 
   `osx-x64` builds the same bundle for Intel. The bundles are unsigned and the full editor is

@@ -8,7 +8,7 @@
 - Track list shows a `[VST]`/`[VST off]` marker, and the tool remembers the current plug-in per track.
 - Limitations: no plug-in editor window yet, 64-bit only, no VST2, effects must be 2-in/2-out.
 
-## macOS app 0.1.0 - 2026-11-13 (updated)
+## macOS app 0.1.1 - 2026-11-13
 
 - Added an **Audio Units...** window that enumerates installed AU instruments, effects, generators and format converters with `AudioComponentFindNext`/`AudioComponentCopyName`. Instantiation, render callbacks and CoreAudio output are the next milestone; see `docs/PLUGINS.md`.
 

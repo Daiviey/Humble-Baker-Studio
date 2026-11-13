@@ -6,7 +6,8 @@
 param(
     [ValidateSet('osx-arm64', 'osx-x64')]
     [string]$Runtime = 'osx-arm64',
-    [string]$Configuration = 'Release'
+    [string]$Configuration = 'Release',
+    [string]$Version = '0.1.1'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -16,7 +17,7 @@ $dist = Join-Path $root (Join-Path 'dist-macos' ("app-" + $Runtime))
 $publish = Join-Path $dist 'publish'
 $appName = 'Humble Baker Studio.app'
 $app = Join-Path $dist $appName
-$zip = Join-Path $root (Join-Path 'dist-macos' ("Humble-Baker-Studio-macOS-" + $Runtime + "-v0.1.0.zip"))
+$zip = Join-Path $root (Join-Path 'dist-macos' ("Humble-Baker-Studio-macOS-" + $Runtime + "-v"+ $Version +".zip"))
 
 Write-Host "Publishing the Avalonia shell for $Runtime..." -ForegroundColor Cyan
 dotnet publish $project -c $Configuration -r $Runtime --self-contained true `
@@ -30,7 +31,7 @@ New-Item -ItemType Directory -Force -Path $macos, $resources | Out-Null
 Copy-Item -Path (Join-Path $publish '*') -Destination $macos -Recurse -Force
 Copy-Item -LiteralPath (Join-Path $root 'icon.png') -Destination (Join-Path $resources 'icon.png') -Force
 
-$plist = @'
+$plist = @"
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -38,8 +39,8 @@ $plist = @'
   <key>CFBundleName</key><string>Humble Baker Studio</string>
   <key>CFBundleDisplayName</key><string>Humble Baker Studio</string>
   <key>CFBundleIdentifier</key><string>com.daiviey.humblebakerstudio</string>
-  <key>CFBundleVersion</key><string>0.1.0</string>
-  <key>CFBundleShortVersionString</key><string>0.1.0</string>
+  <key>CFBundleVersion</key><string>$Version</string>
+  <key>CFBundleShortVersionString</key><string>$Version</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleExecutable</key><string>HumbleBakerStudio</string>
   <key>LSMinimumSystemVersion</key><string>12.0</string>
@@ -47,7 +48,7 @@ $plist = @'
   <key>LSApplicationCategoryType</key><string>public.app-category.music</string>
 </dict>
 </plist>
-'@
+"@
 Set-Content -LiteralPath (Join-Path $app 'Contents\Info.plist') -Value $plist -Encoding UTF8
 
 # Zip the .app and preserve the executable bit for the main binary. macOS unzip honours the

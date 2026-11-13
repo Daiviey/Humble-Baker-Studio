@@ -42,7 +42,7 @@ public static class AudioUnits
     private static extern IntPtr CFStringGetCStringPtr(IntPtr theString, uint encoding);
 
     [DllImport(CoreFoundation)]
-    private static extern bool CFStringGetCString(IntPtr theString, byte[] buffer, long bufferSize, uint encoding);
+    private static extern byte CFStringGetCString(IntPtr theString, byte[] buffer, long bufferSize, uint encoding);
 
     public static IReadOnlyList<AudioUnitInfo> List()
     {
@@ -83,7 +83,7 @@ public static class AudioUnits
             IntPtr direct = CFStringGetCStringPtr(cf, Utf8Encoding);
             if (direct != IntPtr.Zero) return Marshal.PtrToStringUTF8(direct) ?? "";
             var buffer = new byte[1024];
-            if (!CFStringGetCString(cf, buffer, buffer.Length, Utf8Encoding)) return "";
+            if (CFStringGetCString(cf, buffer, buffer.Length, Utf8Encoding) == 0) return "";
             return Encoding.UTF8.GetString(buffer).TrimEnd('\0');
         }
         finally
