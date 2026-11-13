@@ -87,6 +87,7 @@ public class SpectralGrid {
     public void Normalize() { float m = 0; for (int i = 0; i < A.Length; i++) m = Math.Max(m, A[i]); if (m > 1e-6f) for (int i = 0; i < A.Length; i++) A[i] /= m; }
     public float Peak() { float m = 0; for (int i = 0; i < A.Length; i++) m = Math.Max(m, A[i]); return m; }
 
+#if WINDOWS
     public void FromBitmap(Bitmap src, bool invert) {
         using (Bitmap b = new Bitmap(src, Cols, Rows)) {
             for (int c = 0; c < Cols; c++) for (int y = 0; y < Rows; y++) {
@@ -115,4 +116,5 @@ public class SpectralGrid {
         b.UnlockBits(data);
         return b;
     }
+#endif
 }

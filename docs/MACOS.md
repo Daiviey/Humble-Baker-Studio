@@ -1,9 +1,35 @@
 # macOS build: feasibility and plan
 
-Short answer: there is no native macOS build today, and it is not a one-click rebuild. The DSP
-and project format are highly reusable, but the current C# port is a Windows Forms application
-with Windows-only audio output and plug-in hosting. A native Mac version is a real port, not a
-repackaging.
+Short answer: there is no native macOS **UI** build today, and it is not a one-click rebuild.
+The DSP and project format are highly reusable, but the current C# port's UI is Windows Forms
+and its realtime output/plugin hosting are Windows-specific. A native Mac app is a real port,
+not a repackaging.
+
+## Current progress
+
+The portable foundation is in place:
+
+- `HumbleBakerStudio.Audio` now multi-targets `net8.0` and `net8.0-windows`. The project model,
+  DSP, effects, automation, spectral/meta engines, pattern composer and export code build for
+  plain `net8.0` with no WinForms references.
+- `src/HumbleBakerStudio.Cli` is a headless cross-platform renderer:
+
+  ```bash
+  dotnet run --project src/HumbleBakerStudio.Cli -- demo out.wav
+  dotnet run --project src/HumbleBakerStudio.Cli -- render project.hbstudio.json out.wav
+  ```
+
+- It publishes for Apple Silicon:
+
+  ```powershell
+  .\build-macos.ps1 -Runtime osx-arm64
+  # dist-macos\osx-arm64\hbs-render
+  ```
+
+  `osx-x64` is also supported by the same script.
+
+The next milestone is the Avalonia shell and a CoreAudio output backend. See
+[`PARITY.md`](PARITY.md) for the feature matrix and workstreams.
 
 The PowerShell studio is Windows-only as well (Windows PowerShell 5.1, .NET Framework and
 WinForms), so the C# codebase is the only realistic path to macOS.

@@ -127,10 +127,12 @@ The standard build keeps the local-AI tools; the No-AI edition is the same codeb
 
 ## macOS
 
-There is no native macOS build yet. The DSP and project format are reusable, but the UI is
-Windows Forms, playback uses `winmm`, and plug-in hosting is Windows-specific. A Mac port
-therefore means a cross-platform UI (for example Avalonia), CoreAudio output and a separate
-plug-in phase. See [`docs/MACOS.md`](docs/MACOS.md) for the full assessment and phased plan.
+The portable core is now in place: `HumbleBakerStudio.Audio` multi-targets `net8.0`, and
+`src/HumbleBakerStudio.Cli` is a headless renderer that publishes for `osx-arm64` and
+`osx-x64` with `.\build-macos.ps1`. The native UI is the next milestone: an Avalonia shell with
+CoreAudio output, followed by the editors and plug-in phase. See
+[`docs/MACOS.md`](docs/MACOS.md) and the platform matrix in
+[`docs/PARITY.md`](docs/PARITY.md).
 
 ## Runtime dependencies
 

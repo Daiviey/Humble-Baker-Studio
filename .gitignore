@@ -11,6 +11,7 @@ chats/
 **/obj/
 dist/
 dist-noai/
+dist-macos/
 .vs/
 *.user
 

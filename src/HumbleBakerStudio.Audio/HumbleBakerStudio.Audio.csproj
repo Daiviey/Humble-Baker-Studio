@@ -1,8 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net8.0-windows</TargetFramework>
-    <UseWindowsForms>true</UseWindowsForms>
+    <TargetFrameworks>net8.0;net8.0-windows</TargetFrameworks>
+    <UseWindowsForms Condition="'$(TargetFramework)' == 'net8.0-windows'">true</UseWindowsForms>
     <Nullable>annotations</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
@@ -14,8 +14,20 @@
     <NoWarn>CA1416;SYSLIB0011;CS0618;CS0649;CS0169;CS0414;CS0067;CS0162</NoWarn>
   </PropertyGroup>
 
-  <ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net8.0-windows'">
     <PackageReference Include="Microsoft.VisualBasic" Version="10.3.0" />
+  </ItemGroup>
+
+  <!-- The WinForms editors and the winmm MIDI input stay in the Windows target.
+       The project model, DSP, effects, automation and export are portable. -->
+  <ItemGroup Condition="'$(TargetFramework)' == 'net8.0'">
+    <Compile Remove="Engine/GradientPanel.cs" />
+    <Compile Remove="Engine/Knob.cs" />
+    <Compile Remove="Engine/KnobPanel.cs" />
+    <Compile Remove="Engine/MidiInPort.cs" />
+    <Compile Remove="Engine/PatchGraphControl.cs" />
+    <Compile Remove="Engine/PianoRoll.cs" />
+    <Compile Remove="Engine/WaveView.cs" />
   </ItemGroup>
 
 </Project>

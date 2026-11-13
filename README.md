@@ -46,6 +46,7 @@ powershell -ExecutionPolicy Bypass -File ".\Humble Baker Studio.ps1"
 | [Automation Painting](docs/AUTOMATION.md) | curves, layers, intersections, resolution, normalization and performance |
 | [Which build?](docs/DOWNLOADS.md) | PowerShell studio vs C# port, file names, sizes and release tags |
 | [macOS plan](docs/MACOS.md) | what a Mac port would take, what is reusable and the recommended phases |
+| [Platform parity](docs/PARITY.md) | feature matrix and workstreams for Windows, PowerShell and macOS |
 
 ## Requirements
 
