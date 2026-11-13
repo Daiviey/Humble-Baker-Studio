@@ -141,13 +141,12 @@ The portable core is now in place: `HumbleBakerStudio.Audio` multi-targets `net8
 # dist-macos\app-osx-arm64\Humble Baker Studio.app
 ```
 
-`osx-x64` builds the Intel bundle. App v0.2.0 adds **CoreAudio playback** (AudioQueue), a
+`osx-x64` builds the Intel bundle. App v0.3.0 adds **CoreAudio playback** (AudioQueue), a
 transport with playhead, a track list with volume/pan/mute, a click-to-edit piano roll, project
-open/save and WAV export. It also lists installed **Audio Units** through AudioToolbox
-(`AudioComponent` discovery); instantiating and rendering AUs still needs a macOS test pass. The
-effects/mixer/automation editors and CoreMIDI are the next milestones. See
-[`docs/MACOS.md`](docs/MACOS.md), [`docs/PLUGINS.md`](docs/PLUGINS.md) and the platform matrix
-in [`docs/PARITY.md`](docs/PARITY.md).
+open/save, **Audio Unit effect hosting**, and WAV export. It also lists installed **Audio Units**
+through AudioToolbox (`AudioComponent` discovery). The effects/mixer/automation editors, CoreMIDI
+and AU editors are the next milestones. See [`docs/MACOS.md`](docs/MACOS.md),
+[`docs/PLUGINS.md`](docs/PLUGINS.md) and the platform matrix in [`docs/PARITY.md`](docs/PARITY.md).
 
 ## Runtime dependencies
 

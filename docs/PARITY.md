@@ -19,7 +19,7 @@ Status values: **Done**, **Partial**, **Planned**, **Windows-only**.
 | Instrument library save/load (spectral/morph) | Done | Done | Done | Done (engine) | Planned |
 | Deterministic pattern library / No-AI edition | Done | Done | **Missing** | Done (engine) | Planned |
 | VST3 instruments and effects | Done | Done | **Done** (optional `hbs-vst-bridge`; no editor window) | Planned | Planned |
-| Audio Unit (AU) hosting | Not applicable | Not applicable | Not applicable | Planned | **Discovery only** |
+| Audio Unit (AU) hosting | Not applicable | Not applicable | Not applicable | Planned | **Partial** (AU effect hosting + discovery) |
 | CoreAudio playback | Done (waveOut) | Done (waveOut) | Done | Not applicable | **Done** (AudioQueue) |
 | Two-deck Live mode | Done | Done | Done | Model done | Planned |
 | Local AI (Ollama) | Done | Missing by design | Done | Planned | Planned |

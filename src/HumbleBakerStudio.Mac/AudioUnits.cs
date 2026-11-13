@@ -3,7 +3,18 @@ using System.Text;
 
 namespace HumbleBakerStudio.Mac;
 
-public sealed record AudioUnitInfo(string Name, string Kind, string Manufacturer);
+public sealed record AudioUnitInfo(string Name, string Kind, string Manufacturer,
+    uint ComponentType, uint SubType, uint ManufacturerCode)
+{
+    public bool IsEffect => ComponentType == FourCc("aufx");
+    public bool IsInstrument => ComponentType == FourCc("aumu");
+
+    public override string ToString() =>
+        string.IsNullOrWhiteSpace(Manufacturer) ? Name : Name + "  (" + Manufacturer + ")";
+
+    internal static uint FourCc(string value) =>
+        ((uint)value[0] << 24) | ((uint)value[1] << 16) | ((uint)value[2] << 8) | value[3];
+}
 
 /// <summary>
 /// Enumerates the Audio Units installed on macOS through the AudioToolbox component API.
@@ -65,10 +76,13 @@ public static class AudioUnits
                 string name = CopyName(component);
                 if (string.IsNullOrWhiteSpace(name)) continue;
                 string manufacturer = "";
-                if (AudioComponentGetDescription(component, out var actual) == 0)
-                    manufacturer = FourCcToString(actual.ComponentManufacturer);
+                var actual = default(AudioComponentDescription);
+                bool haveDescription = AudioComponentGetDescription(component, out actual) == 0;
+                if (haveDescription) manufacturer = FourCcToString(actual.ComponentManufacturer);
                 if (!seen.Add(name + "|" + kind + "|" + manufacturer)) continue;
-                found.Add(new AudioUnitInfo(name, kind, manufacturer));
+                found.Add(new AudioUnitInfo(name, kind, manufacturer, FourCc(type),
+                    haveDescription ? actual.ComponentSubType : 0u,
+                    haveDescription ? actual.ComponentManufacturer : 0u));
             }
         }
         found.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));

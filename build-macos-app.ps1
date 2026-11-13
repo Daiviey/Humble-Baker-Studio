@@ -7,7 +7,7 @@ param(
     [ValidateSet('osx-arm64', 'osx-x64')]
     [string]$Runtime = 'osx-arm64',
     [string]$Configuration = 'Release',
-    [string]$Version = '0.2.0'
+    [string]$Version = '0.3.0'
 )
 
 $ErrorActionPreference = 'Stop'

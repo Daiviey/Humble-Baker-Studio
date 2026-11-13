@@ -8,16 +8,18 @@
         Background="#101218">
   <Grid Margin="18" RowDefinitions="Auto,*,Auto">
 
-    <Grid Grid.Row="0" ColumnDefinitions="Auto,Auto,Auto,*,Auto,Auto,Auto,Auto">
+    <Grid Grid.Row="0" ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,*,Auto,Auto,Auto,Auto">
       <Button x:Name="PlayButton" Grid.Column="0" Content="Play" Click="Play_Click" Margin="0,0,6,0" />
       <Button x:Name="StopButton" Grid.Column="1" Content="Stop" Click="Stop_Click" Margin="0,0,12,0" />
       <CheckBox x:Name="LoopBox" Grid.Column="2" Content="Loop" IsChecked="True" Foreground="#EAEEF6" Margin="0,0,16,0" />
-      <TextBlock x:Name="ProjectInfo" Grid.Column="3" VerticalAlignment="Center" Foreground="#96A1B6"
+      <TextBlock Grid.Column="3" Text="AU FX" VerticalAlignment="Center" Foreground="#96A1B6" Margin="0,0,6,0" />
+      <ComboBox x:Name="MasterFx" Grid.Column="4" Width="210" Margin="0,0,16,0" />
+      <TextBlock x:Name="ProjectInfo" Grid.Column="5" VerticalAlignment="Center" Foreground="#96A1B6"
                  Text="No project loaded." />
-      <Button Grid.Column="4" Content="Open..." Click="Open_Click" Margin="0,0,6,0" />
-      <Button Grid.Column="5" Content="Save" Click="Save_Click" Margin="0,0,6,0" />
-      <Button Grid.Column="6" Content="Render WAV..." Click="Render_Click" Margin="0,0,6,0" />
-      <Button Grid.Column="7" Content="Audio Units..." Click="AudioUnits_Click" />
+      <Button Grid.Column="6" Content="Open..." Click="Open_Click" Margin="0,0,6,0" />
+      <Button Grid.Column="7" Content="Save" Click="Save_Click" Margin="0,0,6,0" />
+      <Button Grid.Column="8" Content="Render WAV..." Click="Render_Click" Margin="0,0,6,0" />
+      <Button Grid.Column="9" Content="Audio Units..." Click="AudioUnits_Click" />
     </Grid>
 
     <Grid Grid.Row="1" ColumnDefinitions="230,10,*" Margin="0,14,0,10">

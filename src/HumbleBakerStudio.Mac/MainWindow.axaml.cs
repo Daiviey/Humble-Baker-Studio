@@ -56,6 +56,7 @@ public partial class MainWindow : Window
             RefreshTracks();
         };
         BpmBox.LostFocus += (_, _) => ApplyBpm();
+        Loaded += (_, _) => RefreshAuEffects();
 
         LoadProject(_project, null);
     }
@@ -160,7 +161,7 @@ public partial class MainWindow : Window
         Status.Text = "Rendering the loop...";
         try
         {
-            short[] pcm = await Task.Run(() => ExportService.RenderPcm(_project, song: false, loop: true, master: true));
+            short[] pcm = await RenderLoop();
             try
             {
                 _audio.Play(pcm, Dsp.SR, LoopBox.IsChecked == true);
@@ -317,7 +318,7 @@ public partial class MainWindow : Window
         Status.Text = "Rendering...";
         try
         {
-            short[] pcm = await Task.Run(() => ExportService.RenderPcm(_project, song: false, loop: true, master: true));
+            short[] pcm = await RenderLoop();
             await Task.Run(() => Dsp.WriteWav(path, pcm));
             Status.Text = "Rendered " + Path.GetFileName(path);
         }
@@ -325,6 +326,48 @@ public partial class MainWindow : Window
         {
             Status.Text = "Render failed: " + ex.Message;
         }
+    }
+
+    private void RefreshAuEffects()
+    {
+        var items = new List<object> { "No AU effect" };
+        if (OperatingSystem.IsMacOS())
+        {
+            try
+            {
+                foreach (var unit in AudioUnits.List().Where(u => u.IsEffect))
+                    items.Add(unit);
+            }
+            catch (Exception ex)
+            {
+                Status.Text = "AU scan failed: " + ex.Message;
+            }
+        }
+        MasterFx.ItemsSource = items;
+        MasterFx.SelectedIndex = 0;
+    }
+
+    private async Task<short[]> RenderLoop()
+    {
+        var effect = MasterFx.SelectedItem as AudioUnitInfo;
+        return await Task.Run(() =>
+        {
+            var (left, right) = ExportService.Render(_project, song: false, loop: true, master: true);
+            if (effect != null)
+            {
+                try
+                {
+                    using var unit = AudioUnitEffect.Create(effect, Dsp.SR);
+                    unit.Process(left, right);
+                }
+                catch (Exception ex)
+                {
+                    Dispatcher.UIThread.Post(() =>
+                        Status.Text = "AU effect failed; using the dry mix: " + ex.Message);
+                }
+            }
+            return ExportService.ToPcm(left, right, true);
+        });
     }
 
     private void AudioUnits_Click(object? sender, RoutedEventArgs e) =>

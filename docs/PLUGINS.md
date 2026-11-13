@@ -7,7 +7,7 @@ engine runs. Third-party plug-in hosting is platform-specific and is tracked sep
 |---|---|---|---|
 | Windows C# | Done | Not applicable | VST3 instruments/effects on tracks and graph nodes via NAudio.Vst3; 64-bit only, no VST2. |
 | Windows PowerShell | Done, optional bridge | Not applicable | Pick a VST3 in **Tools -> VST3 plug-ins**; `hbs-vst-bridge.exe` hosts it out-of-process. 64-bit only, effects and instruments, state saved in the project. No editor window or VST2 yet. |
-| macOS app | Not applicable | Discovery only | The `.app` has CoreAudio output and lists installed AUs (`AudioComponent`). Instantiation, AU render callbacks and state are the next milestone. |
+| macOS app | Not applicable | Partial (effect hosting) | The `.app` lists AUs, instantiates AU effects and renders a loop through them (offline), with a dry fallback. AU editors, state save/restore, CoreMIDI and VST3 are next. |
 
 ## Why AU/VST is not a checkbox
 
@@ -76,6 +76,6 @@ no VST2, and effects must be 2-in/2-out.
 
 ## What is in the early macOS app
 
-The `.app` plays a project loop through CoreAudio, edits notes in a piano roll, renders WAV and
-lists Audio Units. It does **not** instantiate or render AUs yet. See [`MACOS.md`](MACOS.md)
-and [`PARITY.md`](PARITY.md).
+The `.app` plays a project loop through CoreAudio, edits notes in a piano roll, renders WAV,
+lists Audio Units and can render a loop through an AU effect. AU editors, state save/restore,
+CoreMIDI and VST3 are still pending. See [`MACOS.md`](MACOS.md) and [`PARITY.md`](PARITY.md).

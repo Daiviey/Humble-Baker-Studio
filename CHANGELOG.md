@@ -1,5 +1,11 @@
 # Changelog
 
+## macOS app 0.3.0 - 2026-11-13
+
+- **Audio Unit effect hosting**: the `.app` can render a project loop through an AU effect selected in the transport bar, with a dry fallback if instantiation/render fails. AU discovery and CoreAudio output remain available.
+- Also includes CoreAudio playback, transport, track list, click-to-edit piano roll, project open/save and WAV export from 0.2.0.
+- AU instantiation/render and AU editor hosting still need a real macOS test pass.
+
 ## macOS app 0.2.0 - 2026-11-13
 
 - **CoreAudio playback**: the `.app` renders the loop with the portable engine and streams it through AudioQueue, with Play/Stop and a live transport playhead.
