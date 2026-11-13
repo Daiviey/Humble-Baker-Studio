@@ -84,11 +84,11 @@ public sealed class BridgeHost : IDisposable
         }
     }
 
-    public byte[] Capture(string path, string classId, int sampleRate)
+    public byte[] Capture(string path, string classId, int sampleRate, byte[] state)
     {
         lock (_gate)
         {
-            var instance = Get(path, classId, sampleRate, Array.Empty<byte>());
+            var instance = Get(path, classId, sampleRate, state);
             return instance.Plugin.SaveState() ?? Array.Empty<byte>();
         }
     }
@@ -97,14 +97,17 @@ public sealed class BridgeHost : IDisposable
     {
         lock (_gate)
         {
-            string key = KeyFor(path, classId);
-            if (_instances.Remove(key, out var instance)) instance.Dispose();
+            string prefix = path + "|" + classId + "|";
+            foreach (string key in _instances.Keys.Where(k => k.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)).ToList())
+            {
+                if (_instances.Remove(key, out var instance)) instance.Dispose();
+            }
         }
     }
 
     private Instance Get(string path, string classId, int sampleRate, byte[] state)
     {
-        string key = KeyFor(path, classId);
+        string key = KeyFor(path, classId, state);
         if (_instances.TryGetValue(key, out var existing))
         {
             if (existing.IsValid && existing.SampleRate == sampleRate) return existing;
@@ -116,7 +119,17 @@ public sealed class BridgeHost : IDisposable
         return created;
     }
 
-    private static string KeyFor(string path, string classId) => path + "|" + classId;
+    // A distinct saved state gets its own instance, so loading another project cannot inherit the
+    // previous project's plug-in state.
+    private static string KeyFor(string path, string classId, byte[] state) => path + "|" + classId + "|" + StateTag(state);
+
+    private static string StateTag(byte[] state)
+    {
+        if (state == null || state.Length == 0) return "0";
+        uint hash = 2166136261;
+        foreach (byte b in state) { hash ^= b; hash *= 16777619; }
+        return state.Length.ToString() + "-" + hash.ToString("X8");
+    }
 
     public void Dispose()
     {

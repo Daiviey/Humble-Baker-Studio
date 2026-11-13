@@ -1046,7 +1046,10 @@ public static class VstBridgeClient {
                 Ensure();
                 Writer.Write(5); Writer.Flush();
                 WriteString(t.PluginPath); WriteString(t.PluginClass);
-                Writer.Write(44100); Writer.Flush();
+                Writer.Write(44100);
+                byte[] initialState = StateOf(t);
+                Writer.Write(initialState.Length); Writer.Write(initialState);
+                Writer.Flush();
                 Check();
                 int n = Reader.ReadInt32();
                 byte[] state = Reader.ReadBytes(n);
@@ -16673,10 +16676,3 @@ try { Show-AudioStudio } catch {
   try { [System.Windows.Forms.MessageBox]::Show($full, 'Humble Baker Studio failed to start') } catch { }
   exit 1
 }
-
-
-
-
-
-
-

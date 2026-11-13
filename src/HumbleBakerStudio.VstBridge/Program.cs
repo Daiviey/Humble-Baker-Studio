@@ -142,9 +142,11 @@ while (!stop.IsCancellationRequested)
                     string path = Protocol.ReadString(reader);
                     string classId = Protocol.ReadString(reader);
                     int sampleRate = reader.ReadInt32();
+                    int stateLength = reader.ReadInt32();
+                    byte[] initialState = reader.ReadBytes(stateLength);
                     try
                     {
-                        byte[] state = host.Capture(path, classId, sampleRate);
+                        byte[] state = host.Capture(path, classId, sampleRate, initialState);
                         Protocol.WriteOk(writer);
                         writer.Write(state.Length);
                         writer.Write(state);
