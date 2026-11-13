@@ -27,6 +27,8 @@
 
 ## C# port 0.5.1 - 2026-11-13
 
+- Sample tracks now honour an envelope: the existing Attack/Release knobs fade the sample in and out, the new **Gate by note length** toggle chooses whether the release applies, and the **Sample mode** combo switches between pitch, one-shot and loop. `SampleVoice` uses `Atk` instead of a fixed 40-sample fade.
+
 - **Arrangement and piano roll stay in sync**: editing a marker, changing the Song Order or changing a pattern length now refreshes the piano roll immediately.
 - Song Order sections are drawn on the piano roll as labelled colour bands, so the arrangement structure is visible while editing notes.
 - No-AI edition: the same arrangement/piano-roll sync and section bands.
