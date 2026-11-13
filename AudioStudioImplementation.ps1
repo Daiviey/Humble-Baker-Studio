@@ -3767,7 +3767,9 @@ public static class Dsp {
             double fr = pos - a;
             double x = t.Sample[a] * (1 - fr) + t.Sample[Math.Min(a + 1, t.Sample.Length - 1)] * fr;
             if (t.SampleGate) { double tm = (double)i / SR; if (tm > dur) x *= Math.Max(0, 1 - (tm - dur) / Math.Max(0.005, t.Rel)); }
-            if (i < 40) x *= i / 40.0;
+            int attackSamples = (int)(Math.Max(0.0005, t.Atk) * SR);
+            attackSamples = Math.Min(attackSamples, Math.Max(1, n / 4));
+            if (attackSamples > 0 && i < attackSamples) x *= (double)i / attackSamples;
             o[i] = (float)x;
         }
         return o;

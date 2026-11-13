@@ -21,6 +21,8 @@ internal sealed class TracksTab : UserControl
     private readonly NumericUpDown _atk = Num(0.001m, 5, 3, 0.01m);
     private readonly NumericUpDown _rel = Num(0.005m, 8, 3, 0.01m);
     private readonly NumericUpDown _crush = Num(2, 16, 0, 1);
+    private readonly ComboBox _sampleMode = new() { Width = 240, DropDownStyle = ComboBoxStyle.DropDownList };
+    private readonly CheckBox _sampleGate = new() { Text = "Gate by note length (apply release)", AutoSize = true, ForeColor = Theme.Text };
     private readonly Label _stats = new() { AutoSize = true, ForeColor = Theme.Muted, Font = Theme.Small };
     private List<InstrumentOption> _options = new();
     private bool _syncing;
@@ -49,6 +51,11 @@ internal sealed class TracksTab : UserControl
         _rows.Controls.Add(Field("Attack (s)", _atk));
         _rows.Controls.Add(Field("Release (s)", _rel));
         _rows.Controls.Add(Field("Bit crush (16 = clean)", _crush));
+        _rows.Controls.Add(Section("SAMPLE ENVELOPE"));
+        _sampleMode.Items.AddRange(new[] { "Pitch (key)", "One-shot", "Loop" });
+        _sampleMode.SelectedIndex = 0;
+        _rows.Controls.Add(Field("Sample mode", _sampleMode));
+        _rows.Controls.Add(Field("Gate by note length", _sampleGate));
         _rows.Controls.Add(Section("STATE"));
         _rows.Controls.Add(_stats);
         _rows.Controls.Add(Theme.Label("Synth patches and the full effects chain live on the Synth and Effects tabs.", Theme.Muted, Theme.Small));
@@ -78,6 +85,8 @@ internal sealed class TracksTab : UserControl
         _atk.ValueChanged += (_, _) => Apply(t => t.Atk = (double)_atk.Value);
         _rel.ValueChanged += (_, _) => Apply(t => t.Rel = (double)_rel.Value);
         _crush.ValueChanged += (_, _) => Apply(t => t.Crush = (double)_crush.Value);
+        _sampleMode.SelectedIndexChanged += (_, _) => { if (!_syncing) Apply(t => t.SampleMode = _sampleMode.SelectedIndex); };
+        _sampleGate.CheckedChanged += (_, _) => { if (!_syncing) Apply(t => t.SampleGate = _sampleGate.Checked); };
     }
 
     private static NumericUpDown Num(decimal min, decimal max, int decimals, decimal step) => new()
@@ -117,7 +126,7 @@ internal sealed class TracksTab : UserControl
         {
             _heading.Text = t == null ? "No track selected" : t.Name + " — track settings";
             _name.Enabled = _synth.Enabled = _kit.Enabled = _bus.Enabled = t != null;
-            foreach (var c in new Control[] { _vol, _pan, _cutoff, _res, _env, _atk, _rel, _crush }) c.Enabled = t != null;
+            foreach (var c in new Control[] { _vol, _pan, _cutoff, _res, _env, _atk, _rel, _crush, _sampleMode, _sampleGate }) c.Enabled = t != null;
             if (t == null) { _stats.Text = ""; return; }
 
             _name.Text = t.Name;
@@ -136,6 +145,8 @@ internal sealed class TracksTab : UserControl
             _atk.Value = Clamp((decimal)t.Atk, _atk);
             _rel.Value = Clamp((decimal)t.Rel, _rel);
             _crush.Value = Clamp((decimal)t.Crush, _crush);
+            _sampleMode.SelectedIndex = Math.Clamp(t.SampleMode, 0, _sampleMode.Items.Count - 1);
+            _sampleGate.Checked = t.SampleGate;
 
             _stats.Text =
                 $"Notes: {t.Notes.Count}\n" +
