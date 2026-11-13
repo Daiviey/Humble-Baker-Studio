@@ -11,8 +11,10 @@
 
 | Build | Get it |
 |---|---|
-| **PowerShell studio** (stable) | `Humble Baker Studio.exe` in this repository, or the [latest release](https://github.com/Daiviey/Humble-Baker-Studio/releases) |
-| **C# port** (alpha, Windows x64, no .NET install needed) | [Portable exe](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.5.0/Humble-Baker-Studio-CSharp-0.5.0-win-x64.exe) · [Zip](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.5.0/Humble-Baker-Studio-CSharp-0.5.0-win-x64.zip) · [Release notes](https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/csharp-port-v0.5.0) |
+| **PowerShell studio** (stable) | `Humble Baker Studio.exe` (**1.7 MB**, PowerShell) in this repository, or the [latest release](https://github.com/Daiviey/Humble-Baker-Studio/releases) |
+| **C# port** (alpha, Windows x64, no .NET install needed) | `CSharp-Port/Humble Baker Studio (C#).exe` (**46.7 MB**) - [Portable exe](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.5.0/Humble-Baker-Studio-CSharp-0.5.0-win-x64.exe) · [Zip](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.5.0/Humble-Baker-Studio-CSharp-0.5.0-win-x64.zip) · [Release notes](https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/csharp-port-v0.5.0) |
+
+**Not sure which build to pick?** See [docs/DOWNLOADS.md](docs/DOWNLOADS.md) for a side-by-side comparison. In short: the root `Humble Baker Studio.exe` is the PowerShell studio (about 1.7 MB); `CSharp-Port/Humble Baker Studio (C#).exe` is the C# port (about 46.7 MB).
 
 The C# source is in [`src/`](src) and the port guide is [README-CSHARP.md](README-CSHARP.md). A copy of the portable exe is committed in [`CSharp-Port/`](CSharp-Port/); release assets also live under **Releases**.
 
@@ -20,7 +22,8 @@ A local, offline audio studio for Windows: piano roll, synths, drums, sample tra
 
 ## Run
 
-- **`Humble Baker Studio.exe`** — double-click. If Windows SmartScreen warns, choose *More info → Run anyway*.
+- **`Humble Baker Studio.exe`** (**PowerShell studio, stable, about 1.7 MB**) — double-click. If Windows SmartScreen warns, choose *More info → Run anyway*.
+- **`CSharp-Port\Humble Baker Studio (C#).exe`** - C# port (alpha, about 46.7 MB). Self-contained; no .NET install required.
 - **`Humble Baker Studio.ps1`** — the launcher source; loads `AudioStudioImplementation.ps1`.
 - **`Humble Baker Studio.standalone.ps1`** — the single-file build (same studio, one script).
 
@@ -40,6 +43,8 @@ powershell -ExecutionPolicy Bypass -File ".\Humble Baker Studio.ps1"
 | [Synth Patch Reference](docs/SYNTH.md) | every synth parameter |
 | [Settings Reference](docs/SETTINGS.md) | mastering, mix rules, spectral and meta settings |
 | [Automation Painting](docs/AUTOMATION.md) | curves, layers, intersections, resolution, normalization and performance |
+| [Which build?](docs/DOWNLOADS.md) | PowerShell studio vs C# port, file names, sizes and release tags |
+| [macOS plan](docs/MACOS.md) | what a Mac port would take, what is reusable and the recommended phases |
 
 ## Requirements
 

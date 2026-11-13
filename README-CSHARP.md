@@ -17,6 +17,10 @@ See `docs/PORT.md` for the exact matrix and `docs/AUTOMATION.md` for the automat
 
 ![Sequencer](docs/screenshot-sequencer.png)
 
+> **This is the C# port.** The stable PowerShell studio is the root `Humble Baker Studio.exe`
+> (about 1.7 MB). The C# portable exe is `CSharp-Port/Humble Baker Studio (C#).exe` (about
+> 46.7 MB). See [`docs/DOWNLOADS.md`](docs/DOWNLOADS.md) for a side-by-side comparison.
+
 ## Why C#
 
 - The original app already embedded ~6,300 lines of C# for its audio engine. The port lifts
@@ -95,6 +99,13 @@ patch-graph module. The editor supports:
 ![Automation painting](docs/screenshot-automation.png)
 
 Full guide: [`docs/AUTOMATION.md`](docs/AUTOMATION.md).
+
+## macOS
+
+There is no native macOS build yet. The DSP and project format are reusable, but the UI is
+Windows Forms, playback uses `winmm`, and plug-in hosting is Windows-specific. A Mac port
+therefore means a cross-platform UI (for example Avalonia), CoreAudio output and a separate
+plug-in phase. See [`docs/MACOS.md`](docs/MACOS.md) for the full assessment and phased plan.
 
 ## Runtime dependencies
 

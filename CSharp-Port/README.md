@@ -2,9 +2,13 @@
 
 **Version 0.5.0** - Windows 10/11 x64 - self-contained, no .NET install required.
 
+**This folder is the C# port, not the PowerShell studio.** The stable PowerShell build is
+`../Humble Baker Studio.exe` (about 1.7 MB). This C# exe is about 46.7 MB and includes `(C#)`
+in its file name.
+
 ## Run
 
-Double-click **`Humble Baker Studio.exe`**. Windows SmartScreen may warn because the build is
+Double-click **`Humble Baker Studio (C#).exe`**. Windows SmartScreen may warn because the build is
 unsigned; choose *More info -> Run anyway*.
 
 The app stores its settings and renders under `%LOCALAPPDATA%\HumbleBakerStudio`. Project files
@@ -12,7 +16,7 @@ use the same `*.hbstudio.json` format as the PowerShell studio.
 
 ## What is here
 
-- `Humble Baker Studio.exe` - portable single-file build (46.7 MiB).
+- `Humble Baker Studio (C#).exe` - portable single-file build (46.7 MiB).
 - Source: [`../src`](../src)
 - Build guide: [`../README-CSHARP.md`](../README-CSHARP.md)
 - Port status: [`../docs/PORT.md`](../docs/PORT.md)

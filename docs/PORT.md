@@ -112,6 +112,12 @@ projects at once:
 - Playback is rendered once when a track loads, then mixed live at 1024-frame blocks. Loading
   a long song takes as long as an offline render; transitions themselves are instant.
 
+## macOS
+
+A native macOS build is not available. The reusable core is the DSP/project model; the
+WinForms UI, `winmm` playback and Windows VST3 host must be replaced. See
+[`MACOS.md`](MACOS.md) for the feasibility assessment and recommended phases.
+
 ## Next steps
 
 1. SuperCollider live sessions and the OSC bridge (the `.scd` export is in place).

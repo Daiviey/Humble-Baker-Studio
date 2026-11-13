@@ -3,6 +3,16 @@
 GitHub release assets are not stored in the file tree. Use the links below or open the
 [Releases page](https://github.com/Daiviey/Humble-Baker-Studio/releases).
 
+## Which build is which?
+
+| Build | Release tag pattern | Portable file |
+|---|---|---|
+| **PowerShell studio** (stable) | `v1.0.x` | `Humble Baker Studio.exe` (about 1.7 MB) |
+| **C# port** (alpha) | `csharp-port-v0.x.x` | `CSharp-Port/Humble Baker Studio (C#).exe` (about 46.7 MB) |
+
+C# release assets always include `CSharp` in the file name. See
+[`docs/DOWNLOADS.md`](docs/DOWNLOADS.md) for a full comparison.
+
 ## C# port (alpha, Windows x64)
 
 | Version | Downloads | Notes |
@@ -24,7 +34,8 @@ GitHub release assets are not stored in the file tree. Use the links below or op
 
 C# source: [`src/`](src) - build guide: [README-CSHARP.md](README-CSHARP.md) - port status: [docs/PORT.md](docs/PORT.md).
 
-The portable exe is also committed in the repository at [`CSharp-Port/Humble Baker Studio.exe`](CSharp-Port/Humble%20Baker%20Studio.exe).
+The portable exe is also committed in the repository at
+[`CSharp-Port/Humble Baker Studio (C#).exe`](CSharp-Port/Humble%20Baker%20Studio%20%28C%23%29.exe).
 
 A copy of the latest C# build is also kept locally in `Z:\LocalAI\Repo\release\csharp-v0.5.0\`
 and as `Z:\LocalAI\Repo\release\Humble-Baker-Studio-CSharp-0.5.0-win-x64.zip`.
