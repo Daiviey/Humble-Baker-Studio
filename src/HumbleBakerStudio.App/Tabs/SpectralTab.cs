@@ -205,9 +205,11 @@ internal sealed class SpectralTab : UserControl
             Theme.Button("Save WAV...", (_, _) => SaveSpectralWav())));
         _spectralTools.Controls.Add(Theme.Button("Save as instrument", (_, _) => SaveSpectralInstrument()));
 
+#if !HBS_NO_AI
         _spectralTools.Controls.Add(Theme.SectionLabel("AI painting"));
         _spectralTools.Controls.Add(_specPrompt);
         _spectralTools.Controls.Add(_specAiButton);
+#endif
         _spectralTools.Controls.Add(_spectralState);
     }
 
@@ -458,9 +460,11 @@ internal sealed class SpectralTab : UserControl
             Theme.Button("Render evolving sound to new track", (_, _) => RenderMetaToTrack(), true),
             Theme.Button("Save WAV...", (_, _) => SaveMetaWav())));
         right.Controls.Add(Theme.Button("Save as instrument (4 patches)", (_, _) => SaveMetaInstrument()));
+#if !HBS_NO_AI
         right.Controls.Add(Theme.SectionLabel("AI morph design"));
         right.Controls.Add(_metaPrompt);
         right.Controls.Add(_metaAiButton);
+#endif
         right.Controls.Add(_metaState);
         right.Controls.Add(Theme.SectionLabel("Morph settings"));
         right.Controls.Add(_metaKnobs);

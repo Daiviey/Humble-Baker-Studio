@@ -3,8 +3,9 @@
 **Version 0.5.0** - Windows 10/11 x64 - self-contained, no .NET install required.
 
 This is the deterministic edition of the C# port. It is the same app as the standard C# build,
-without the generative AI tab, toolbar button or AI menu entries. The **Patterns** tab replaces
-them with a curated library of pre-programmed MIDI examples.
+without the generative AI tab, toolbar button, AI menu entries or AI design buttons in the
+spectral/meta editors. The **Patterns** tab replaces them with a curated library of
+pre-programmed MIDI examples.
 
 The stable PowerShell studio is `../Humble Baker Studio.exe` (about 1.7 MB). This No-AI exe is
 about 46.7 MB.

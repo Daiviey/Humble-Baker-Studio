@@ -110,8 +110,8 @@ composition tools. Build it with:
 # dist-noai\Humble Baker Studio (No AI).exe
 ```
 
-In this edition the AI tab and AI toolbar/menu entries are absent, and a **Patterns** tab is the
-main writing assistant. It contains a curated library of pre-programmed MIDI examples for drums,
+In this edition the AI tab, AI toolbar/menu entries and the AI design buttons in the
+spectral/meta editors are absent, and a **Patterns** tab is the main writing assistant. It contains a curated library of pre-programmed MIDI examples for drums,
 bass, chords, leads, arpeggios and counter-melodies. You choose:
 
 - role, style and mood

@@ -11,7 +11,7 @@ format, so projects open in both.
 | **Release asset name** | `Humble-Baker-Studio-v<version>.zip` / the repo exe | `Humble-Baker-Studio-CSharp-<version>-win-x64.exe` | `Humble-Baker-Studio-CSharp-NoAI-<version>-win-x64.exe` |
 | **Runtime** | Windows PowerShell 5.1 + .NET Framework 4.8 | Self-contained; no .NET install required | Self-contained; no .NET install required |
 | **UI** | PowerShell/WinForms | Native .NET/WinForms | Native .NET/WinForms |
-| **Best for** | The most complete feature set, including the SuperCollider live bridge and FLUX spectral photo mode | Faster native app, VST3 hosting, the newest automation painter | A deterministic workflow with no generative AI: a pre-programmed MIDI pattern library replaces the AI tab |
+| **Best for** | The most complete feature set, including the SuperCollider live bridge and FLUX spectral photo mode | Faster native app, VST3 hosting, the newest automation painter | A deterministic workflow with no generative AI: a pre-programmed MIDI pattern library replaces the AI tab and the AI design buttons |
 
 ## How to tell them apart
 
