@@ -3,7 +3,7 @@
 **Version 0.5.0** - Windows 10/11 x64 - self-contained, no .NET install required.
 
 **This folder is the C# port, not the PowerShell studio.** The stable PowerShell build is
-`../Humble Baker Studio.exe` (about 1.7 MB). This C# exe is about 46.7 MB and includes `(C#)`
+`../Humble Baker Studio.exe` (about 1.9 MB). This C# exe is about 46.7 MB and includes `(C#)`
 in its file name.
 
 ## Run

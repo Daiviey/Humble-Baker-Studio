@@ -49,6 +49,11 @@ and as `Z:\LocalAI\Repo\release\Humble-Baker-Studio-CSharp-0.5.0-win-x64.zip`.
 
 ## PowerShell studio (stable)
 
-The packaged app is tracked in this repository as `Humble Baker Studio.exe`. Previous packaged
-versions are listed on the [Releases page](https://github.com/Daiviey/Humble-Baker-Studio/releases);
-the current version is **v1.0.22**.
+| Version | Downloads | Notes |
+|---|---|---|
+| **v1.0.23** | [Zip](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/v1.0.23/Humble-Baker-Studio-v1.0.23.zip) | Automation canvas 1024 x 256, faster LockBits rendering and binary-search lane lookup. The layered/intersection/snapshot automation, deterministic patterns and VST3 hosting remain C#-only or planned (see `docs/PARITY.md`). |
+
+The packaged app is tracked in this repository as `Humble Baker Studio.exe` (about 1.9 MB,
+PowerShell studio). Previous packaged versions are listed on the
+[Releases page](https://github.com/Daiviey/Humble-Baker-Studio/releases); the current version is
+**v1.0.23**.

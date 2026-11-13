@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.23 - 2026-11-13
+
+- **PowerShell automation performance**: `AutoLane.At` now uses binary search, so dense lanes are `O(log n)` rather than scanning every point during playback.
+- **Higher-resolution automation canvas**: the PowerShell automation painter is now **1024 x 256** (up from 160 x 64), with a larger default brush and faster LockBits bitmap rendering.
+- Rebuilt the PowerShell executable and standalone build with version metadata **1.0.23**.
+- The layered/intersection/snapshot automation, deterministic pattern library/No-AI edition and VST3 hosting remain C#-only or planned; see `docs/PARITY.md`.
+
 ## C# port 0.5.0 - 2026-11-13
 
 - **Spectral paint parity**: seven brushes, image import, spectrogram from a track, harmonic stacks, undo, audition, WAV/sample-track export, AI shape drawing, the shared instrument library and full meta-synth parity (morph pad, apply/render, AI patch design, morph instrument save/load).

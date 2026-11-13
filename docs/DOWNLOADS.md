@@ -6,8 +6,8 @@ format, so projects open in both.
 | | PowerShell studio (stable) | C# port (alpha) | C# No-AI edition |
 |---|---|---|---|
 | **Find it in the repo** | `Humble Baker Studio.exe` | `CSharp-Port/Humble Baker Studio (C#).exe` | build with `.\build.ps1 -NoAi`; release asset `Humble-Baker-Studio-CSharp-NoAI-...` |
-| **Approx. size** | 1.7 MB | 46.7 MB | 46.7 MB |
-| **Release tag** | `v1.0.22` (tags without a prefix) | `csharp-port-v0.5.0` (tags start with `csharp-port-`) | `csharp-port-v0.5.0` (separate asset) |
+| **Approx. size** | 1.9 MB | 46.7 MB | 46.7 MB |
+| **Release tag** | `v1.0.23` (tags without a prefix) | `csharp-port-v0.5.0` (tags start with `csharp-port-`) | `csharp-port-v0.5.0` (separate asset) |
 | **Release asset name** | `Humble-Baker-Studio-v<version>.zip` / the repo exe | `Humble-Baker-Studio-CSharp-<version>-win-x64.exe` | `Humble-Baker-Studio-CSharp-NoAI-<version>-win-x64.exe` |
 | **Runtime** | Windows PowerShell 5.1 + .NET Framework 4.8 | Self-contained; no .NET install required | Self-contained; no .NET install required |
 | **UI** | PowerShell/WinForms | Native .NET/WinForms | Native .NET/WinForms |
@@ -15,7 +15,7 @@ format, so projects open in both.
 
 ## How to tell them apart
 
-- **File size**: about **1.7 MB** = PowerShell studio. About **46.7 MB** = C# port.
+- **File size**: about **1.9 MB** = PowerShell studio. About **46.7 MB** = C# port.
 - **Folder**: the C# copy lives in the `CSharp-Port` folder and the file name includes `(C#)`.
 - **Release tag**: C# releases always start with `csharp-port-`.
 - **Release asset**: C# assets include `CSharp` in the file name; PowerShell releases do not.
@@ -48,6 +48,7 @@ The C# port additionally has:
 
 The PowerShell studio has:
 
+- a 1024 x 256 automation canvas, fast LockBits rendering and binary-search lane lookup
 - the SuperCollider live session/OSC bridge
 - the FLUX photo/illustration mode in the spectral painter
 - the original PowerShell scripting and automation hooks

@@ -907,16 +907,19 @@ public class AutoLane {
     public AutoLane Clone() { AutoLane a = new AutoLane(Track, Param); foreach (double[] p in Points) a.Points.Add(new double[] { p[0], p[1] }); return a; }
     public static double Neutral(string param) { return param.StartsWith("p:") ? double.NaN : param == "lp" ? 20000 : param == "hp" ? 20 : param == "pan" ? 0 : 1; }
     public double At(double beat) {
-        if (Points.Count == 0 || beat < Points[0][0]) return Neutral(Param);
-        for (int i = 0; i < Points.Count - 1; i++) {
-            double a = Points[i][0], b = Points[i + 1][0];
-            if (beat >= a && beat < b) {
-                double t = b - a < 1e-9 ? 1 : (beat - a) / (b - a), va = Points[i][1], vb = Points[i + 1][1];
-                if ((Param == "lp" || Param == "hp") && va > 0 && vb > 0) return Math.Exp(Math.Log(va) * (1 - t) + Math.Log(vb) * t);
-                return va + (vb - va) * t;
-            }
+        int n = Points.Count;
+        if (n == 0 || beat < Points[0][0]) return Neutral(Param);
+        if (beat >= Points[n - 1][0]) return Points[n - 1][1];
+        int lo = 0, hi = n - 1;
+        while (lo + 1 < hi) {
+            int mid = (lo + hi) >> 1;
+            if (Points[mid][0] <= beat) lo = mid; else hi = mid;
         }
-        return Points[Points.Count - 1][1];
+        double a = Points[lo][0], b = Points[hi][0];
+        double t = b - a < 1e-9 ? 1 : (beat - a) / (b - a);
+        double va = Points[lo][1], vb = Points[hi][1];
+        if ((Param == "lp" || Param == "hp") && va > 0 && vb > 0) return Math.Exp(Math.Log(va) * (1 - t) + Math.Log(vb) * t);
+        return va + (vb - va) * t;
     }
 }
 
@@ -1465,7 +1468,7 @@ public class SpectralSettings {
 
 public class SpectralGrid {
     public int Cols, Rows; public float[] A;
-    public SpectralGrid(int cols, int rows) { Cols = Math.Max(8, Math.Min(512, cols)); Rows = Math.Max(8, Math.Min(256, rows)); A = new float[Cols * Rows]; }
+    public SpectralGrid(int cols, int rows) { Cols = Math.Max(8, Math.Min(4096, cols)); Rows = Math.Max(8, Math.Min(512, rows)); A = new float[Cols * Rows]; }
     public float Get(int c, int r) { return A[c * Rows + r]; }
     public void Clear() { Array.Clear(A, 0, A.Length); }
 
@@ -1520,12 +1523,22 @@ public class SpectralGrid {
         }
     }
     public Bitmap ToBitmap() {
-        Bitmap b = new Bitmap(Cols, Rows);
+        Bitmap b = new Bitmap(Cols, Rows, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        var data = b.LockBits(new Rectangle(0, 0, Cols, Rows), System.Drawing.Imaging.ImageLockMode.WriteOnly, b.PixelFormat);
+        int stride = data.Stride;
+        byte[] buf = new byte[stride * Rows];
         for (int c = 0; c < Cols; c++) for (int r = 0; r < Rows; r++) {
             double v = Math.Max(0, Math.Min(1, A[c * Rows + r]));
             int R = (int)(255 * Math.Min(1, v * 2.2)), G = (int)(255 * Math.Max(0, Math.Min(1, v * 2.2 - 0.8))), B2 = (int)(200 * Math.Max(0, 1 - v * 1.5) + 255 * Math.Max(0, v - 0.85));
-            b.SetPixel(c, Rows - 1 - r, Color.FromArgb(Math.Min(255, R / 2 + (int)(B2 * 0.2)), G, Math.Min(255, B2 + R / 4)));
+            int rr = Math.Min(255, R / 2 + (int)(B2 * 0.2)), bb = Math.Min(255, B2 + R / 4);
+            int i = (Rows - 1 - r) * stride + c * 4;
+            buf[i] = (byte)Math.Max(0, Math.Min(255, bb));
+            buf[i + 1] = (byte)Math.Max(0, Math.Min(255, G));
+            buf[i + 2] = (byte)Math.Max(0, Math.Min(255, rr));
+            buf[i + 3] = 255;
         }
+        System.Runtime.InteropServices.Marshal.Copy(buf, 0, data.Scan0, buf.Length);
+        b.UnlockBits(data);
         return b;
     }
 }
@@ -10809,7 +10822,7 @@ function Show-AudioStudio {
     $tAuto.BackColor = $dk.Bg
     
     # Automation painting controls
-    $S.AutoGrid = New-Object HbStudio.SpectralGrid 160, 64; $S.AutoSet = New-Object HbStudio.SpectralSettings; $script:AutoUi = $S
+    $S.AutoGrid = New-Object HbStudio.SpectralGrid 1024, 256; $S.AutoSet = New-Object HbStudio.SpectralSettings; $script:AutoUi = $S
     $S.AutoPic = New-Object Windows.Forms.PictureBox; $S.AutoPic.SetBounds(4, 24, 640, 256); $S.AutoPic.BackColor = [Drawing.Color]::Black; $S.AutoPic.BorderStyle = 'FixedSingle'; $S.AutoPic.Cursor = 'Cross'
     $tAuto.Controls.Add((Lbl 'Paint a parameter curve: bottom = low value, top = high value.' 4 4 500))
     
@@ -10835,7 +10848,7 @@ function Show-AudioStudio {
     $tAuto.Controls.Add($S.AutoMap)
     
     # Brush size
-    $tAuto.Controls.Add((Lbl 'Brush size' 950 112 80)); $S.AutoBrushSize = Num 3 1 20 0.5 1 1030 108 52
+    $tAuto.Controls.Add((Lbl 'Brush size' 950 112 80)); $S.AutoBrushSize = Num 12 1 60 0.5 1 1030 108 52
     # Z axis: the brightness (density) of the painted column, not just its vertical position.
     $tAuto.Controls.Add((Lbl 'Z axis' 1260 112 56))
     $S.AutoZ = Combo @('Depth (scale value)', 'Direct value', 'Off (position only)') 1316 108 154 26; $S.AutoZ.SelectedIndex = 0

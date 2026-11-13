@@ -15,7 +15,7 @@ Status values: **Done**, **Partial**, **Planned**, **Windows-only**.
 | Spectral painting | Done | Done | Done (incl. FLUX) | Done (engine) | Planned |
 | Meta synth | Done | Done | Done | Done (engine) | Planned |
 | Automation painting (basic curves) | Done | Done | Done | Done (engine) | Planned |
-| Automation layers, intersections, high-res, snapshots | Done | Done | **Missing** | Done (engine) | Planned |
+| Automation layers, intersections, high-res, snapshots | Done | Done | **Partial** (high-res + fast lookup done; layers/intersections/snapshots missing) | Done (engine) | Planned |
 | Instrument library save/load (spectral/morph) | Done | Done | Done | Done (engine) | Planned |
 | Deterministic pattern library / No-AI edition | Done | Done | **Missing** | Done (engine) | Planned |
 | VST3 instruments and effects | Done | Done | Missing | Planned | Planned |
@@ -85,13 +85,15 @@ And it publishes for Apple Silicon:
 The PowerShell studio already has spectral painting, the meta synth and the original automation
 painter. The workstream to reach C# parity is:
 
-1. port the portable `AutoLane` binary-search lookup, high-resolution canvas and LockBits
-   rendering into the embedded engine
+1. ~~port the portable `AutoLane` binary-search lookup, high-resolution canvas and LockBits
+   rendering into the embedded engine~~ (done in 1.0.23)
 2. add automation display snapshots to `AutoLane` and the PowerShell project reader/writer
 3. add per-stroke layer capture, intersection separation, amplitude normalization and mix modes
 4. add the deterministic pattern library and a No-AI switch
 5. validate by launching `Humble Baker Studio.ps1` from a PowerShell host and rebuilding the
    packaged exe with ps2exe
 
-Until those steps are complete, the PowerShell release stays at 1.0.22 and the matrix above is
-the source of truth for what each build contains.
+PowerShell **1.0.23** ships the high-resolution automation canvas, LockBits rendering and
+binary-search lane lookup. The remaining steps are the snapshot/layer/intersection work, the
+deterministic pattern tab and VST3; the matrix above is the source of truth for what each build
+contains.

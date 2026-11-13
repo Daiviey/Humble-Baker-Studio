@@ -11,11 +11,11 @@
 
 | Build | Get it |
 |---|---|
-| **PowerShell studio** (stable) | `Humble Baker Studio.exe` (**1.7 MB**, PowerShell) in this repository, or the [latest release](https://github.com/Daiviey/Humble-Baker-Studio/releases) |
+| **PowerShell studio** (stable) | `Humble Baker Studio.exe` (**1.9 MB**, PowerShell) in this repository, or the [latest release](https://github.com/Daiviey/Humble-Baker-Studio/releases) |
 | **C# port** (alpha, Windows x64, no .NET install needed) | `CSharp-Port/Humble Baker Studio (C#).exe` (**46.7 MB**) - [Portable exe](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.5.0/Humble-Baker-Studio-CSharp-0.5.0-win-x64.exe) · [Zip](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.5.0/Humble-Baker-Studio-CSharp-0.5.0-win-x64.zip) · [Release notes](https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/csharp-port-v0.5.0) |
 | **C# No-AI edition** (alpha, deterministic patterns, no generative AI) | [Portable exe](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.5.0/Humble-Baker-Studio-CSharp-NoAI-0.5.0-win-x64.exe) - [Zip](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/csharp-port-v0.5.0/Humble-Baker-Studio-CSharp-NoAI-0.5.0-win-x64.zip) - [No-AI notes](CSharp-Port/README-NoAI.md) |
 
-**Not sure which build to pick?** See [docs/DOWNLOADS.md](docs/DOWNLOADS.md) for a side-by-side comparison. In short: the root `Humble Baker Studio.exe` is the PowerShell studio (about 1.7 MB); `CSharp-Port/Humble Baker Studio (C#).exe` is the C# port (about 46.7 MB); the No-AI edition is the same C# app with the AI tab replaced by a deterministic pattern library.
+**Not sure which build to pick?** See [docs/DOWNLOADS.md](docs/DOWNLOADS.md) for a side-by-side comparison. In short: the root `Humble Baker Studio.exe` is the PowerShell studio (about 1.9 MB); `CSharp-Port/Humble Baker Studio (C#).exe` is the C# port (about 46.7 MB); the No-AI edition is the same C# app with the AI tab replaced by a deterministic pattern library.
 
 The C# source is in [`src/`](src) and the port guide is [README-CSHARP.md](README-CSHARP.md). A copy of the portable exe is committed in [`CSharp-Port/`](CSharp-Port/); release assets also live under **Releases**.
 
@@ -23,7 +23,7 @@ A local, offline audio studio for Windows: piano roll, synths, drums, sample tra
 
 ## Run
 
-- **`Humble Baker Studio.exe`** (**PowerShell studio, stable, about 1.7 MB**) — double-click. If Windows SmartScreen warns, choose *More info → Run anyway*.
+- **`Humble Baker Studio.exe`** (**PowerShell studio, stable, about 1.9 MB**) — double-click. If Windows SmartScreen warns, choose *More info → Run anyway*.
 - **`CSharp-Port\Humble Baker Studio (C#).exe`** - C# port (alpha, about 46.7 MB). Self-contained; no .NET install required.
 - **`Humble Baker Studio.ps1`** — the launcher source; loads `AudioStudioImplementation.ps1`.
 - **`Humble Baker Studio.standalone.ps1`** — the single-file build (same studio, one script).

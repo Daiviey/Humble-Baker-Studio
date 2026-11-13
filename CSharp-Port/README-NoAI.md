@@ -7,7 +7,7 @@ without the generative AI tab, toolbar button, AI menu entries or AI design butt
 spectral/meta editors. The **Patterns** tab replaces them with a curated library of
 pre-programmed MIDI examples.
 
-The stable PowerShell studio is `../Humble Baker Studio.exe` (about 1.7 MB). This No-AI exe is
+The stable PowerShell studio is `../Humble Baker Studio.exe` (about 1.9 MB). This No-AI exe is
 about 46.7 MB.
 
 ## Run

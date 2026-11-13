@@ -18,7 +18,7 @@ See `docs/PORT.md` for the exact matrix and `docs/AUTOMATION.md` for the automat
 ![Sequencer](docs/screenshot-sequencer.png)
 
 > **This is the C# port.** The stable PowerShell studio is the root `Humble Baker Studio.exe`
-> (about 1.7 MB). The C# portable exe is `CSharp-Port/Humble Baker Studio (C#).exe` (about
+> (about 1.9 MB). The C# portable exe is `CSharp-Port/Humble Baker Studio (C#).exe` (about
 > 46.7 MB). See [`docs/DOWNLOADS.md`](docs/DOWNLOADS.md) for a side-by-side comparison.
 
 ## Why C#
