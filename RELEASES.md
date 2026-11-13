@@ -45,7 +45,8 @@ and as `Z:\LocalAI\Repo\release\Humble-Baker-Studio-CSharp-0.5.0-win-x64.zip`.
 
 | Version | Downloads | Notes |
 |---|---|---|
-| **CLI v0.1.0** | [Apple Silicon](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/macos-cli-v0.1.0/hbs-render-osx-arm64) - [Intel](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/macos-cli-v0.1.0/hbs-render-osx-x64) | Headless cross-platform renderer; not the full GUI. Loads `*.hbstudio.json`, renders stereo WAV. The native UI is the next phase. |
+| **App v0.1.0** | [Apple Silicon](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/macos-app-v0.1.0/Humble-Baker-Studio-macOS-osx-arm64-v0.1.0.zip) - [Intel](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/macos-app-v0.1.0/Humble-Baker-Studio-macOS-osx-x64-v0.1.0.zip) | Early native Avalonia `.app`. Renders the demo project or opens a `*.hbstudio.json` and renders WAV. The full editor, CoreAudio and plug-ins are next. |
+| **CLI v0.1.0** | [Apple Silicon](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/macos-cli-v0.1.0/hbs-render-osx-arm64) - [Intel](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/macos-cli-v0.1.0/hbs-render-osx-x64) | Headless cross-platform renderer; not the full GUI. Loads `*.hbstudio.json`, renders stereo WAV. |
 
 ## PowerShell studio (stable)
 

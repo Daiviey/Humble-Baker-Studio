@@ -128,10 +128,16 @@ The standard build keeps the local-AI tools; the No-AI edition is the same codeb
 ## macOS
 
 The portable core is now in place: `HumbleBakerStudio.Audio` multi-targets `net8.0`, and
-`src/HumbleBakerStudio.Cli` is a headless renderer that publishes for `osx-arm64` and
-`osx-x64` with `.\build-macos.ps1`. The native UI is the next milestone: an Avalonia shell with
-CoreAudio output, followed by the editors and plug-in phase. See
-[`docs/MACOS.md`](docs/MACOS.md) and the platform matrix in
+`src/HumbleBakerStudio.Cli` is a headless renderer. There is also an early native **Avalonia
+`.app`** that renders the demo project or opens a `*.hbstudio.json` and renders WAV:
+
+```powershell
+.\build-macos-app.ps1 -Runtime osx-arm64
+# dist-macos\app-osx-arm64\Humble Baker Studio.app
+```
+
+`osx-x64` builds the Intel bundle. The full editor UI and CoreAudio output are the next
+milestones. See [`docs/MACOS.md`](docs/MACOS.md) and the platform matrix in
 [`docs/PARITY.md`](docs/PARITY.md).
 
 ## Runtime dependencies

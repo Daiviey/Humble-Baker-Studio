@@ -1,0 +1,33 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="HumbleBakerStudio.Mac.MainWindow"
+        Title="Humble Baker Studio"
+        Width="760" Height="560"
+        MinWidth="620" MinHeight="440"
+        Background="#101218">
+  <Grid Margin="28" RowDefinitions="Auto,Auto,Auto,*,Auto">
+    <TextBlock Grid.Row="0"
+               Text="Humble Baker Studio"
+               FontSize="32" FontWeight="Bold" Foreground="#EAEEF6" />
+    <TextBlock Grid.Row="1"
+               Margin="0,8,0,20"
+               TextWrapping="Wrap"
+               Foreground="#96A1B6"
+               Text="macOS early port. This native shell uses the cross-platform Humble Baker Studio engine to load *.hbstudio.json projects and render stereo WAV audio. The editors, CoreAudio playback and plug-in hosting are the next milestones." />
+    <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="10">
+      <Button Content="Render demo WAV" Click="RenderDemo_Click" />
+      <Button Content="Open project and render..." Click="RenderProject_Click" />
+    </StackPanel>
+    <Border Grid.Row="3" Margin="0,20,0,12" Padding="16"
+            Background="#181B23" BorderBrush="#363D4E" BorderThickness="1"
+            CornerRadius="6">
+      <TextBlock x:Name="Status"
+                 Foreground="#EAEEF6"
+                 TextWrapping="Wrap"
+                 Text="Ready." />
+    </Border>
+    <TextBlock Grid.Row="4"
+               Foreground="#616B80"
+               Text="The full editor is being ported in phases. Engine/project format: Done. Native UI/audio: in progress." />
+  </Grid>
+</Window>

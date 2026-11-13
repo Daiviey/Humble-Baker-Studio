@@ -28,11 +28,22 @@ The portable foundation is in place:
 
   `osx-x64` is also supported by the same script.
 
-An early **CLI preview** is attached to the
-[macOS CLI v0.1.0 release](https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/macos-cli-v0.1.0)
-(Apple Silicon and Intel). It is a headless renderer, not the GUI.
+- The early **native shell** is now an Avalonia `.app`. It can render the demo project and open
+  a `*.hbstudio.json` project and render it to WAV. Build it with:
 
-The next milestone is the Avalonia shell and a CoreAudio output backend. See
+  ```powershell
+  .\build-macos-app.ps1 -Runtime osx-arm64
+  # dist-macos\app-osx-arm64\Humble Baker Studio.app
+  # dist-macos\Humble-Baker-Studio-macOS-osx-arm64-v0.1.0.zip
+  ```
+
+  `osx-x64` builds the same bundle for Intel. The bundles are unsigned and the full editor is
+  still being ported.
+
+An early **CLI preview** is also attached to the
+[macOS CLI v0.1.0 release](https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/macos-cli-v0.1.0).
+
+The next milestone is the full editor UI and CoreAudio output. See
 [`PARITY.md`](PARITY.md) for the feature matrix and workstreams.
 
 The PowerShell studio is Windows-only as well (Windows PowerShell 5.1, .NET Framework and

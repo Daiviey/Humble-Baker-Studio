@@ -15,6 +15,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HumbleBakerStudio.Audio.Tes
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HumbleBakerStudio.Cli", "src\HumbleBakerStudio.Cli\HumbleBakerStudio.Cli.csproj", "{D524D32E-ADDF-4CA7-BCCA-D5B3ED4F3B08}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HumbleBakerStudio.Mac", "src\HumbleBakerStudio.Mac\HumbleBakerStudio.Mac.csproj", "{A9B7C89B-783D-4E03-90AF-AAAE963E01FF}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -73,6 +75,18 @@ Global
 		{D524D32E-ADDF-4CA7-BCCA-D5B3ED4F3B08}.Release|x64.Build.0 = Release|Any CPU
 		{D524D32E-ADDF-4CA7-BCCA-D5B3ED4F3B08}.Release|x86.ActiveCfg = Release|Any CPU
 		{D524D32E-ADDF-4CA7-BCCA-D5B3ED4F3B08}.Release|x86.Build.0 = Release|Any CPU
+		{A9B7C89B-783D-4E03-90AF-AAAE963E01FF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A9B7C89B-783D-4E03-90AF-AAAE963E01FF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A9B7C89B-783D-4E03-90AF-AAAE963E01FF}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{A9B7C89B-783D-4E03-90AF-AAAE963E01FF}.Debug|x64.Build.0 = Debug|Any CPU
+		{A9B7C89B-783D-4E03-90AF-AAAE963E01FF}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{A9B7C89B-783D-4E03-90AF-AAAE963E01FF}.Debug|x86.Build.0 = Debug|Any CPU
+		{A9B7C89B-783D-4E03-90AF-AAAE963E01FF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A9B7C89B-783D-4E03-90AF-AAAE963E01FF}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A9B7C89B-783D-4E03-90AF-AAAE963E01FF}.Release|x64.ActiveCfg = Release|Any CPU
+		{A9B7C89B-783D-4E03-90AF-AAAE963E01FF}.Release|x64.Build.0 = Release|Any CPU
+		{A9B7C89B-783D-4E03-90AF-AAAE963E01FF}.Release|x86.ActiveCfg = Release|Any CPU
+		{A9B7C89B-783D-4E03-90AF-AAAE963E01FF}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -82,5 +96,6 @@ Global
 		{1AD9CCC3-04FD-4BA1-88EC-BDEE424B27A7} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{AFE145D0-9953-43F7-A08D-C8E837699A36} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{D524D32E-ADDF-4CA7-BCCA-D5B3ED4F3B08} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
+		{A9B7C89B-783D-4E03-90AF-AAAE963E01FF} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 	EndGlobalSection
 EndGlobal

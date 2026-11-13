@@ -1,5 +1,11 @@
 # Changelog
 
+## macOS app 0.1.0 - 2026-11-13
+
+- Added the first native macOS `.app`: an Avalonia shell around the portable engine. It can render the demo project or open a `*.hbstudio.json` and render a stereo WAV.
+- Added `build-macos-app.ps1`, which publishes and packages `Humble Baker Studio.app` for `osx-arm64` and `osx-x64`, preserving the executable permission in the zip.
+- The full editor UI, CoreAudio playback, MIDI and VST3 hosting remain the next phases.
+
 ## 1.0.23 - 2026-11-13
 
 - **PowerShell automation performance**: `AutoLane.At` now uses binary search, so dense lanes are `O(log n)` rather than scanning every point during playback.
