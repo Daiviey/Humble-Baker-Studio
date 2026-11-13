@@ -28,6 +28,10 @@ The portable foundation is in place:
 
   `osx-x64` is also supported by the same script.
 
+An early **CLI preview** is attached to the
+[macOS CLI v0.1.0 release](https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/macos-cli-v0.1.0)
+(Apple Silicon and Intel). It is a headless renderer, not the GUI.
+
 The next milestone is the Avalonia shell and a CoreAudio output backend. See
 [`PARITY.md`](PARITY.md) for the feature matrix and workstreams.
 

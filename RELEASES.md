@@ -41,6 +41,12 @@ The portable exe is also committed in the repository at
 A copy of the latest C# build is also kept locally in `Z:\LocalAI\Repo\release\csharp-v0.5.0\`
 and as `Z:\LocalAI\Repo\release\Humble-Baker-Studio-CSharp-0.5.0-win-x64.zip`.
 
+## macOS (early port)
+
+| Version | Downloads | Notes |
+|---|---|---|
+| **CLI v0.1.0** | [Apple Silicon](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/macos-cli-v0.1.0/hbs-render-osx-arm64) - [Intel](https://github.com/Daiviey/Humble-Baker-Studio/releases/download/macos-cli-v0.1.0/hbs-render-osx-x64) | Headless cross-platform renderer; not the full GUI. Loads `*.hbstudio.json`, renders stereo WAV. The native UI is the next phase. |
+
 ## PowerShell studio (stable)
 
 The packaged app is tracked in this repository as `Humble Baker Studio.exe`. Previous packaged

@@ -79,6 +79,8 @@ Prebuilt portable build: [C# port v0.5.0](https://github.com/Daiviey/Humble-Bake
 
 The **No-AI edition** removes the generative AI tab, toolbar button and menu entries and replaces them with a **Patterns** tab: a curated library of pre-programmed MIDI examples selected by role, style, mood, energy, complexity, density and a reproducible seed. Build it with `.\build.ps1 -NoAi` or download `Humble-Baker-Studio-CSharp-NoAI-0.5.0-win-x64.exe` from the same release.
 
+The **macOS port** has started: the engine now targets `net8.0` and a headless renderer publishes for Apple Silicon and Intel. The native UI is the next phase. See [docs/MACOS.md](docs/MACOS.md) and [docs/PARITY.md](docs/PARITY.md).
+
 ## Features
 
 - **Piano roll** with scales, snap, velocity, note lengths, and per-track drums/melody parts.
