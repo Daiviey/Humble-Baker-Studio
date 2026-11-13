@@ -89,8 +89,7 @@ internal sealed class ArrangementTab : UserControl
             if (p == null || p.Name == _patternName.Text) return;
             _host.BeginEdit("pattern");
             p.Name = _patternName.Text.Trim();
-            _host.MarkDirty();
-            RefreshLists();
+            _host.NotifyArrangementChanged();
         };
         _patternBars.ValueChanged += (_, _) =>
         {
@@ -98,8 +97,7 @@ internal sealed class ArrangementTab : UserControl
             if (p == null) return;
             _host.BeginEdit("pattern");
             p.Bars = (int)_patternBars.Value;
-            _host.MarkDirty();
-            RefreshLists();
+            _host.NotifyArrangementChanged();
         };
         return panel;
     }
@@ -140,8 +138,7 @@ internal sealed class ArrangementTab : UserControl
             if (it.Bars == (int)_itemBars.Value) return;
             _host.BeginEdit("song");
             it.Bars = (int)_itemBars.Value;
-            _host.MarkDirty();
-            RefreshLists();
+            _host.NotifyArrangementChanged();
         };
         return panel;
     }
@@ -200,8 +197,7 @@ internal sealed class ArrangementTab : UserControl
         m.Beat = (double)_markerBeat.Value;
         m.Name = string.IsNullOrWhiteSpace(_markerName.Text) ? "Marker" : _markerName.Text.Trim();
         m.Energy = Math.Clamp((int)_markerEnergy.Value, 1, 10);
-        _host.MarkDirty();
-        RefreshLists();
+        _host.NotifyMarkersChanged();
     }
 
     public void RefreshView() => RefreshLists();
@@ -263,8 +259,7 @@ internal sealed class ArrangementTab : UserControl
         _host.BeginEdit("pattern");
         var pat = Pattern.Capture(_host.Project, "Pattern " + (_host.Project.Patterns.Count + 1));
         _host.Project.Patterns.Add(pat);
-        _host.MarkDirty();
-        RefreshLists();
+        _host.NotifyArrangementChanged();
         _patterns.SelectedIndex = _patterns.Items.Count - 1;
     }
 
@@ -281,8 +276,7 @@ internal sealed class ArrangementTab : UserControl
             pat.Notes.Add(t.Notes.Select(n => n.Clone()).ToList());
             pat.Mutes.Add(t.Mute);
         }
-        _host.MarkDirty();
-        RefreshLists();
+        _host.NotifyArrangementChanged();
     }
 
     private void ApplySelected()
@@ -291,9 +285,8 @@ internal sealed class ArrangementTab : UserControl
         if (pat == null) return;
         _host.BeginEdit("pattern");
         pat.Apply(_host.Project);
-        _host.MarkDirty();
         _host.NotifyTracksChanged();
-        RefreshLists();
+        _host.NotifyArrangementChanged();
     }
 
     private void DeletePattern()
@@ -305,8 +298,7 @@ internal sealed class ArrangementTab : UserControl
         var song = _host.Project.Song;
         foreach (var it in song) if (it.Pattern > i) it.Pattern--;
         song.RemoveAll(it => it.Pattern == i);
-        _host.MarkDirty();
-        RefreshLists();
+        _host.NotifyArrangementChanged();
     }
 
     private void AddSongItem()
@@ -315,8 +307,7 @@ internal sealed class ArrangementTab : UserControl
         if (i < 0 || i >= _host.Project.Patterns.Count) return;
         _host.BeginEdit("song");
         _host.Project.Song.Add(new SongItem(i, (int)_repeats.Value));
-        _host.MarkDirty();
-        RefreshLists();
+        _host.NotifyArrangementChanged();
         _song.SelectedIndex = _song.Items.Count - 1;
     }
 
@@ -326,8 +317,7 @@ internal sealed class ArrangementTab : UserControl
         if (i < 0 || i >= _host.Project.Song.Count) return;
         _host.BeginEdit("song");
         _host.Project.Song.RemoveAt(i);
-        _host.MarkDirty();
-        RefreshLists();
+        _host.NotifyArrangementChanged();
     }
 
     private void MoveSongItem(int delta)
@@ -339,8 +329,7 @@ internal sealed class ArrangementTab : UserControl
         var item = _host.Project.Song[i];
         _host.Project.Song.RemoveAt(i);
         _host.Project.Song.Insert(j, item);
-        _host.MarkDirty();
-        RefreshLists();
+        _host.NotifyArrangementChanged();
         _song.SelectedIndex = j;
     }
 
@@ -350,8 +339,7 @@ internal sealed class ArrangementTab : UserControl
         if (i < 0 || i >= _host.Project.Song.Count) return;
         _host.BeginEdit("song");
         _host.Project.Song[i].Repeats = (int)_repeats.Value;
-        _host.MarkDirty();
-        RefreshLists();
+        _host.NotifyArrangementChanged();
     }
 
     private void AddMarker()
@@ -371,8 +359,7 @@ internal sealed class ArrangementTab : UserControl
     {
         _host.BeginEdit("marker");
         _host.Project.Markers.Add(new Marker(beat, name, Math.Clamp(energy, 1, 10)));
-        _host.MarkDirty();
-        RefreshLists();
+        _host.NotifyMarkersChanged();
     }
 
     private void RemoveMarker()
@@ -381,8 +368,7 @@ internal sealed class ArrangementTab : UserControl
         if (m == null) return;
         _host.BeginEdit("marker");
         _host.Project.Markers.Remove(m);
-        _host.MarkDirty();
-        RefreshLists();
+        _host.NotifyMarkersChanged();
     }
 
     private void ExportMidi()

@@ -100,6 +100,7 @@ public class PianoRoll : Control {
                 if (x1 > x0) g.FillRectangle(tint, x0, RulerH, x1 - x0, gb - RulerH);
             }
         }
+        DrawSongSections(g, vw, gb, barB, labels: false);
         using (Pen row = new Pen(Color.FromArgb(46, 50, 62)), s16 = new Pen(Color.FromArgb(40, 45, 58)), sub = new Pen(Color.FromArgb(52, 58, 80)) { DashStyle = System.Drawing.Drawing2D.DashStyle.Dot },
                beat = new Pen(Color.FromArgb(78, 88, 112)), whole = new Pen(Color.FromArgb(104, 122, 170), 2), bar = new Pen(Color.FromArgb(170, 180, 205), 2), phrase = new Pen(Color.FromArgb(255, 176, 64), 3)) {
             for (int p = p0; p <= p1 + 1; p++) g.DrawLine(row, KeyW, PitchToY(p), vw, PitchToY(p));
@@ -136,6 +137,7 @@ public class PianoRoll : Control {
                 using (Pen pn = new Pen(sel ? Color.White : Color.FromArgb(20, 90, 80), sel ? 2 : 1)) g.DrawRectangle(pn, r.X, r.Y + 1, r.Width - 1, RowH - 2);
             }
         }
+        DrawSongSections(g, vw, gb, barB, labels: true);
         if (mode == 4) using (Pen pn = new Pen(Color.FromArgb(200, 255, 255, 255)) { DashStyle = System.Drawing.Drawing2D.DashStyle.Dash }) g.DrawRectangle(pn, box);
         if (Playhead >= 0) using (Pen pn = new Pen(Color.FromArgb(255, 90, 90), 2)) { int x = BeatToX(Playhead); g.DrawLine(pn, x, RulerH, x, gb + VelH); }
         g.ResetClip();
@@ -198,6 +200,58 @@ public class PianoRoll : Control {
     }
 
     void BeginChange() { Fire(BeginEdit); }
+
+    static readonly Color[] SongSectionColors = {
+        Color.FromArgb(90, 200, 255), Color.FromArgb(255, 176, 96), Color.FromArgb(150, 230, 140),
+        Color.FromArgb(220, 150, 255), Color.FromArgb(255, 130, 170), Color.FromArgb(120, 220, 210)
+    };
+
+    // The Song Order is laid out against the same beat timeline as the notes. Bands make the
+    // arrangement sections readable in the piano roll; the markers remain the named timeline
+    // sections and are drawn as dashed lines over these bands.
+    List<(double Start, double End, string Name, int Repeats, int Pattern)> SongSections(double barB) {
+        var list = new List<(double Start, double End, string Name, int Repeats, int Pattern)>();
+        if (Proj?.Song == null || Proj.Patterns == null) return list;
+        double cursor = 0;
+        foreach (SongItem it in Proj.Song) {
+            if (it.Pattern < 0 || it.Pattern >= Proj.Patterns.Count) continue;
+            Pattern pat = Proj.Patterns[it.Pattern];
+            int bars = it.EffectiveBars(pat.Bars);
+            int reps = Math.Max(1, it.Repeats);
+            double length = bars * reps * barB;
+            list.Add((cursor, cursor + length, string.IsNullOrEmpty(pat.Name) ? "Pattern" : pat.Name, reps, it.Pattern));
+            cursor += length;
+        }
+        return list;
+    }
+
+    void DrawSongSections(Graphics g, int vw, int gb, double barB, bool labels) {
+        foreach (var section in SongSections(barB)) {
+            int x0 = BeatToX(section.Start), x1 = BeatToX(section.End);
+            if (x1 < KeyW || x0 > vw) continue;
+            int a = Math.Max(KeyW, x0), b = Math.Min(vw, x1);
+            if (b <= a) continue;
+            Color baseColor = SongSectionColors[Math.Abs(section.Pattern) % SongSectionColors.Length];
+
+            if (!labels) {
+                using (SolidBrush fill = new SolidBrush(Color.FromArgb(16, baseColor)))
+                    g.FillRectangle(fill, a, RulerH, b - a, gb - RulerH);
+                using (Pen edge = new Pen(Color.FromArgb(90, baseColor), 2))
+                    g.DrawLine(edge, a, RulerH, a, gb);
+                continue;
+            }
+
+            if (b - a < 26) continue;
+            string text = section.Name + (section.Repeats > 1 ? " x" + section.Repeats : "");
+            using (Font font = new Font("Segoe UI", 7f, FontStyle.Bold)) {
+                SizeF size = g.MeasureString(text, font);
+                int chipW = Math.Min(b - a - 4, (int)size.Width + 8);
+                using (SolidBrush chip = new SolidBrush(Color.FromArgb(170, baseColor)))
+                    g.FillRectangle(chip, a + 2, RulerH + 2, chipW, 13);
+                g.DrawString(text, font, Brushes.White, a + 5, RulerH + 2);
+            }
+        }
+    }
 
     // Double-click on the ruler: adds an arrangement marker (energy 5 = neutral) or removes
     // the marker under the cursor, so song structure can be sketched straight on the piano roll.

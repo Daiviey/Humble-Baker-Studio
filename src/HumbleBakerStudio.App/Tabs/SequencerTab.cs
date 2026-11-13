@@ -160,7 +160,11 @@ internal sealed class SequencerTab : UserControl
         }
     }
 
-    public void RefreshRoll() => _roll.Invalidate();
+    public void RefreshRoll()
+    {
+        _roll.UpdateScroll();
+        _roll.Invalidate();
+    }
 
     public void ReloadInstruments()
     {

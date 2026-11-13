@@ -10,6 +10,7 @@
 - **Exact visual preservation**: every written lane stores a Deflate-compressed, display-only snapshot of the painted canvas at its original resolution. The editor restores the exact painting and resolution; playback ignores the snapshot.
 - Automation points now carry optional brightness and vertical-extent values so redrawn lanes preserve stroke weight as well as the curve. Older readers use only beat/value.
 - Added `docs/AUTOMATION.md` and refreshed `README-CSHARP.md`, `docs/PORT.md`, `RELEASES.md` and the portable-build README.
+- **Arrangement and piano roll stay in sync**: marker edits, song-order changes and pattern-length changes now refresh the piano-roll timeline immediately. Song-order sections are drawn as labelled colour bands on the piano-roll canvas, so the arrangement structure is visible while editing notes.
 - Tests: 45 passing in the standard build (48 including the No-AI pattern tests).
 
 ### No-AI edition

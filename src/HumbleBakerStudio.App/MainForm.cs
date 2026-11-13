@@ -545,10 +545,19 @@ internal sealed class MainForm : Form
         ScheduleLoopRefresh();
     }
 
-    /// <summary>Arrangement markers changed from the piano roll; keep the Arrangement tab in step.</summary>
+    /// <summary>Arrangement markers changed from either view; keep both views in step.</summary>
     public void NotifyMarkersChanged()
     {
         _arrangementTab.RefreshView();
+        _sequencer.RefreshRoll();
+        MarkDirty();
+    }
+
+    /// <summary>Song order, patterns or section lengths changed; refresh the piano-roll timeline too.</summary>
+    public void NotifyArrangementChanged()
+    {
+        _arrangementTab.RefreshView();
+        _sequencer.RefreshRoll();
         MarkDirty();
     }
 
