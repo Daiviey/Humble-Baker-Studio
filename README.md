@@ -1,3 +1,4 @@
+<img width="2557" height="1380" alt="Screenshot 2026-11-11 212225" src="https://github.com/user-attachments/assets/e1ccdb9c-d066-4635-afdf-0065ca9dbead" />
 # Humble Baker Studio
 
 <p align="center"><img src="icon.png" width="180" alt="Humble Baker Studio icon"></p>
