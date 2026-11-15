@@ -1,6 +1,6 @@
 # Humble Baker Studio - C# port (No-AI edition)
 
-**Version 0.5.1** - Windows 10/11 x64 - self-contained, no .NET install required.
+**Version 0.6.0** - Windows 10/11 x64 - self-contained, no .NET install required.
 
 This is the deterministic edition of the C# port. It is the same app as the standard C# build,
 without the generative AI tab, toolbar button, AI menu entries or AI design buttons in the
@@ -8,12 +8,20 @@ spectral/meta editors. The **Patterns** tab replaces them with a curated library
 pre-programmed MIDI examples.
 
 The stable PowerShell studio is `../Humble Baker Studio.exe` (about 1.9 MB). This No-AI exe is
-about 46.7 MB.
+about 46.8 MB.
 
 ## Run
 
 Double-click **`Humble Baker Studio (No AI).exe`**. Windows SmartScreen may warn because the
 build is unsigned; choose *More info -> Run anyway*.
+
+## What is new in 0.6.0
+
+- **Live deck speed and pitch**: separate SPEED and PITCH faders plus a KEY LOCK switch and RESET.
+- **Edit both decks while mixing**: the EDIT button opens an independent project window per deck.
+- **Sustained sampler and instrument emulator**: sustain loops plus `strings`, `bowed`, `cello`,
+  `pluck`, `strum` and `hybrid` engines that hold a note.
+- Everything above is deterministic; no model, network or external service is used.
 
 ## Patterns instead of AI
 
@@ -40,6 +48,11 @@ an optional replace).
 
 The standard build (`.\build.ps1`) keeps the local-AI tools. Both come from the same codebase;
 the No-AI build defines `HBS_NO_AI`.
+
+## Downloads
+
+- Release page: https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/csharp-port-v0.6.0
+- SHA-256: `eb61682bff27ecc4e9d4efaa44aad0f0bce9eeaca02049f376245a1815ec3dc3`
 
 ## Notes
 

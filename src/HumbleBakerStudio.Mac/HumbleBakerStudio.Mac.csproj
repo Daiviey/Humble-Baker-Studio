@@ -8,7 +8,7 @@
     <AssemblyName>HumbleBakerStudio</AssemblyName>
     <RootNamespace>HumbleBakerStudio.Mac</RootNamespace>
     <ApplicationIcon />
-    <Version>0.3.0</Version>
+    <Version>0.4.0</Version>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>

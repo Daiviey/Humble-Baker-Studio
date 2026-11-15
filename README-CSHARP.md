@@ -22,7 +22,7 @@ See [`docs/PLUGINS.md`](docs/PLUGINS.md).
 
 > **This is the C# port.** The stable PowerShell studio is the root `Humble Baker Studio.exe`
 > (about 1.9 MB). The C# portable exe is `CSharp-Port/Humble Baker Studio (C#).exe` (about
-> 46.7 MB). See [`docs/DOWNLOADS.md`](docs/DOWNLOADS.md) for a side-by-side comparison.
+> 46.8 MB). See [`docs/DOWNLOADS.md`](docs/DOWNLOADS.md) for a side-by-side comparison.
 
 ## Why C#
 
@@ -36,11 +36,11 @@ See [`docs/PLUGINS.md`](docs/PLUGINS.md).
 
 ## Download
 
-A prebuilt portable build is attached to the [C# port release](https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/csharp-port-v0.5.1):
+A prebuilt portable build is attached to the [C# port release](https://github.com/Daiviey/Humble-Baker-Studio/releases/tag/csharp-port-v0.6.0):
 
-- `Humble-Baker-Studio-CSharp-0.5.1-win-x64.exe` — self-contained single file, no .NET install required.
-- `Humble-Baker-Studio-CSharp-0.5.1-win-x64.zip` — the same exe plus this README and the license.
-- `SHA256SUMS.txt` — checksums for both.
+- `Humble-Baker-Studio-CSharp-0.6.0-win-x64.exe` — self-contained single file, no .NET install required.
+- `Humble-Baker-Studio-CSharp-0.6.0-win-x64.zip` — the same exe plus this README and the license.
+- `SHA256SUMS-csharp-0.6.0.txt` — checksums for both.
 
 The build is unsigned, so Windows SmartScreen may ask for confirmation.
 
@@ -165,9 +165,10 @@ The portable core is now in place: `HumbleBakerStudio.Audio` multi-targets `net8
 # dist-macos\app-osx-arm64\Humble Baker Studio.app
 ```
 
-`osx-x64` builds the Intel bundle. App v0.3.0 adds **CoreAudio playback** (AudioQueue), a
-transport with playhead, a track list with volume/pan/mute, a click-to-edit piano roll, project
-open/save, **Audio Unit effect hosting**, and WAV export. It also lists installed **Audio Units**
+`osx-x64` builds the Intel bundle. App v0.4.0 is rebuilt against the 0.6.0 engine (sampler
+sustain fields and the new instrument-emulator voices); v0.3.0 added **CoreAudio playback**
+(AudioQueue), a transport with playhead, a track list with volume/pan/mute, a click-to-edit
+piano roll, project open/save, **Audio Unit effect hosting**, and WAV export. It also lists installed **Audio Units**
 through AudioToolbox (`AudioComponent` discovery). The effects/mixer/automation editors, CoreMIDI
 and AU editors are the next milestones. See [`docs/MACOS.md`](docs/MACOS.md),
 [`docs/PLUGINS.md`](docs/PLUGINS.md) and the platform matrix in [`docs/PARITY.md`](docs/PARITY.md).
