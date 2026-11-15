@@ -45,7 +45,9 @@ files alone on purpose.
 | Song import and transcription | Done (audio track + monophonic melody + drum hits + section markers) |
 | MIDI input recording | Done (device selection, live log, quantized recording into the selected track) |
 | Marker and song arrangement editing | Done (patterns, song order, repeats with bars override, markers and energy) |
-| Live performance mode | Done (two independent decks, crossfader, cue bus, sync) |
+| Live performance mode | Done (two independent decks, crossfader, cue bus, sync, speed/pitch with key lock, per-deck editor windows) |
+| Sampler sustain and instrument emulator | Done (crossfaded sustain loop, ADSR, vibrato, glide, bowed/pluck/strum/hybrid voices) |
+| AI arrangement crew | Done (drummer → bassist → harmony with a reviewer pass and role-based model routing) |
 | SuperCollider live sessions and OSC bridge | Not yet (export only) |
 | Full effect-graph parity in the SC export | Approximate (global delay/reverb + per-voice filter) |
 | MIDI note monitoring through the track voice | Not yet |
@@ -113,11 +115,16 @@ projects at once:
   project with **From main**), render it in the background, and loop or play the song.
 - **Crossfader** uses an equal-power curve. **Gain** and a one-knob **filter** (low-pass to
   high-pass) are per deck.
-- **Sync** matches a deck to the other by adjusting its playback rate (BPM ratio).
+- **Speed** changes the tempo; **Pitch** shifts the key in semitones. **Key lock** uses a
+  two-grain granular time-stretcher so tempo and key can move independently.
+- **Sync** matches a deck to the other by adjusting its speed (BPM ratio).
 - **Cue** routes a deck to the headphone bus. Choose a second output in **Cue out** for real
   split-cue monitoring; with `(none)` cue stays silent. **Cue on master** is for testing.
 - **Queue** on each deck holds a list of projects; the deck advances automatically when a
   song ends and the queue has a next item.
+- **Edit** opens a second, independent project window for that deck. Both decks can therefore
+  be edited while the mix plays; **Update deck** re-renders the current editor state into the
+  deck, and saving does the same.
 - Playback is rendered once when a track loads, then mixed live at 1024-frame blocks. Loading
   a long song takes as long as an offline render; transitions themselves are instant.
 

@@ -212,6 +212,13 @@ public static class InstrumentLibrary
             track.SampleRoot = def.Root;
             track.SampleGate = def.Gate;
             track.SampleMode = 0;
+            // Tonal one-shots (strings, guitars, pads) are usually longer than a drum hit.
+            // Loop a crossfaded middle section so they can hold as sustained instruments.
+            track.SampleSustain = def.Gate || (def.Kind == "sample" && def.Seconds >= 2.0);
+            track.SampleLoopStart = 0.32;
+            track.SampleLoopEnd = 0.88;
+            track.Atk = track.SampleSustain ? 0.02 : 0.001;
+            track.Rel = track.SampleSustain ? 0.45 : 0.15;
         }
 
         if (def.Fx != null) ApplyMap(track.Fx, def.Fx);

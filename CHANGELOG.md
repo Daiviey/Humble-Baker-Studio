@@ -1,4 +1,13 @@
-# Changelog
+﻿# Changelog
+
+## C# port 0.6.0 - 2026-11-14
+
+- Live decks now have independent **Speed** (tempo) and **Pitch** faders, a **Key lock** switch (two-grain granular time-stretch) and a reset. With key lock off the deck is vinyl-style varispeed; Sync still matches tempo by speed.
+- Each live deck has an **Edit** button that opens a second project window. Deck A and B can be edited at the same time, **Update deck** re-renders the editor state into the deck without saving, and a normal save updates the deck too. Playback position and state survive the re-render.
+- The sampler can hold notes: a crossfaded sustain loop with adjustable start/end, ADSR, vibrato, glide, brightness and body resonance. Long orchestral/guitar library samples enable sustain automatically.
+- Added sustained instrument-emulator engines: `strings`, `bowed`, `cello`, `pluck`, `strum` and `hybrid`, with ensemble detune, bow contact noise, body resonators, pick position and portamento.
+- New project fields (`sampleSustain`, loop points, vibrato, glide, ensemble, brightness, body) round-trip in `*.hbstudio.json`; the 0.5.1 sample envelope controls (mode and gate) remain.
+- Added the **AI arrangement crew**: "Generate full arrangement" on the AI tab runs drummer â†’ bassist â†’ harmony, each part reading a shared project brief plus the parts already written, then a separate reviewer model critiques the result and can trigger one revision pass. Role-based model routing is stored in `AiRoleModels`; crew parts land as one undo step.
 
 ## macOS app 0.3.0 - 2026-11-13
 
@@ -70,15 +79,13 @@
 ## 1.0.22 - 2026-11-12
 
 - Arrangement **Song Order entries are editable**: each entry gets a **Bars override** (0 = use the pattern's own bars) next to Repeats, so one pattern can be laid out as a 2-bar fill in one place and an 8-bar section in another. Overrides are saved in the project file and honoured by song playback, export and the SuperCollider export.
-- **Arrangement markers now shape song playback**: the marker in effect at each note scales its velocity (`0.6 + 0.08 × energy`, energy 5 = neutral), so Intro/Breakdown/Drop sections play softer or harder. Marker fields on the Arrangement tab (Beat, Name, Energy) now edit the selected marker instead of only feeding new ones.
+- **Arrangement markers now shape song playback**: the marker in effect at each note scales its velocity (`0.6 + 0.08 Ã— energy`, energy 5 = neutral), so Intro/Breakdown/Drop sections play softer or harder. Marker fields on the Arrangement tab (Beat, Name, Energy) now edit the selected marker instead of only feeding new ones.
 - **Markers can be sketched on the piano roll**: double-click the ruler to add a marker (or remove the one under the cursor); the Arrangement tab and project file stay in sync.
 - **The piano roll timeline now scrolls past the loop**: the canvas covers the loop, the whole song arrangement plus 64 beats of writing room, so notes can be written or pasted anywhere on the timeline (click the ruler where you want the paste point, then Ctrl+V).
 - Added **Live mix**, a two-deck performance window: two independent projects open at once, an equal-power crossfader, per-deck gain and one-knob LP/HP filter, tempo sync, per-deck queues that advance at the end of a song, and a separate cue/headphone output device. Master and cue are metered independently.
 - Live audio is rendered once per track and mixed on a dedicated thread through `winmm`, so transitions and filter sweeps are immediate. Rendering a long song still takes the usual offline render time.
 - Rebuilt `Humble Baker Studio.exe` with the live module and the current studio sources.
 - Live decks now include a **New** button that renders a fresh default project into that deck (with a confirmation when the deck already has audio).
-- Ported all of the above to the PowerShell studio (`AudioStudioImplementation.ps1`, standalone build and exe): editable song entries with bars override, marker-driven playback energy, ruler double-click marker sketching (with a marker list and fields on the Song tab) and the timeline-wide piano roll.
-- Refreshed the manual, SuperCollider guide, port notes and release pages for this version. The C# port is packaged separately as `csharp-port-v0.4.0` with the same arrangement, marker and timeline features.
 
 ## 1.0.21 - 2026-11-11
 
@@ -89,7 +96,7 @@
 - Fixed OSC argument handling for PowerShell-wrapped values, the out-node bus allocation, effect bus routing, the `HBNode.synth` setter and bridge shutdown (now cleans up the `scsynth` it started).
 - Documented the bridge, generated language, native effect library, parity harness and bridge troubleshooting in `docs/SUPERCOLLIDER.md`.
 
-## 1.0.20 — 2026-11-11
+## 1.0.20 â€” 2026-11-11
 
 - Added per-project SuperCollider session folders under the Studio data directory, with a persistent project `ScSessionId`; generated SC files stay out of git.
 - Added the stable `HBProject`, `HBNode`, `HBTrack`, `HBSection` and `HBEffect` classes and a shared SC class library.
@@ -97,29 +104,29 @@
 - SC discovery now finds a `SuperCollider` folder beside the app (for example `Z:\LocalAI\SuperCollider`) in addition to the standard install paths.
 - The setup check reports `sclang` version, sc3-plugins presence and the session path.
 
-## 1.0.19 — 2026-11-11
+## 1.0.19 â€” 2026-11-11
 
 - Added 15 effects (113 total): Spectral Gate, Spectral Blur, Spectral Delay, Convolution Reverb, Tank Reverb, Auto-Tune, Octave Up, Chord Generator, Upward Compressor, Transient Gate, Stereo Shuffler, Mono Maker, Phase Aligner, Tape Loop and Stutter Gate.
 - All 113 catalog entries create active nodes and pass the NaN/Inf tone test.
 - Regenerated the effect reference with all 113 modules and 365 effect parameters.
 
-## 1.0.18 — 2026-11-11
+## 1.0.18 â€” 2026-11-11
 
 - Added `docs/SUPERCOLLIDER.md`: an in-depth SuperCollider tutorial covering the Studio bridge, the generated `.scd`, SynthDefs, Pattern/Pbind sequencing, buses and routing, effects, live coding, rendering, MIDI/OSC and debugging.
 - Every external technical claim is cited; 36 official SuperCollider help, download, source and licensing references are linked.
 - Linked the tutorial from the README and the manual.
 
-## 1.0.17 — 2026-11-11
+## 1.0.17 â€” 2026-11-11
 
 - Removed the three dots from the blue dome of the cel-shaded app icon.
 - Removed the redundant `docs/icon-preview.png`.
 
-## 1.0.16 — 2026-11-10
+## 1.0.16 â€” 2026-11-10
 
 - Restyled the app icon with the local FLUX.1 Kontext model: cel-shaded flat colours, bold dark outlines, simplified shading and cleaner readability at small sizes.
 - Regenerated the seven-size ICO, PNG previews, exe icon and standalone embedded icon.
 
-## 1.0.15 — 2026-11-10
+## 1.0.15 â€” 2026-11-10
 
 - UI layout pass: fixed accent buttons that collapsed to 1 px (MIDI **Connect** and **Start recording**, Sampler **Import WAV**).
 - Fixed tab auto-scroll offsets that made labels drift over their fields.
@@ -127,12 +134,12 @@
 - Added responsive anchors: logs, property grids, text boxes, lists and the Knobs/Bus knob areas now grow with the window and the bottom resizer.
 - Shortened or clarified clipped labels, and removed redundant Spectral palette/visualise controls.
 
-## 1.0.14 — 2026-11-10
+## 1.0.14 â€” 2026-11-10
 
 - Gave the app icon a rounded-square app-tile shape with transparent corners and a subtle inner highlight.
 - Regenerated all icon sizes (16-256 px), the exe icon, the standalone embedded icon and the PNG previews.
 
-## 1.0.13 — 2026-11-10
+## 1.0.13 â€” 2026-11-10
 
 - Added the full multi-resolution **Humble Baker Studio icon** (16, 24, 32, 48, 64, 128 and 256 px) and embedded it in the Studio exe, the window/title bar and the standalone build.
 - Added an **MIT license** and a `NOTICE.md` covering original artwork/branding, content attribution and third-party software/model licenses.
@@ -140,77 +147,77 @@
 - Added icon preview assets under `docs/`.
 - Fixed the packaged exe locating its embedded studio implementation when launched from any folder.
 
-## 1.0.12 — 2026-11-10
+## 1.0.12 â€” 2026-11-10
 
 - Added full documentation: [Manual](docs/MANUAL.md), [Effect Reference](docs/EFFECTS.md) with all 98 effects and every control, [Synth Patch Reference](docs/SYNTH.md) with all 89 parameters, and [Settings Reference](docs/SETTINGS.md) for mastering, mix rules, spectral and meta settings.
 - README now links the documentation and lists the actual export formats.
 
-## 1.0.11 — 2026-11-10
+## 1.0.11 â€” 2026-11-10
 
 - Expanded the FX graph to **98 modules** (25 new): Opto compressor, FET compressor, VCA compressor, Expander, Mid/Side compressor, Dynamic EQ, Pultec EQ, Overdrive, Metal drive, Speaker cab, Multiband drive, Tape flutter, Dimension, Envelope phaser, Envelope flanger, Chopper, Barber-pole, Half speed, Pitch echo, Spectral freeze, Reverse delay, Echo-verb, Bloom reverb, Non-linear reverb and Vocoder.
 - All new modules expose categories, ranges and descriptions and are created only as Patch graph nodes.
 - Verified 98/98 catalog entries create active nodes with no NaN/Inf on a test tone.
 
-## 1.0.10 — 2026-11-10
+## 1.0.10 â€” 2026-11-10
 
 - Expanded the FX graph to **73 modules** (25 new): Ladder filter, Tube preamp, Tape saturator, Diode drive, Fuzz, Chip tune, Sub bass, Bass enhancer, Frequency shifter, Air band, Stereo image, Ping-pong delay, Dub delay, Cathedral reverb, Room reverb, Ambience, Wah pedal, Talk box, Ducker, Level rider, Harmonic tremolo, Beat repeat, Granular cloud, Glitch gate and Sweep filter.
 - Added the **MIDI In** tab: lists Windows MIDI inputs, connects to a controller, logs notes/CC/pitch bend, and records quantized notes into the selected track with optional monitoring.
 - Added the **Sampler** tab: WAV import, waveform drag selection, normalize/reverse/trim, onset auto-slicing, equal chopping, selection-to-slice, slice audition/export, and slice-to-track creation.
 - Effects remain graph-only; no rack or quick-add paths were reintroduced.
 
-## 1.0.9 — 2026-11-10
+## 1.0.9 â€” 2026-11-10
 
-- All 48 effects are now graph nodes; effects are added only from the Patch graph (right-click → Add/Insert FX module).
+- All 48 effects are now graph nodes; effects are added only from the Patch graph (right-click â†’ Add/Insert FX module).
 - Removed the FX Rack button, track/bus quick-add buttons and the Sound Lab FX chain editor.
 - New tracks no longer start with a hidden compressor; track FX is off by default.
 - Each graph effect node shows only its own parameters, with ranges and descriptions.
 
-## 1.0.8 — 2026-11-10
+## 1.0.8 â€” 2026-11-10
 
 - Expanded the FX Rack to **48 effect modules**.
 - Added: Ensemble, Rotary, Octaver, Harmonizer, Resonator, Tilt EQ, Mid/Side EQ, De-esser, Multiband Compressor, Clipper, Auto-Filter, Gated Reverb, Reverse Reverb, Multi-Tap Delay, Doubler and Formant Filter.
 - All new effects expose categories, ranges and descriptions in the rack.
 
-## 1.0.7 — 2026-11-10
+## 1.0.7 â€” 2026-11-10
 
 - Added an **FX Rack** dialog with 32 effects, category-grouped parameters and descriptions.
 - New effects: Saturator, Exciter, Rectifier, Gate, Transient Shaper, Tremolo, Auto-Pan, Vibrato, Auto-Wah, Comb Filter, Spring Reverb, Shimmer Reverb, Haas Widener, Limiter.
 - New synth parameters: oscillator 2 pulse width, sub-oscillator waveform, and post-synth output drive.
 
-## 1.0.6 — 2026-11-10
+## 1.0.6 â€” 2026-11-10
 
 - Bus/group graph sidechain: when the shared bus has **Sidechain Mix > 0**, the **bottom-most connected source** becomes the trigger and ducks the other inputs.
 - Sidechain attack/release use the bus FX settings; Mix at 0 keeps the existing mix unchanged.
 
-## 1.0.5 — 2026-11-10
+## 1.0.5 â€” 2026-11-10
 
 - Sample-library instruments (foley, percussion, orchestral/guitar hits) now default to **Pitch (key)** mode, so piano-roll notes transpose them.
 - One-shot and Loop modes remain selectable in the track panel/Sound Lab for existing tracks.
 
-## 1.0.4 — 2026-11-10
+## 1.0.4 â€” 2026-11-10
 
-- Fixed false “FFmpeg could not encode” errors when the output file was actually written.
+- Fixed false â€œFFmpeg could not encodeâ€ errors when the output file was actually written.
 - FFmpeg success is now determined from the output file and a refreshed exit code.
 - MP3/Opus continue to use the 48 kHz limit.
 
-## 1.0.3 — 2026-11-10
+## 1.0.3 â€” 2026-11-10
 
 - MP3 and Opus exports now limit the sample rate to 48 kHz, preventing the libmp3lame/libopus encoder error.
 - Added a safety clamp in the export path for invalid rate/format combinations.
 
-## 1.0.2 — 2026-11-10
+## 1.0.2 â€” 2026-11-10
 
 - Rebuilt the main app and Studio executables from the current sources.
 - Release bundle now includes the export-dialog fix.
 - Verified both executables launch and the main app no longer overwrites the studio source.
 
-## 1.0.1 — 2026-11-10
+## 1.0.1 â€” 2026-11-10
 
 - Fixed the export dialog failing to open in standalone builds.
 - The toolbar Export button now opens the same dialog.
 - Added export diagnostics.
 
-## 1.0.0 — 2026-11-10
+## 1.0.0 â€” 2026-11-10
 
 Initial standalone release of Humble Baker Studio.
 
@@ -228,7 +235,7 @@ Initial standalone release of Humble Baker Studio.
 - Saved lanes redraw when selecting the target or reloading the project.
 
 ### Export
-- Current pattern with 1–64 seamless loops, or the whole arrangement.
+- Current pattern with 1â€“64 seamless loops, or the whole arrangement.
 - Tempo override and optional metronome click.
 - Mastering chain, peak normalization and fade in/out.
 - WAV 16/24/32-float, MP3, OGG Vorbis, Opus, AAC/M4A, ALAC, FLAC and AIFF.

@@ -68,6 +68,45 @@ public class EngineTests
     }
 
     [Fact]
+    public void InstrumentVoice_StringsHoldTheNotePastTheAttack()
+    {
+        var t = new Track { Synth = "strings", Vol = 1, Atk = 0.1, Rel = 0.4 };
+        t.Vibrato = 0.15;
+        var audio = InstrumentVoice.Render(t, 60, 2.0, 100, new Random(7));
+        Assert.True(audio.Length > Dsp.SR * 2);
+        double late = 0;
+        int from = Dsp.SR;
+        int to = Math.Min(audio.Length, Dsp.SR * 2);
+        for (int i = from; i < to; i++) late += Math.Abs(audio[i]);
+        Assert.True(late > 500, "A bowed string must still have a sustain body after the attack.");
+    }
+
+    [Fact]
+    public void SampleSustain_LoopsAOneShotIntoAHeldNote()
+    {
+        var sample = new float[Dsp.SR / 5]; // 0.2 s decaying one-shot
+        for (int i = 0; i < sample.Length; i++)
+            sample[i] = (float)(Math.Sin(2 * Math.PI * 220 * i / Dsp.SR) * Math.Exp(-i / (Dsp.SR * 0.04)));
+        var t = new Track
+        {
+            Synth = "sample",
+            Sample = sample,
+            SampleRoot = 60,
+            SampleGate = true,
+            SampleSustain = true,
+            SampleLoopStart = 0.2,
+            SampleLoopEnd = 0.9,
+            Atk = 0.01,
+            Rel = 0.1
+        };
+        var audio = Dsp.RenderSample(t, 60, 2.0, true);
+        Assert.True(audio.Length > Dsp.SR, "The held sample should be longer than the original one-shot.");
+        double late = 0;
+        for (int i = Dsp.SR; i < audio.Length; i++) late += Math.Abs(audio[i]);
+        Assert.True(late > 100, "The sustain loop should keep producing audio after the one-shot ends.");
+    }
+
+    [Fact]
     public void ProjectStore_RoundTripsTheWholeProject()
     {
         var original = BuildProject();
@@ -82,6 +121,11 @@ public class EngineTests
         original.Patterns[0].Notes.Add(new List<Note> { new(40, 0, 0.5, 100) });
         original.Graph.Initialized = true;
         original.Graph.Nodes.Add(new PatchNode { Id = "n1", Kind = "track", Type = "track", Label = "Acid", X = 40, Y = 60 });
+        original.Tracks[2].SampleSustain = true;
+        original.Tracks[2].SampleLoopStart = 0.31;
+        original.Tracks[2].Vibrato = 0.17;
+        original.Tracks[2].Glide = 0.08;
+        original.Tracks[2].Ensemble = 0.62;
 
         var path = Path.Combine(Path.GetTempPath(), "hbs-test-" + Guid.NewGuid().ToString("N") + ".hbstudio.json");
         try
@@ -101,6 +145,11 @@ public class EngineTests
             Assert.Equal("Verse", loaded.Patterns[0].Name);
             Assert.True(loaded.Graph.Initialized);
             Assert.Single(loaded.Graph.Nodes);
+            Assert.True(loaded.Tracks[2].SampleSustain);
+            Assert.Equal(0.31, loaded.Tracks[2].SampleLoopStart, 3);
+            Assert.Equal(0.17, loaded.Tracks[2].Vibrato, 3);
+            Assert.Equal(0.08, loaded.Tracks[2].Glide, 3);
+            Assert.Equal(0.62, loaded.Tracks[2].Ensemble, 3);
         }
         finally
         {
@@ -370,6 +419,53 @@ public class LiveMixerTests
         mix.B.Bpm = 150;
         mix.Sync(mix.B);
         Assert.Equal(0.8, mix.B.Rate, 3);
+    }
+
+    [Fact]
+    public void KeyLock_KeepsThePitchWhileTheSpeedChanges()
+    {
+        var d = SineDeck();
+        d.Speed = 1.5;
+        d.KeyLock = true;
+        var l = new float[Dsp.SR / 2]; var r = new float[Dsp.SR / 2];
+        d.Render(l, r, 0, l.Length);
+        double hz = EstimateHz(l);
+        Assert.InRange(hz, 400, 480); // key lock: original 440 Hz is preserved
+    }
+
+    [Fact]
+    public void Varispeed_RaisesThePitchWithTheSpeed()
+    {
+        var d = SineDeck();
+        d.Speed = 1.5;
+        d.KeyLock = false;
+        var l = new float[Dsp.SR / 2]; var r = new float[Dsp.SR / 2];
+        d.Render(l, r, 0, l.Length);
+        double hz = EstimateHz(l);
+        Assert.InRange(hz, 600, 720); // vinyl-style: 440 Hz * 1.5
+    }
+
+    private static LiveDeck SineDeck()
+    {
+        const int frames = Dsp.SR * 2;
+        var buf = new float[frames];
+        for (int i = 0; i < frames; i++)
+            buf[i] = (float)(Math.Sin(2 * Math.PI * 440 * i / Dsp.SR) * 0.5);
+        var d = new LiveDeck();
+        d.SetBuffer("sine", "", buf, buf, 120, "A", songMode: false);
+        d.Playing = true;
+        return d;
+    }
+
+    private static double EstimateHz(float[] buffer)
+    {
+        int start = 4096;
+        int crossings = 0;
+        for (int i = start + 1; i < buffer.Length; i++)
+            if ((buffer[i - 1] < 0 && buffer[i] >= 0) || (buffer[i - 1] >= 0 && buffer[i] < 0))
+                crossings++;
+        double seconds = (buffer.Length - start) / (double)Dsp.SR;
+        return crossings / 2.0 / seconds;
     }
 
     [Fact]

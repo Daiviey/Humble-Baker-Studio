@@ -17,8 +17,13 @@ internal sealed class DeckView : UserControl
     private readonly CheckBox _loop = new() { Text = "Loop", AutoSize = true, Checked = true };
     private readonly TrackBar _gain = new() { Minimum = 0, Maximum = 150, Value = 100, TickFrequency = 25, Width = 210, BackColor = Theme.Panel };
     private readonly TrackBar _filter = new() { Minimum = -100, Maximum = 100, Value = 0, TickFrequency = 25, Width = 210, BackColor = Theme.Panel };
+    private readonly TrackBar _speed = new() { Minimum = -50, Maximum = 100, Value = 0, TickFrequency = 10, Width = 210, BackColor = Theme.Panel };
+    private readonly TrackBar _pitch = new() { Minimum = -12, Maximum = 12, Value = 0, TickFrequency = 2, Width = 210, BackColor = Theme.Panel };
+    private readonly CheckBox _keyLock = new() { Text = "Key lock", AutoSize = true, Checked = false, ForeColor = Theme.Text, Font = Theme.Small };
     private readonly Label _gainText = new() { AutoSize = true, ForeColor = Theme.Muted, Font = Theme.Small };
     private readonly Label _filterText = new() { AutoSize = true, ForeColor = Theme.Muted, Font = Theme.Small };
+    private readonly Label _speedText = new() { AutoSize = true, ForeColor = Theme.Muted, Font = Theme.Small };
+    private readonly Label _pitchText = new() { AutoSize = true, ForeColor = Theme.Muted, Font = Theme.Small };
     private readonly SimpleList _queue = new() { Dock = DockStyle.Fill };
     private readonly Label _status = new() { AutoSize = true, ForeColor = Theme.Muted, Font = Theme.Small };
     private readonly Label _cueBadge = new() { Dock = DockStyle.Right, Width = 56, TextAlign = ContentAlignment.MiddleCenter, Font = Theme.Small, ForeColor = Theme.Muted, Text = "CUE" };
@@ -50,6 +55,14 @@ internal sealed class DeckView : UserControl
         titleBar.Controls.Add(_title);
         titleBar.Controls.Add(_cueBadge);
         titleBar.Controls.Add(tag);
+
+        var editButton = Theme.Button("EDIT", (_, _) => _host.OpenEditor(_isA), false, "Open this deck's project in its own editable window");
+        editButton.Dock = DockStyle.Right;
+        editButton.Width = 56;
+        editButton.AutoSize = false;
+        editButton.Font = Theme.Small;
+        editButton.Margin = new Padding(2);
+        titleBar.Controls.Add(editButton);
 
         var wavePanel = new Panel { Dock = DockStyle.Top, Height = 116, Padding = new Padding(0, 4, 0, 4) };
         wavePanel.Controls.Add(_wave);
@@ -112,28 +125,44 @@ internal sealed class DeckView : UserControl
         transport.Controls.Add(MakeDeckButton("Main", (_, _) => LoadMain(), "Load the project from the main studio window"), 5, 0);
         transport.Controls.Add(MakeDeckButton("New", (_, _) => NewProject(), "Create a new project in this deck"), 6, 0);
 
-        var controls = new TableLayoutPanel { Dock = DockStyle.Top, Height = 100, ColumnCount = 2, RowCount = 2, BackColor = Theme.Panel };
+        var controls = new TableLayoutPanel { Dock = DockStyle.Top, Height = 186, ColumnCount = 2, RowCount = 3, BackColor = Theme.Panel };
         controls.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
         controls.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-        var gainCell = new Panel { Dock = DockStyle.Fill };
-        _gain.Location = new Point(0, 20);
-        _gain.Height = 40;
-        gainCell.Controls.Add(_gain);
-        gainCell.Controls.Add(new Label { Text = "GAIN", ForeColor = Theme.Muted, Font = Theme.Small, Location = new Point(0, 0), AutoSize = true });
-        gainCell.Controls.Add(_gainText);
-        _gainText.Location = new Point(150, 0);
-        var filterCell = new Panel { Dock = DockStyle.Fill };
-        _filter.Location = new Point(0, 20);
-        _filter.Height = 40;
-        filterCell.Controls.Add(_filter);
-        filterCell.Controls.Add(new Label { Text = "FILTER  LP / HP", ForeColor = Theme.Muted, Font = Theme.Small, Location = new Point(0, 0), AutoSize = true });
-        filterCell.Controls.Add(_filterText);
-        _filterText.Location = new Point(150, 0);
+
+        Panel SliderCell(string caption, TrackBar slider, Label readout)
+        {
+            var cell = new Panel { Dock = DockStyle.Fill };
+            slider.Location = new Point(0, 20);
+            slider.Height = 40;
+            cell.Controls.Add(slider);
+            cell.Controls.Add(new Label { Text = caption, ForeColor = Theme.Muted, Font = Theme.Small, Location = new Point(0, 0), AutoSize = true });
+            cell.Controls.Add(readout);
+            readout.Location = new Point(150, 0);
+            return cell;
+        }
+
+        var gainCell = SliderCell("GAIN", _gain, _gainText);
+        var filterCell = SliderCell("FILTER  LP / HP", _filter, _filterText);
+        var speedCell = SliderCell("SPEED / TEMPO", _speed, _speedText);
+        var pitchCell = SliderCell("PITCH  (SEMITONES)", _pitch, _pitchText);
+        var pitchButtons = new FlowLayoutPanel { AutoSize = true, WrapContents = false, BackColor = Theme.Panel, Location = new Point(0, 60) };
+        pitchButtons.Controls.Add(_keyLock);
+        var reset = Theme.Button("Reset", (_, _) => ResetSpeedPitch(), false, "Reset speed and pitch to the original key and tempo");
+        reset.AutoSize = false;
+        reset.Width = 58;
+        reset.Height = 23;
+        reset.Font = Theme.Small;
+        pitchButtons.Controls.Add(reset);
+        pitchCell.Controls.Add(pitchButtons);
+
         controls.RowStyles.Add(new RowStyle(SizeType.Absolute, 74));
+        controls.RowStyles.Add(new RowStyle(SizeType.Absolute, 86));
         controls.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));
         controls.Controls.Add(gainCell, 0, 0);
         controls.Controls.Add(filterCell, 1, 0);
-        controls.Controls.Add(_status, 0, 1);
+        controls.Controls.Add(speedCell, 0, 1);
+        controls.Controls.Add(pitchCell, 1, 1);
+        controls.Controls.Add(_status, 0, 2);
         controls.SetColumnSpan(_status, 2);
 
         var queueTitle = new Label { Text = "QUEUE", Dock = DockStyle.Top, Height = 20, ForeColor = Theme.Accent, Font = Theme.UiBold };
@@ -171,6 +200,24 @@ internal sealed class DeckView : UserControl
             Deck.Filter = _filter.Value / 100.0;
             UpdateControlText();
         };
+        _speed.ValueChanged += (_, _) =>
+        {
+            if (_building) return;
+            Deck.Speed = 1 + _speed.Value / 100.0;
+            UpdateControlText();
+        };
+        _pitch.ValueChanged += (_, _) =>
+        {
+            if (_building) return;
+            Deck.Pitch = _pitch.Value;
+            UpdateControlText();
+        };
+        _keyLock.CheckedChanged += (_, _) =>
+        {
+            if (_building) return;
+            Deck.KeyLock = _keyLock.Checked;
+            UpdateControlText();
+        };
         _queue.DoubleClick += (_, _) => LoadSelectedQueue();
 
         UpdateControlText();
@@ -178,6 +225,8 @@ internal sealed class DeckView : UserControl
     }
 
     public LiveDeck Deck => _isA ? _host.Mixer.A : _host.Mixer.B;
+    public Project? LoadedProject => _project;
+    public string SourcePath => _path;
 
     private Button FixedButton(string text, int width, EventHandler click)
     {
@@ -216,15 +265,21 @@ internal sealed class DeckView : UserControl
             _cueBadge.Text = Deck.Cue ? "CUE ON" : "CUE";
             _gain.Value = Math.Clamp((int)Math.Round(Deck.Gain * 100), _gain.Minimum, _gain.Maximum);
             _filter.Value = Math.Clamp((int)Math.Round(Deck.Filter * 100), _filter.Minimum, _filter.Maximum);
+            _speed.Value = Math.Clamp((int)Math.Round((Deck.Speed - 1) * 100), _speed.Minimum, _speed.Maximum);
+            _pitch.Value = Math.Clamp((int)Math.Round(Deck.Pitch), _pitch.Minimum, _pitch.Maximum);
+            _keyLock.Checked = Deck.KeyLock;
             _info.Text = Deck.HasAudio
-                ? $"{Deck.Bpm:0.##} BPM · {Deck.KeyText} · {Deck.Seconds:0.0} s · rate {Deck.Rate:0.000}× · {(Deck.Loop ? "loop" : "song")}"
+                ? $"{Deck.Bpm * Deck.Speed:0.##} BPM · {Deck.KeyText} · {Deck.Seconds:0.0} s · speed {Deck.Speed:0.000}× · pitch {Deck.Pitch:+0.0;-0.0;0} st · {(Deck.Loop ? "loop" : "song")}"
                 : "No track loaded";
             if (Deck.Seconds > 0)
                 _wave.Playhead = Math.Clamp(Deck.PositionSeconds / Deck.Seconds, 0, 1);
             else
                 _wave.Playhead = -1;
             _status.Text = Deck.HasAudio
-                ? (Deck.Playing ? "Playing" : "Ready") + (Deck.Rate != 1 ? $" · sync {Deck.Rate:0.000}×" : "")
+                ? (Deck.Playing ? "Playing" : "Ready")
+                    + (Math.Abs(Deck.Speed - 1) > 0.0005 ? $" · tempo {Deck.Speed:0.000}×" : "")
+                    + (Math.Abs(Deck.Pitch) > 0.05 ? $" · key {Deck.Pitch:+0.0;-0.0;0} st" : "")
+                    + (Deck.KeyLock ? " · key lock" : "")
                 : "Load a project to begin";
         }
         finally
@@ -238,6 +293,16 @@ internal sealed class DeckView : UserControl
     {
         _gainText.Text = $"{Deck.Gain * 100:0}%";
         _filterText.Text = Math.Abs(Deck.Filter) < 0.01 ? "bypass" : Deck.Filter < 0 ? $"LP {Math.Abs(Deck.Filter) * 100:0}%" : $"HP {Deck.Filter * 100:0}%";
+        _speedText.Text = $"{Deck.Speed * 100:0}%";
+        _pitchText.Text = $"{Deck.Pitch:+0.0;-0.0;0} st · {(Deck.KeyLock ? "key locked" : "varispeed")}";
+    }
+
+    private void ResetSpeedPitch()
+    {
+        Deck.Speed = 1;
+        Deck.Pitch = 0;
+        Deck.KeyLock = false;
+        UpdateUi();
     }
 
     private void TogglePlay()

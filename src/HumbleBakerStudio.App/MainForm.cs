@@ -41,8 +41,15 @@ internal sealed class MainForm : Form
     private readonly PatternsTab _patternsTab;
     private readonly SettingsTab _settingsTab;
     private readonly PluginTab _pluginTab;
-    private readonly Vst3Host _vst = new();
+    private readonly Vst3Host _vst;
     private Task? _vstScanTask;
+    private readonly bool _deckEditor;
+    private readonly string _windowLabel;
+
+    /// <summary>Raised after a successful save, so a deck can re-render from the edited project.</summary>
+    public event EventHandler? ProjectSaved;
+    /// <summary>Raised by a deck editor when the user wants the live deck updated without saving.</summary>
+    public event EventHandler? DeckUpdateRequested;
 
     private readonly NumericUpDown _bpm = new() { Minimum = 30, Maximum = 300, DecimalPlaces = 2, Increment = 1, Width = 68 };
     private readonly NumericUpDown _bars = new() { Minimum = 1, Maximum = 64, Width = 52 };
@@ -56,9 +63,19 @@ internal sealed class MainForm : Form
     private readonly TrackListPanel _trackList;
     private LiveWindow? _liveWindow;
 
-    public MainForm()
+    public MainForm() : this(null, null, null, null, false, "Humble Baker Studio")
     {
-        Text = "Humble Baker Studio";
+    }
+
+    /// <summary>
+    /// Creates a secondary project window. A deck editor shares the primary window's settings
+    /// and VST3 host but owns its own project, player and undo history.
+    /// </summary>
+    internal MainForm(Project? initialProject, string? initialPath, AppSettings? settings, Vst3Host? vst, bool deckEditor, string label)
+    {
+        _deckEditor = deckEditor;
+        _windowLabel = label;
+        Text = deckEditor ? label + " — Humble Baker Studio" : "Humble Baker Studio";
         MinimumSize = new Size(1180, 700);
         Size = new Size(1440, 900);
         StartPosition = FormStartPosition.CenterScreen;
@@ -69,13 +86,25 @@ internal sealed class MainForm : Form
         KeyPreview = true;
         try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
 
-        _settings = AppSettings.Load();
+        _settings = settings ?? AppSettings.Load();
+        _vst = vst ?? new Vst3Host();
         _ollama = new OllamaClient(_settings.OllamaUrl);
-        _ai = new AiTools(_ollama) { Model = _settings.OllamaModel };
-        AudioPlugins.Host = _vst;
-        SampleLibrary.Discover(_settings);
+        _ai = new AiTools(_ollama) { Model = _settings.OllamaModel, ReviewerModel = _settings.ModelForRole("reviewer") };
+        if (!deckEditor)
+        {
+            AudioPlugins.Host = _vst;
+            SampleLibrary.Discover(_settings);
+        }
 
-        _project = LoadInitialProject();
+        if (deckEditor && initialProject != null)
+        {
+            _project = initialProject;
+            _projectPath = initialPath;
+        }
+        else
+        {
+            _project = LoadInitialProject();
+        }
 
         _trackList = new TrackListPanel(this);
         _sequencer = new SequencerTab(this);
@@ -111,9 +140,12 @@ internal sealed class MainForm : Form
         {
             _sequencer.ScrollToContent();
             Theme.ApplyDarkScrollbars(this);
-            _vst.CatalogChanged += OnVstCatalogChanged;
-            _ = EnsureVstScan();
-            if (Environment.GetEnvironmentVariable("HBS_OPEN_LIVE") == "1") OpenLiveWindow();
+            if (!_deckEditor)
+            {
+                _vst.CatalogChanged += OnVstCatalogChanged;
+                _ = EnsureVstScan();
+                if (Environment.GetEnvironmentVariable("HBS_OPEN_LIVE") == "1") OpenLiveWindow();
+            }
         };
 
         RefreshFromProject(keepSelection: true);
@@ -150,6 +182,7 @@ internal sealed class MainForm : Form
     public Track? SelectedTrack => _selected;
     public AppSettings Settings => _settings;
     public Vst3Host Vst => _vst;
+    public string? ProjectPath => _projectPath;
 
     /// <summary>Starts one shared VST3 scan; safe to call from any tab.</summary>
     public Task EnsureVstScan()
@@ -233,14 +266,26 @@ internal sealed class MainForm : Form
         top.Controls.Add(Separator());
         top.Controls.Add(_master);
         top.Controls.Add(Theme.Button("Export…", (_, _) => ExportProject(), false, "Render and export audio (Ctrl+E)"));
-        top.Controls.Add(Separator());
-        var live = Theme.Button("LIVE", (_, _) => OpenLiveWindow(), true, "Two-deck live performance window");
-        live.Font = Theme.UiBold;
-        live.BackColor = Theme.AccentWarm;
-        live.ForeColor = Theme.Back;
-        live.FlatAppearance.BorderColor = Theme.AccentWarm;
-        live.FlatAppearance.MouseOverBackColor = Color.FromArgb(255, 192, 124);
-        top.Controls.Add(live);
+        if (_deckEditor)
+        {
+            top.Controls.Add(Separator());
+            var send = Theme.Button("Update deck", (_, _) => DeckUpdateRequested?.Invoke(this, EventArgs.Empty), true,
+                "Re-render this project into its live deck without saving");
+            send.BackColor = Theme.AccentWarm;
+            send.ForeColor = Theme.Back;
+            top.Controls.Add(send);
+        }
+        if (!_deckEditor)
+        {
+            top.Controls.Add(Separator());
+            var live = Theme.Button("LIVE", (_, _) => OpenLiveWindow(), true, "Two-deck live performance window");
+            live.Font = Theme.UiBold;
+            live.BackColor = Theme.AccentWarm;
+            live.ForeColor = Theme.Back;
+            live.FlatAppearance.BorderColor = Theme.AccentWarm;
+            live.FlatAppearance.MouseOverBackColor = Color.FromArgb(255, 192, 124);
+            top.Controls.Add(live);
+        }
 #if HBS_NO_AI
         top.Controls.Add(Theme.Button("Patterns", (_, _) => SelectTab(_patternsTab), false, "Deterministic MIDI pattern library"));
 #else
@@ -495,14 +540,14 @@ internal sealed class MainForm : Form
             _masterTab.RefreshView();
             _patternsTab.RefreshView();
             _mixerTab.Rebuild();
-            _vst.Trim(_project);
+            if (!_deckEditor) _vst.Trim(_project);
         }
         finally
         {
             _refreshing = false;
         }
         _title.Text = (_projectPath != null ? Path.GetFileNameWithoutExtension(_projectPath) : "Untitled") + (_dirty ? " •" : "");
-        Text = "Humble Baker Studio" + (_projectPath != null ? " — " + Path.GetFileName(_projectPath) : "");
+        Text = _windowLabel + (_projectPath != null ? " — " + Path.GetFileName(_projectPath) : "");
     }
 
     public void SelectTrack(Track? track, bool fromList = false)
@@ -540,7 +585,7 @@ internal sealed class MainForm : Form
     {
         _dirty = true;
         _title.Text = (_projectPath != null ? Path.GetFileNameWithoutExtension(_projectPath) : "Untitled") + " •";
-        Text = "Humble Baker Studio" + (_projectPath != null ? " — " + Path.GetFileName(_projectPath) : "");
+        Text = _windowLabel + (_projectPath != null ? " — " + Path.GetFileName(_projectPath) : "");
         _sequencer.RefreshRoll();
         ScheduleLoopRefresh();
     }
@@ -634,7 +679,7 @@ internal sealed class MainForm : Form
     public void RefreshTitle()
     {
         _title.Text = (_projectPath != null ? Path.GetFileNameWithoutExtension(_projectPath) : "Untitled") + (_dirty ? " •" : "");
-        Text = "Humble Baker Studio" + (_projectPath != null ? " — " + Path.GetFileName(_projectPath) : "");
+        Text = _windowLabel + (_projectPath != null ? " — " + Path.GetFileName(_projectPath) : "");
     }
 
     public void OpenLiveWindow()
@@ -732,10 +777,10 @@ internal sealed class MainForm : Form
             ProjectStore.Save(_project, path!);
             _projectPath = path;
             _dirty = false;
-            _settings.LastProject = path!;
-            _settings.Save();
+            if (!_deckEditor) { _settings.LastProject = path!; _settings.Save(); }
             RefreshFromProject(keepSelection: true);
             SetStatus("Saved " + Path.GetFileName(path!));
+            ProjectSaved?.Invoke(this, EventArgs.Empty);
             return true;
         }
         catch (Exception ex)
@@ -840,21 +885,25 @@ internal sealed class MainForm : Form
     {
         _ollama.BaseUrl = _settings.OllamaUrl.TrimEnd('/');
         _ai.Model = _settings.OllamaModel;
+        _ai.ReviewerModel = _settings.ModelForRole("reviewer");
         SampleLibrary.Discover(_settings);
         _settings.Save();
     }
 
     private void OnClosing(object? sender, FormClosingEventArgs e)
     {
-        try { _liveWindow?.Close(); } catch { }
+        if (!_deckEditor) try { _liveWindow?.Close(); } catch { }
         StopPlayback();
         if (!ConfirmDiscard())
         {
             e.Cancel = true;
             return;
         }
-        try { _settings.LastProject = _projectPath ?? _settings.LastProject; _settings.Save(); } catch { }
-        _vst.Dispose();
+        if (!_deckEditor)
+        {
+            try { _settings.LastProject = _projectPath ?? _settings.LastProject; _settings.Save(); } catch { }
+            _vst.Dispose();
+        }
         _ollama.Dispose();
         _player.Dispose();
     }

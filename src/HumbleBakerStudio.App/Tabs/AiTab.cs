@@ -22,6 +22,7 @@ internal sealed class AiTab : UserControl
         BorderStyle = BorderStyle.FixedSingle
     };
     private readonly Label _busy = new() { AutoSize = true, ForeColor = Theme.Muted };
+    private readonly ComboBox _reviewer = new() { Width = 250, DropDownStyle = ComboBoxStyle.DropDownList };
     private CancellationTokenSource? _cts;
 
     public AiTab(MainForm host)
@@ -29,7 +30,7 @@ internal sealed class AiTab : UserControl
         _host = host;
         BackColor = Theme.Back;
 
-        var top = new Panel { Dock = DockStyle.Top, Height = 150, BackColor = Theme.Panel, Padding = new Padding(14, 10, 14, 8) };
+        var top = new Panel { Dock = DockStyle.Top, Height = 190, BackColor = Theme.Panel, Padding = new Padding(14, 10, 14, 8) };
 
         _endpoint.Width = 300;
         _style.Width = 560;
@@ -57,6 +58,13 @@ internal sealed class AiTab : UserControl
         row3.Controls.Add(Theme.Button("Review mix", (_, _) => ReviewMix()));
         row3.Controls.Add(Theme.Button("Stop", (_, _) => Cancel()));
 
+        var row4 = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 38, WrapContents = false, BackColor = Theme.Panel };
+        row4.Controls.Add(Theme.SectionLabel("Crew"));
+        row4.Controls.Add(Theme.Label("Reviewer model", Theme.Muted));
+        row4.Controls.Add(_reviewer);
+        row4.Controls.Add(Theme.Button("Generate full arrangement", (_, _) => GenerateArrangement(), true));
+
+        top.Controls.Add(row4);
         top.Controls.Add(row3);
         top.Controls.Add(row2);
         top.Controls.Add(row1);
@@ -90,6 +98,10 @@ internal sealed class AiTab : UserControl
                    "2. Choose a track in the list on the left.\r\n" +
                    "3. Describe the style and press an action.\r\n\r\n" +
                    "The model returns structured JSON. It is validated and clamped before it touches the project; generated notes can be undone with Ctrl+Z.\r\n\r\n" +
+                   "Crew\r\n" +
+                   "- Generate full arrangement writes drums, bass and harmony as a team: each part reads\r\n" +
+                   "  the project brief and the parts already written, then a reviewer model critiques\r\n" +
+                   "  the result and can trigger one revision pass. Pick the reviewer model above.\r\n\r\n" +
                    "Tips\r\n" +
                    "- Be concrete: genre, energy, instrumentation, reference artist.\r\n" +
                    "- Use shorter bars for motifs, longer for full sections.\r\n" +
@@ -109,6 +121,7 @@ internal sealed class AiTab : UserControl
         Controls.Add(top);
 
         _endpoint.Text = _host.Settings.OllamaUrl;
+        _reviewer.SelectedIndexChanged += (_, _) => SaveReviewer();
         Load += (_, _) => RefreshModels();
     }
 
@@ -145,12 +158,31 @@ internal sealed class AiTab : UserControl
             }
             _busy.Text = $"{models.Length} model(s)";
             Log("Models: " + string.Join(", ", models));
+
+            // Reviewer model picker: same list plus a "same as main" fallback entry.
+            const string sameAsMain = "(same as main model)";
+            _reviewer.Items.Clear();
+            _reviewer.Items.Add(sameAsMain);
+            _reviewer.Items.AddRange(models);
+            var savedReviewer = _host.Settings.ModelForRole("reviewer");
+            var reviewerPick = string.IsNullOrWhiteSpace(savedReviewer)
+                ? sameAsMain
+                : models.FirstOrDefault(m => m == savedReviewer) ?? sameAsMain;
+            _reviewer.SelectedItem = reviewerPick;
         }
         catch (Exception ex)
         {
             _busy.Text = "Ollama unavailable";
             Log(ex.Message);
         }
+    }
+
+    private void SaveReviewer()
+    {
+        if (_reviewer.SelectedItem is not string pick) return;
+        _host.Settings.AiRoleModels["reviewer"] = pick.StartsWith("(same", StringComparison.Ordinal) ? "" : pick;
+        _host.Ai.ReviewerModel = _host.Settings.ModelForRole("reviewer");
+        _host.ApplySettings();
     }
 
     private async void GenerateNotes(bool drums)
@@ -229,6 +261,45 @@ internal sealed class AiTab : UserControl
         }
         catch (OperationCanceledException) { SetBusy(false, "Stopped"); }
         catch (Exception ex) { Log("Error: " + ex.Message); SetBusy(false, "Failed"); }
+    }
+
+    private async void GenerateArrangement()
+    {
+        if (_models.SelectedItem is not string model) { Log("Choose an Ollama model first."); return; }
+        _host.Ai.Model = model;
+        _host.Settings.OllamaModel = model;
+        _host.ApplySettings();
+
+        _cts = new CancellationTokenSource();
+        SetBusy(true, "Crew working…");
+        try
+        {
+            var parts = await _host.Ai.GenerateArrangementAsync(
+                _host.Project, _style.Text, (int)_bars.Value,
+                message => { Log(message); return Task.CompletedTask; },
+                _cts.Token);
+
+            _host.BeginEdit("ai-crew");
+            foreach (var part in parts)
+            {
+                if (part.IsNewTrack) _host.Project.Tracks.Add(part.Track);
+                part.Track.Notes.Clear();
+                part.Track.Notes.AddRange(part.Notes);
+                Log($"[{part.Role}] {part.Notes.Count} notes on \"{part.Track.Name}\"{(part.IsNewTrack ? " (new track)" : "")}.");
+            }
+            _host.MarkDirty();
+            _host.NotifyTracksChanged(_host.SelectedTrack);
+            SetBusy(false, "Done");
+        }
+        catch (OperationCanceledException)
+        {
+            SetBusy(false, "Stopped");
+        }
+        catch (Exception ex)
+        {
+            Log("Error: " + ex.Message);
+            SetBusy(false, "Failed");
+        }
     }
 
     private void Cancel()

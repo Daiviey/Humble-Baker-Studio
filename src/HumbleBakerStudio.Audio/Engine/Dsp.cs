@@ -79,17 +79,25 @@ public static class Dsp {
             List<AutoLane> planes = null;
             if (isPatch && t.Auto != null) foreach (AutoLane al in t.Auto) if (al.Param.StartsWith("p:") && al.Points.Count > 0) { if (planes == null) planes = new List<AutoLane>(); planes.Add(al); }
             int evi = 0;
+            int previousPitch = -1;
             foreach (Ev e in Engine.Events(p, t)) {
                 evi++;
                 if (pluginNotes != null)
                 {
                     pluginNotes.Add(new PluginNote { StartBeat = e.Start, LenBeats = e.Len, Pitch = e.Pitch, Vel = e.Vel });
+                    previousPitch = e.Pitch;
                     continue;
                 }
                 int s0 = (int)Math.Round(e.Start * spb * SR);
                 float amp = (float)(t.Vol * e.Vel / 127.0 * 0.5);
                 string key = e.Pitch + "|" + Math.Round(e.Len * spb, 3).ToString(CultureInfo.InvariantCulture);
                 if (isDrums && DrumSamples.Enabled) key += "|v" + DrumSamples.LayerFor(e.Vel);
+                bool expressive = InstrumentVoice.IsInstrumentVoice(t.Synth);
+                if (expressive)
+                {
+                    key += "|v" + e.Vel;
+                    if (t.Glide > 0.001 && previousPitch > 0) key += "|g" + previousPitch;
+                }
                 float[] buf;
                 if (isPatch && (pctx || planes != null)) {
                     int variant = t.Patch.Variation > 0 ? evi % 4 : 0, velB = pctx ? Math.Min(127, (e.Vel / 8) * 8 + 4) : 100; string psig = "";
@@ -97,7 +105,7 @@ public static class Dsp {
                     key += "|v" + velB + "|r" + variant + "|" + psig;
                     if (!cache.TryGetValue(key, out buf)) { buf = PatchSynth.Render(pv ?? t.Patch, e.Pitch, e.Len * spb, velB, variant); cache[key] = buf; }
                 } else if (!cache.TryGetValue(key, out buf)) {
-                    buf = NoteBuffer(t, e.Pitch, e.Len * spb, rnd, e.Vel);
+                    buf = NoteBuffer(t, e.Pitch, e.Len * spb, rnd, e.Vel, previousPitch);
                     cache[key] = buf;
                 }
                 for (int i = 0; i < buf.Length; i++) {
@@ -106,6 +114,7 @@ public static class Dsp {
                     float v = buf[i] * amp;
                     TL[idx] += (float)(v * pl); TR[idx] += (float)(v * pr);
                 }
+                previousPitch = e.Pitch;
             }
             if (pluginInst && pluginNotes != null && AudioPlugins.Host != null)
             {
@@ -200,36 +209,133 @@ public static class Dsp {
         outL = L; outR = R;
     }
 
-    static float[] NoteBuffer(Track t, int pitch, double dur, Random rnd, int vel) {
+    static float[] NoteBuffer(Track t, int pitch, double dur, Random rnd, int vel, int prevPitch = -1) {
         string syn = (t.Synth ?? "").ToLowerInvariant();
         if (syn == "drums") return Drum(pitch, rnd, t.DrumKit, vel);
         if (syn == "patch") return t.Patch == null ? new float[1] : PatchSynth.Render(t.Patch, pitch, dur);
-        if (syn == "sample") return SampleVoice(t, pitch, dur);
+        if (syn == "sample") return SampleVoice(t, pitch, dur, prevPitch);
+        if (InstrumentVoice.IsInstrumentVoice(syn)) return InstrumentVoice.Render(t, pitch, dur, vel, rnd, prevPitch);
         return Voice(t, pitch, dur, rnd);
     }
 
-    static float[] SampleVoice(Track t, int pitch, double dur) {
+    static float[] SampleVoice(Track t, int pitch, double dur, int prevPitch = -1) {
         if (t.Sample == null || t.Sample.Length < 2) return new float[1];
-        double ratio = t.SampleMode == 1 ? 1.0 : Math.Pow(2, (pitch - t.SampleRoot) / 12.0);
+        int len = t.Sample.Length;
+        bool pitched = t.SampleMode != 1;
+        double ratio = pitched ? Math.Pow(2, (pitch - t.SampleRoot) / 12.0) : 1.0;
+        double startRatio = ratio;
+        if (pitched && t.Glide > 0.001 && prevPitch > 0)
+            startRatio = Math.Pow(2, (prevPitch - t.SampleRoot) / 12.0);
+
+        double atk = Math.Max(0.001, t.Atk);
+        double rel = Math.Max(0.005, t.Rel);
+        bool sustain = t.SampleSustain || t.SampleMode == 2;
         int n;
-        if (t.SampleMode == 2) n = Math.Max(1, (int)((dur + Math.Max(0.005, t.Rel)) * SR));
-        else { n = (int)(t.Sample.Length / ratio); if (t.SampleGate) n = Math.Min(n, (int)((dur + Math.Max(0.005, t.Rel)) * SR)); }
+        if (sustain) n = (int)((dur + rel + 0.02) * SR);
+        else
+        {
+            n = (int)(len / ratio);
+            if (t.SampleGate) n = Math.Min(n, (int)((dur + rel) * SR));
+        }
         n = Math.Max(1, Math.Min(n, SR * 30));
         float[] o = new float[n];
-        for (int i = 0; i < n; i++) {
-            double pos = i * ratio;
-            if (t.SampleMode == 2) pos = pos % Math.Max(1, t.Sample.Length - 1);
-            else if (pos >= t.Sample.Length - 1) break;
-            int a = (int)pos;
-            double fr = pos - a;
-            double x = t.Sample[a] * (1 - fr) + t.Sample[Math.Min(a + 1, t.Sample.Length - 1)] * fr;
-            if (t.SampleGate) { double tm = (double)i / SR; if (tm > dur) x *= Math.Max(0, 1 - (tm - dur) / Math.Max(0.005, t.Rel)); }
-            int attackSamples = (int)(Math.Max(0.0005, t.Atk) * SR);
-            attackSamples = Math.Min(attackSamples, Math.Max(1, n / 4));
-            if (attackSamples > 0 && i < attackSamples) x *= (double)i / attackSamples;
-            o[i] = (float)x;
+
+        // Sustain loop: a crossfaded region of the sample. A one-shot string/guitar stab can
+        // therefore be held like a real instrument instead of ending after the hit.
+        int loopStart = 0, loopEnd = len - 1, loopLen = len - 1, fade = 0;
+        if (sustain)
+        {
+            if (t.SampleMode == 2)
+            {
+                loopStart = 0;
+                loopEnd = len - 1;
+            }
+            else
+            {
+                double ls = Math.Clamp(t.SampleLoopStart, 0, 1);
+                double le = Math.Clamp(t.SampleLoopEnd, 0, 1);
+                if (le <= ls + 0.02) { ls = 0.25; le = 0.85; }
+                loopStart = (int)(ls * (len - 1));
+                loopEnd = (int)(le * (len - 1));
+            }
+            if (loopEnd <= loopStart + 32)
+            {
+                loopStart = 0;
+                loopEnd = len - 1;
+            }
+            loopLen = loopEnd - loopStart;
+            fade = Math.Min(loopLen / 3, SR / 25); // up to 40 ms crossfade
+            loopStart = Math.Max(loopStart, fade + 1);
+            loopEnd = Math.Min(loopEnd, len - 2);
+            loopLen = Math.Max(1, loopEnd - loopStart);
+        }
+
+        double pos = 0;
+        double low = 0;
+        double vibPhase = pitch * 0.7;
+        double tilt = Math.Abs(t.Brightness - 0.5) * 2;
+        bool darken = t.Brightness < 0.5;
+        for (int i = 0; i < n; i++)
+        {
+            double tm = (double)i / SR;
+            if (pos >= len - 1)
+            {
+                if (sustain) pos = loopStart;
+                else break;
+            }
+
+            double r = ratio;
+            if (pitched && t.Glide > 0.001)
+            {
+                double k = Math.Exp(-tm / Math.Max(0.008, t.Glide));
+                r = ratio * Math.Pow(startRatio / ratio, k);
+            }
+            if (t.Vibrato > 0.0001)
+            {
+                double vib = t.Vibrato * Math.Min(1, tm / 0.32) *
+                    Math.Sin(2 * Math.PI * Math.Max(0.1, t.VibratoRate) * tm + vibPhase);
+                r *= Math.Pow(2, vib / 12.0);
+            }
+
+            double x;
+            if (sustain && pos >= loopEnd - fade)
+            {
+                double w = Math.Clamp((pos - (loopEnd - fade)) / Math.Max(1, fade), 0, 1);
+                double a = ReadSample(t.Sample, pos);
+                double b = ReadSample(t.Sample, pos - loopLen);
+                x = a * (1 - w) + b * w;
+            }
+            else
+            {
+                x = ReadSample(t.Sample, pos);
+            }
+
+            if (tilt > 0.01)
+            {
+                double c = 1 - Math.Exp(-2 * Math.PI * 9000 / SR);
+                low += c * (x - low);
+                x = darken ? low : x + (x - low) * tilt;
+            }
+
+            double env = tm < atk ? tm / atk : 1.0;
+            if (sustain || t.SampleGate)
+            {
+                if (tm > dur) env *= Math.Max(0, 1 - (tm - dur) / rel);
+            }
+            o[i] = (float)(x * env);
+            pos += r;
+            if (sustain && pos >= loopEnd) pos -= loopLen;
         }
         return o;
+    }
+
+    static double ReadSample(float[] sample, double pos)
+    {
+        if (pos <= 0) return sample[0];
+        int a = (int)pos;
+        if (a >= sample.Length - 1) return sample[sample.Length - 1];
+        double fr = pos - a;
+        return sample[a] * (1 - fr) + sample[a + 1] * fr;
     }
 
     // Render one note of a track (synth, patch, sample or drum, with its effect chain) to a mono, trimmed, normalized sample.
@@ -238,6 +344,8 @@ public static class Dsp {
         Track c = new Track();
         c.Name = t.Name; c.Synth = t.Synth; c.Vol = 1; c.Pan = 0; c.Cutoff = t.Cutoff; c.Res = t.Res; c.EnvAmt = t.EnvAmt; c.Atk = t.Atk; c.Rel = t.Rel; c.Crush = t.Crush;
         c.Patch = t.Patch; c.Fx = t.Fx; c.Sample = t.Sample; c.SampleRoot = t.SampleRoot; c.SampleGate = t.SampleGate; c.DrumKit = t.DrumKit; c.InstrumentName = t.InstrumentName; c.SampleMode = t.SampleMode;
+        c.SampleSustain = t.SampleSustain; c.SampleLoopStart = t.SampleLoopStart; c.SampleLoopEnd = t.SampleLoopEnd;
+        c.Vibrato = t.Vibrato; c.VibratoRate = t.VibratoRate; c.Glide = t.Glide; c.Ensemble = t.Ensemble; c.Brightness = t.Brightness; c.Body = t.Body;
         c.Notes.Add(new Note(pitch, 0, seconds, 110)); p.Tracks.Add(c);
         short[] pcm = Render(p, false);
         float[] m = new float[pcm.Length / 2];

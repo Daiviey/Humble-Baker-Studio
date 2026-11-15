@@ -15,6 +15,9 @@ internal sealed class AiTools
     private readonly OllamaClient _ollama;
     public string Model { get; set; } = "";
 
+    /// <summary>Optional second model used for critique passes; empty falls back to Model.</summary>
+    public string ReviewerModel { get; set; } = "";
+
     public AiTools(OllamaClient ollama) => _ollama = ollama;
 
     private const string SystemPrompt =
@@ -295,6 +298,136 @@ internal sealed class AiTools
             if (PropIO.Set(target, key, text)) n++;
         }
         return n;
+    }
+
+    // ---- arrangement crew -------------------------------------------------
+
+    /// <summary>One team member's contribution: a track (existing or new) plus its generated notes.</summary>
+    public sealed class CrewPart
+    {
+        public string Role { get; init; } = "";
+        public Track Track { get; init; } = new();
+        public bool IsNewTrack { get; init; }
+        public List<Note> Notes { get; set; } = new();
+    }
+
+    private static readonly string[] CrewRoles = { "drummer", "bassist", "harmony" };
+
+    private static (string TrackName, string Synth, string RoleDescription) CrewRole(string role) => role switch
+    {
+        "drummer" => ("AI Drums", "drums", "a drum groove"),
+        "bassist" => ("AI Bass", "acid", "a bass line that locks in with the drums"),
+        _ => ("AI Harmony", "pad", "chord voicings that fit everything already played")
+    };
+
+    /// <summary>
+    /// Role-based crew: drummer, bassist and harmony generate in sequence, each reading a shared
+    /// project brief plus the parts already written; a reviewer model then critiques the result and
+    /// (if needed) triggers one revision pass on bass and harmony. Tracks are returned detached —
+    /// the caller attaches new ones inside an undo snapshot.
+    /// </summary>
+    public async Task<List<CrewPart>> GenerateArrangementAsync(
+        Project p, string style, int bars, Func<string, Task> progress, CancellationToken ct)
+    {
+        var parts = new List<CrewPart>();
+        foreach (var role in CrewRoles)
+        {
+            var (trackName, synth, _) = CrewRole(role);
+            var existing = p.Tracks.FirstOrDefault(t => t.Synth == synth);
+            parts.Add(new CrewPart
+            {
+                Role = role,
+                Track = existing ?? new Track { Name = trackName, Synth = synth },
+                IsNewTrack = existing == null
+            });
+        }
+
+        string reviewer = string.IsNullOrWhiteSpace(ReviewerModel) ? Model : ReviewerModel;
+        string issues = "";
+
+        foreach (var part in parts)
+        {
+            if (progress != null) await progress($"[{part.Role}] generating…");
+            var prompt = new StringBuilder(ProjectBrief(p, part.Track));
+            prompt.AppendLine($"Write {CrewRole(part.Role).RoleDescription} for {bars} bar(s) in the style: {style}.");
+            prompt.AppendLine(part.Track.Synth == "drums"
+                ? "Use only the drum pitches listed above."
+                : "Stay in the project key/scale. Use short rests; leave room for other instruments.");
+            prompt.AppendLine("Do not repeat an existing pattern verbatim; create something with a clear motif.");
+
+            foreach (var done in parts.Where(x => x != part && x.Notes.Count > 0))
+                prompt.AppendLine($"Part already written ({done.Role} on \"{done.Track.Name}\"):\n{DescribeNotes(done.Notes)}");
+            if (issues.Length > 0)
+                prompt.AppendLine("Fix these problems from the previous take:\n" + issues);
+
+            prompt.AppendLine(part.Track.Synth == "pad"
+                ? "Write chord voicings: 2-4 notes that share the same start, held 4-8 beats."
+                : "Return { \"notes\": [ { \"pitch\": 60, \"start\": 0, \"len\": 0.5, \"vel\": 100 } ] }.");
+
+            var reply = await _ollama.ChatAsync(Model, SystemPrompt, prompt.ToString(), json: true, ct);
+            part.Notes = ParseNotes(reply, p.LoopBeats);
+            if (part.Notes.Count == 0)
+                throw new InvalidOperationException($"The {part.Role} returned no notes.");
+            if (progress != null) await progress($"[{part.Role}] {part.Notes.Count} notes.");
+        }
+
+        if (progress != null) await progress($"[reviewer] checking the arrangement…");
+        var review = new StringBuilder(ProjectBrief(p, parts[0].Track));
+        review.AppendLine("The crew wrote these parts:");
+        foreach (var part in parts)
+            review.AppendLine($"- {part.Role} on \"{part.Track.Name}\" ({part.Track.Synth}):\n{DescribeNotes(part.Notes)}");
+        review.AppendLine("Critique the arrangement as JSON {\"verdict\":\"keep\"|\"revise\",\"issues\":[\"...\"]}. " +
+                          "Use \"revise\" only for real problems: key clashes, kick/bass collisions, parts fighting for the same register, empty sections.");
+
+        var reviewReply = await _ollama.ChatAsync(reviewer, SystemPrompt, review.ToString(), json: true, ct);
+        var reviewObj = ParseObject(reviewReply);
+        issues = string.Join("\n- ", (reviewObj["issues"] as JsonArray ?? new JsonArray())
+            .Select(a => a?.GetValue<string>() ?? "").Where(s => s.Length > 0));
+        string verdict = (reviewObj["verdict"]?.GetValue<string>() ?? "keep").Trim().ToLowerInvariant();
+
+        if (verdict == "revise" && issues.Length > 0)
+        {
+            if (progress != null) await progress($"[reviewer] requested a revision: {issues.Split('\n').First()}");
+            foreach (var part in parts.Where(x => x.Role != "drummer"))
+            {
+                var (trackName, synth, _) = CrewRole(part.Role);
+                var prompt = new StringBuilder(ProjectBrief(p, part.Track));
+                prompt.AppendLine($"Rewrite {CrewRole(part.Role).RoleDescription} for {bars} bar(s) in the style: {style}.");
+                prompt.AppendLine("The previous take had these problems:\n- " + issues);
+                foreach (var done in parts.Where(x => x != part && x.Notes.Count > 0))
+                    prompt.AppendLine($"Part to play against ({done.Role} on \"{done.Track.Name}\"):\n{DescribeNotes(done.Notes)}");
+                prompt.AppendLine(part.Track.Synth == "pad"
+                    ? "Write chord voicings: 2-4 notes that share the same start, held 4-8 beats."
+                    : "Return { \"notes\": [ { \"pitch\": 60, \"start\": 0, \"len\": 0.5, \"vel\": 100 } ] }.");
+
+                var reply = await _ollama.ChatAsync(Model, SystemPrompt, prompt.ToString(), json: true, ct);
+                var revised = ParseNotes(reply, p.LoopBeats);
+                if (revised.Count > 0)
+                {
+                    part.Notes = revised;
+                    if (progress != null) await progress($"[{part.Role}] revised, {revised.Count} notes.");
+                }
+            }
+        }
+
+        return parts;
+    }
+
+    /// <summary>Compact, prompt-friendly description of a note list, grouped by pitch.</summary>
+    public static string DescribeNotes(List<Note> notes)
+    {
+        var sb = new StringBuilder();
+        foreach (var group in notes.GroupBy(n => n.Pitch).OrderBy(g => g.Key))
+        {
+            var starts = group.Select(n => n.Start)
+                .OrderBy(s => s)
+                .Take(24)
+                .Select(s => s.ToString("0.##"));
+            sb.AppendLine($"  pitch {group.Key} ({NoteName(group.Key)}): starts at {string.Join(", ", starts)}" +
+                          (group.Count() > 24 ? ", …" : "") +
+                          $"; typical length {group.Select(n => n.Len).OrderBy(l => l).ElementAt(group.Count() / 2):0.##} beats");
+        }
+        return sb.ToString();
     }
 
     // ---- parsing ---------------------------------------------------------

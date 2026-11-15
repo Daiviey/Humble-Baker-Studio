@@ -16,7 +16,8 @@ internal static class InstrumentCatalog
 {
     public static readonly string[] BuiltIn =
     {
-        "acid", "saw", "square", "tri", "sine", "pad", "fm", "pluck", "noise", "drums", "patch", "sample"
+        "strings", "bowed", "cello", "pluck", "strum", "hybrid",
+        "acid", "saw", "square", "tri", "sine", "pad", "fm", "noise", "drums", "patch", "sample"
     };
 
     public static List<InstrumentOption> Build(Vst3Host vst)
@@ -55,7 +56,42 @@ internal static class InstrumentCatalog
             track.PluginInstrument = false;
             track.PluginState = "";
             track.PluginBypass = false;
-            if (!string.IsNullOrEmpty(option.Synth)) track.Synth = option.Synth;
+            if (!string.IsNullOrEmpty(option.Synth))
+            {
+                track.Synth = option.Synth;
+                ApplyVoiceDefaults(track, option.Synth);
+            }
+        }
+    }
+
+    /// <summary>Sensible starting articulations for the instrument-emulator engines.</summary>
+    private static void ApplyVoiceDefaults(Track t, string synth)
+    {
+        switch (synth)
+        {
+            case "strings":
+            case "bowed":
+                t.Atk = 0.12; t.Rel = 0.55; t.Vibrato = 0.13; t.VibratoRate = 5.3;
+                t.Ensemble = 0.55; t.Brightness = 0.55; t.Body = 0.55; t.Glide = 0.04;
+                t.Cutoff = 4200; t.Res = 0.25;
+                break;
+            case "cello":
+                t.Atk = 0.16; t.Rel = 0.65; t.Vibrato = 0.10; t.VibratoRate = 4.6;
+                t.Ensemble = 0.45; t.Brightness = 0.42; t.Body = 0.7; t.Glide = 0.05;
+                t.Cutoff = 3000; t.Res = 0.25;
+                break;
+            case "pluck":
+                t.Atk = 0.002; t.Rel = 0.35; t.Vibrato = 0; t.Ensemble = 0.25;
+                t.Brightness = 0.65; t.Body = 0.5; t.Glide = 0.0;
+                break;
+            case "strum":
+                t.Atk = 0.002; t.Rel = 0.45; t.Vibrato = 0; t.Ensemble = 0.6;
+                t.Brightness = 0.62; t.Body = 0.55; t.Glide = 0.0;
+                break;
+            case "hybrid":
+                t.Atk = 0.01; t.Rel = 0.5; t.Vibrato = 0.08; t.VibratoRate = 5.0;
+                t.Ensemble = 0.5; t.Brightness = 0.58; t.Body = 0.55; t.Glide = 0.06;
+                break;
         }
     }
 

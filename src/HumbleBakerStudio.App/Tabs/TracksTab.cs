@@ -23,6 +23,15 @@ internal sealed class TracksTab : UserControl
     private readonly NumericUpDown _crush = Num(2, 16, 0, 1);
     private readonly ComboBox _sampleMode = new() { Width = 240, DropDownStyle = ComboBoxStyle.DropDownList };
     private readonly CheckBox _sampleGate = new() { Text = "Gate by note length (apply release)", AutoSize = true, ForeColor = Theme.Text };
+    private readonly CheckBox _sustain = new() { Text = "Hold sustain (loop the sample)", AutoSize = true, ForeColor = Theme.Text };
+    private readonly NumericUpDown _loopStart = Num(0, 0.95m, 2, 0.01m);
+    private readonly NumericUpDown _loopEnd = Num(0.05m, 1, 2, 0.01m);
+    private readonly NumericUpDown _vibrato = Num(0, 1, 2, 0.01m);
+    private readonly NumericUpDown _vibratoRate = Num(0.5m, 12, 1, 0.1m);
+    private readonly NumericUpDown _glide = Num(0, 2, 2, 0.01m);
+    private readonly NumericUpDown _ensemble = Num(0, 1, 2, 0.01m);
+    private readonly NumericUpDown _brightness = Num(0, 1, 2, 0.01m);
+    private readonly NumericUpDown _body = Num(0, 1, 2, 0.01m);
     private readonly Label _stats = new() { AutoSize = true, ForeColor = Theme.Muted, Font = Theme.Small };
     private List<InstrumentOption> _options = new();
     private bool _syncing;
@@ -56,6 +65,16 @@ internal sealed class TracksTab : UserControl
         _sampleMode.SelectedIndex = 0;
         _rows.Controls.Add(Field("Sample mode", _sampleMode));
         _rows.Controls.Add(Field("Gate by note length", _sampleGate));
+        _rows.Controls.Add(Section("SAMPLER SUSTAIN AND ARTICULATION"));
+        _rows.Controls.Add(Field("Hold sustain (loop)", _sustain));
+        _rows.Controls.Add(Field("Loop start (0-1)", _loopStart));
+        _rows.Controls.Add(Field("Loop end (0-1)", _loopEnd));
+        _rows.Controls.Add(Field("Vibrato depth (semitones)", _vibrato));
+        _rows.Controls.Add(Field("Vibrato rate (Hz)", _vibratoRate));
+        _rows.Controls.Add(Field("Glide / portamento (s)", _glide));
+        _rows.Controls.Add(Field("Ensemble / detune (0-1)", _ensemble));
+        _rows.Controls.Add(Field("Brightness (0-1)", _brightness));
+        _rows.Controls.Add(Field("Body resonance (0-1)", _body));
         _rows.Controls.Add(Section("STATE"));
         _rows.Controls.Add(_stats);
         _rows.Controls.Add(Theme.Label("Synth patches and the full effects chain live on the Synth and Effects tabs.", Theme.Muted, Theme.Small));
@@ -87,6 +106,15 @@ internal sealed class TracksTab : UserControl
         _crush.ValueChanged += (_, _) => Apply(t => t.Crush = (double)_crush.Value);
         _sampleMode.SelectedIndexChanged += (_, _) => { if (!_syncing) Apply(t => t.SampleMode = _sampleMode.SelectedIndex); };
         _sampleGate.CheckedChanged += (_, _) => { if (!_syncing) Apply(t => t.SampleGate = _sampleGate.Checked); };
+        _sustain.CheckedChanged += (_, _) => Apply(t => t.SampleSustain = _sustain.Checked);
+        _loopStart.ValueChanged += (_, _) => Apply(t => t.SampleLoopStart = (double)_loopStart.Value);
+        _loopEnd.ValueChanged += (_, _) => Apply(t => t.SampleLoopEnd = (double)_loopEnd.Value);
+        _vibrato.ValueChanged += (_, _) => Apply(t => t.Vibrato = (double)_vibrato.Value);
+        _vibratoRate.ValueChanged += (_, _) => Apply(t => t.VibratoRate = (double)_vibratoRate.Value);
+        _glide.ValueChanged += (_, _) => Apply(t => t.Glide = (double)_glide.Value);
+        _ensemble.ValueChanged += (_, _) => Apply(t => t.Ensemble = (double)_ensemble.Value);
+        _brightness.ValueChanged += (_, _) => Apply(t => t.Brightness = (double)_brightness.Value);
+        _body.ValueChanged += (_, _) => Apply(t => t.Body = (double)_body.Value);
     }
 
     private static NumericUpDown Num(decimal min, decimal max, int decimals, decimal step) => new()
@@ -126,7 +154,9 @@ internal sealed class TracksTab : UserControl
         {
             _heading.Text = t == null ? "No track selected" : t.Name + " — track settings";
             _name.Enabled = _synth.Enabled = _kit.Enabled = _bus.Enabled = t != null;
-            foreach (var c in new Control[] { _vol, _pan, _cutoff, _res, _env, _atk, _rel, _crush, _sampleMode, _sampleGate }) c.Enabled = t != null;
+            foreach (var c in new Control[] { _vol, _pan, _cutoff, _res, _env, _atk, _rel, _crush, _sampleMode, _sampleGate,
+                _sustain, _loopStart, _loopEnd, _vibrato, _vibratoRate, _glide, _ensemble, _brightness, _body })
+                c.Enabled = t != null;
             if (t == null) { _stats.Text = ""; return; }
 
             _name.Text = t.Name;
@@ -147,6 +177,15 @@ internal sealed class TracksTab : UserControl
             _crush.Value = Clamp((decimal)t.Crush, _crush);
             _sampleMode.SelectedIndex = Math.Clamp(t.SampleMode, 0, _sampleMode.Items.Count - 1);
             _sampleGate.Checked = t.SampleGate;
+            _sustain.Checked = t.SampleSustain;
+            _loopStart.Value = Clamp((decimal)t.SampleLoopStart, _loopStart);
+            _loopEnd.Value = Clamp((decimal)t.SampleLoopEnd, _loopEnd);
+            _vibrato.Value = Clamp((decimal)t.Vibrato, _vibrato);
+            _vibratoRate.Value = Clamp((decimal)t.VibratoRate, _vibratoRate);
+            _glide.Value = Clamp((decimal)t.Glide, _glide);
+            _ensemble.Value = Clamp((decimal)t.Ensemble, _ensemble);
+            _brightness.Value = Clamp((decimal)t.Brightness, _brightness);
+            _body.Value = Clamp((decimal)t.Body, _body);
 
             _stats.Text =
                 $"Notes: {t.Notes.Count}\n" +

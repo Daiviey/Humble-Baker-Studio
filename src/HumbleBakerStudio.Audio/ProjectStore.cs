@@ -199,7 +199,16 @@ public static class ProjectStore
                     PluginBypass = GetBool(td, "pluginBypass", false),
                     SampleRoot = GetInt(td, "sampleRoot", 60),
                     SampleGate = GetBool(td, "sampleGate", false),
-                    SampleMode = GetInt(td, "sampleMode", 0)
+                    SampleMode = GetInt(td, "sampleMode", 0),
+                    SampleSustain = GetBool(td, "sampleSustain", false),
+                    SampleLoopStart = GetDouble(td, "sampleLoopStart", 0.25),
+                    SampleLoopEnd = GetDouble(td, "sampleLoopEnd", 0.85),
+                    Vibrato = GetDouble(td, "vibrato", 0),
+                    VibratoRate = GetDouble(td, "vibratoRate", 5.2),
+                    Glide = GetDouble(td, "glide", 0),
+                    Ensemble = GetDouble(td, "ensemble", 0.45),
+                    Brightness = GetDouble(td, "brightness", 0.5),
+                    Body = GetDouble(td, "body", 0.5)
                 };
                 if (td["patch"] is JsonObject patch)
                 {
@@ -312,6 +321,15 @@ public static class ProjectStore
                 ["sampleRoot"] = t.SampleRoot,
                 ["sampleGate"] = t.SampleGate,
                 ["sampleMode"] = t.SampleMode,
+                ["sampleSustain"] = t.SampleSustain,
+                ["sampleLoopStart"] = t.SampleLoopStart,
+                ["sampleLoopEnd"] = t.SampleLoopEnd,
+                ["vibrato"] = t.Vibrato,
+                ["vibratoRate"] = t.VibratoRate,
+                ["glide"] = t.Glide,
+                ["ensemble"] = t.Ensemble,
+                ["brightness"] = t.Brightness,
+                ["body"] = t.Body,
                 ["notes"] = new JsonArray(t.Notes.Select(n => (JsonNode)new JsonArray
                 {
                     n.Pitch, n.Start, n.Len, n.Vel

@@ -8,6 +8,8 @@ internal sealed class AppSettings
 {
     public string OllamaUrl { get; set; } = "http://127.0.0.1:11434";
     public string OllamaModel { get; set; } = "";
+    /// <summary>Model per AI role ("generator", "reviewer"); missing roles fall back to OllamaModel.</summary>
+    public Dictionary<string, string> AiRoleModels { get; set; } = new();
     public string OutputDirectory { get; set; } = "";
     public string FfmpegPath { get; set; } = "";
     public string SuperColliderPath { get; set; } = "";
@@ -35,6 +37,10 @@ internal sealed class AppSettings
     [JsonIgnore]
     public string ResolvedOutputDirectory =>
         string.IsNullOrWhiteSpace(OutputDirectory) ? Path.Combine(DataDirectory, "renders") : OutputDirectory;
+
+    /// <summary>Resolves a role to a concrete model name, falling back to the default model.</summary>
+    public string ModelForRole(string role) =>
+        AiRoleModels.TryGetValue(role, out var m) && !string.IsNullOrWhiteSpace(m) ? m : OllamaModel;
 
     public static AppSettings Load()
     {
@@ -70,6 +76,7 @@ internal sealed class AppSettings
     private AppSettings Normalize()
     {
         SampleRoots ??= new List<string>();
+        AiRoleModels ??= new Dictionary<string, string>();
         if (string.IsNullOrWhiteSpace(OllamaUrl)) OllamaUrl = "http://127.0.0.1:11434";
         Directory.CreateDirectory(ResolvedOutputDirectory);
         return this;

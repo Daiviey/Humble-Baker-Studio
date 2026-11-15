@@ -81,10 +81,34 @@ projects at once:
 
 - Load any project into deck A or B (or snapshot the current one with **From main**).
 - Equal-power crossfader, per-deck gain and a one-knob LP/HP filter.
+- **Speed** (tempo) and **pitch** have separate faders. **Key lock** keeps the key fixed while
+  the tempo moves; turn it off for vinyl-style varispeed. **Reset** returns to the original
+  key and tempo.
 - **Sync** matches tempo by playback rate; **Queue** advances to the next project when a song ends.
 - **Cue** sends a deck to a second Windows output for headphone pre-listening. Pick the device
   in **Cue out**; with `(none)`, cue stays silent.
+- **Edit** opens an independent project window for that deck. Deck A and deck B can be edited
+  side by side while the live mix keeps running; **Update deck** re-renders the edited project
+  without saving, and a normal save updates the deck too.
 - Decks render once on load, then mix live at 1024-frame blocks, so transitions are seamless.
+
+## Sampler and instrument emulator
+
+The sampler can now hold a note instead of only firing a one-shot. Turn on **Hold sustain** on
+the Tracks tab to loop a crossfaded region of a stab (start/end are adjustable), with attack,
+release, vibrato and glide. Sampled orchestral strings and guitars from the instrument library
+enable sustain automatically. The engine selector also includes real sustained voices:
+
+| Engine | Character |
+|---|---|
+| `strings` / `bowed` | Bowed string section with bow noise, body resonance, delayed vibrato and portamento |
+| `cello` | Darker low-register bowed voice |
+| `pluck` | Karplus-Strong plucked string with pick position, damping and body |
+| `strum` | Six staggered plucked strings for guitar/harp strumming |
+| `hybrid` | Plucked attack that blossoms into a bowed sustain |
+
+**Vibrato**, **Glide**, **Ensemble**, **Brightness** and **Body** control the articulation for
+both the sampler and the emulator voices.
 
 ![Live performance](docs/screenshot-live.png)
 

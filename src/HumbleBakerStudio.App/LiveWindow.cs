@@ -32,6 +32,10 @@ internal sealed class LiveWindow : Form
     private bool _starting;
     private bool _loadingDevices;
 
+    private Project? _projectA, _projectB;
+    private string _pathA = "", _pathB = "";
+    private MainForm? _editorA, _editorB;
+
     public LiveMixer Mixer { get; } = new();
     public AppSettings Settings => _main.Settings;
 
@@ -76,6 +80,8 @@ internal sealed class LiveWindow : Form
         FormClosing += (_, _) =>
         {
             _timer.Stop();
+            try { _editorA?.Close(); } catch { }
+            try { _editorB?.Close(); } catch { }
             _engine.Stop();
             Mixer.A.Stop();
             Mixer.B.Stop();
@@ -306,6 +312,8 @@ internal sealed class LiveWindow : Form
         var deck = isA ? Mixer.A : Mixer.B;
         var view = isA ? _deckA : _deckB;
         bool song = !view.LoopEnabled && project.Song.Count > 0;
+        bool wasPlaying = deck.Playing;
+        double position = deck.PositionSeconds;
         deck.Playing = false;
         view.SetStatus(song ? "Rendering song…" : "Rendering loop…");
         try
@@ -314,8 +322,11 @@ internal sealed class LiveWindow : Form
             string name = string.IsNullOrEmpty(path) ? "Main project" : Path.GetFileNameWithoutExtension(path);
             string key = AiTools.NoteName(project.Key) + " " + project.Scale;
             deck.SetBuffer(name, path, l, r, project.Bpm, key, song);
+            if (position > 0.05) deck.SeekSeconds(position);
+            deck.Playing = wasPlaying;
             view.SetLoaded(project, path, song ? "Song ready" : "Loop ready");
-            if (isA) _advancingA = false; else _advancingB = false;
+            if (isA) { _advancingA = false; _projectA = project; _pathA = path; }
+            else { _advancingB = false; _projectB = project; _pathB = path; }
             _state.Text = $"Loaded deck {(isA ? "A" : "B")}: {name}";
         }
         catch (Exception ex)
@@ -323,5 +334,54 @@ internal sealed class LiveWindow : Form
             view.SetStatus("Render failed");
             MessageBox.Show(this, ex.Message, "Live deck", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
+    }
+
+    /// <summary>Opens an independent project editor for a deck. Deck A and deck B can both be
+    /// edited at once while the live mixer keeps running.</summary>
+    public void OpenEditor(bool isA)
+    {
+        var existing = isA ? _editorA : _editorB;
+        if (existing != null && !existing.IsDisposed)
+        {
+            existing.Activate();
+            existing.BringToFront();
+            return;
+        }
+
+        var project = isA ? _projectA : _projectB;
+        string path = isA ? _pathA : _pathB;
+        if (project == null)
+        {
+            MessageBox.Show(this, "Load a project into this deck first.", "Deck editor",
+                MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        // Give each editor its own project instance so both decks can be edited without sharing state.
+        var copy = ProjectStore.LoadFromJson(ProjectStore.SaveToJson(project));
+        string? filePath = LooksLikeProjectFile(path) ? path : null;
+        var editor = new MainForm(copy, filePath, Settings, _main.Vst, true, "Deck " + (isA ? "A" : "B"));
+        editor.ProjectSaved += async (_, _) => await ReloadDeckFromEditor(isA);
+        editor.DeckUpdateRequested += async (_, _) => await ReloadDeckFromEditor(isA);
+        editor.FormClosed += (_, _) =>
+        {
+            if (isA) _editorA = null; else _editorB = null;
+        };
+        if (isA) _editorA = editor; else _editorB = editor;
+        editor.Show(this);
+    }
+
+    private static bool LooksLikeProjectFile(string path) =>
+        !string.IsNullOrWhiteSpace(path) && File.Exists(path) &&
+        path.EndsWith(".json", StringComparison.OrdinalIgnoreCase);
+
+    private async Task ReloadDeckFromEditor(bool isA)
+    {
+        var editor = isA ? _editorA : _editorB;
+        if (editor == null || editor.IsDisposed) return;
+        var snapshot = ProjectStore.LoadFromJson(ProjectStore.SaveToJson(editor.Project));
+        string path = editor.ProjectPath ?? (isA ? _pathA : _pathB);
+        await LoadProjectIntoDeck(isA, snapshot, path);
+        if (isA) _editorA = editor; else _editorB = editor;
     }
 }
