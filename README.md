@@ -1,3 +1,4 @@
+
 # Humble Baker Studio
 
 <p align="center"><img src="icon.png" width="180" alt="Humble Baker Studio icon"></p>
@@ -88,6 +89,13 @@ The **No-AI edition** removes the generative AI tab, toolbar button and menu ent
 The **macOS port** has started: the engine targets `net8.0`, a headless renderer publishes for Apple Silicon and Intel, and the native **Avalonia `.app`** (v0.4.0) has **CoreAudio playback**, a transport, a track list, a click-to-edit piano roll, project open/save, **Audio Unit effect hosting**, and WAV export. AU instantiation/render, effects/mixer/automation editors and CoreMIDI still need a macOS test pass. See [docs/MACOS.md](docs/MACOS.md), [docs/PLUGINS.md](docs/PLUGINS.md) and [docs/PARITY.md](docs/PARITY.md).
 
 ## Features
+<img width="2557" height="1380" alt="Screenshot 2026-11-11 212225" src="https://github.com/user-attachments/assets/e1ccdb9c-d066-4635-afdf-0065ca9dbead" />
+
+<img width="2557" height="1357" alt="Screenshot 2026-11-08 200105" src="https://github.com/user-attachments/assets/50e887eb-490f-4bfa-b423-275a019d4f70" />
+
+<img width="1385" height="809" alt="Screenshot 2026-11-11 190509" src="https://github.com/user-attachments/assets/b6444e5e-2a92-4456-af6f-38f3bca3e8af" />
+
+<img width="1411" height="876" alt="Screenshot 2026-11-11 194425" src="https://github.com/user-attachments/assets/3bc4806c-f28b-4d0d-bf2b-fbe2abd14cb4" />
 
 - **Piano roll** with scales, snap, velocity, note lengths, and per-track drums/melody parts.
 - **Synth engine**: subtractive, FM, additive, wavetable, vowel, Karplus-Strong pluck, modal bells, noise, filters, drive, bitcrush.
