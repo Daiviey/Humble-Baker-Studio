@@ -28,6 +28,7 @@
     <Compile Remove="Engine/PatchGraphControl.cs" />
     <Compile Remove="Engine/PianoRoll.cs" />
     <Compile Remove="Engine/WaveView.cs" />
+    <Compile Remove="Engine/ComposeLanes.cs" />
   </ItemGroup>
 
 </Project>

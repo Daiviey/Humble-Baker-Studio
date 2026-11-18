@@ -1,5 +1,25 @@
 ﻿# Changelog
 
+## PowerShell studio 1.0.25 and C# port 0.7.0 - 2026-11-18
+
+- New **Compose** tab (PowerShell and C#): a Reaper-style track-composition and automation-lane
+  editor. Every track is a header row with its automation lanes stacked beneath it. Click a lane to
+  add a point, drag a point to move it, right-click a point to remove it, and Ctrl+wheel to zoom.
+  Edits write straight into the same `AutoLane` list the renderer and the Automation Painting tab
+  use, so the piano roll, the painter and the lane editor always agree.
+- **Spectral automation painter** (PowerShell and C#): the Spectral tab can now decompose a painted
+  image or spectrogram into **1–50 frequency-band automation lanes** on the selected track. Each band's
+  energy-weighted centroid becomes a lane that maps time to beats and frequency to the chosen effect
+  (filter cutoff, drive, volume, morph, …). The lanes layer additively around neutral, so the combined
+  envelope reconstructs the image's spectral shape.
+- Layered lanes now actually sum in the renderer: `AutoFx.Merge` and `PatchAuto.Resolve` combine lanes
+  that share a parameter (additive for levels/amounts, log-additive for frequencies), so multiple lanes
+  of one effect stack correctly instead of the last one silently winning.
+- Added a shared `AutoRange` parameter table (and `AutoCatalog`) so the lane editor, the painter and the
+  spectral painter all draw and map the same value ranges.
+- The Compose tab and spectral automation are in both the PowerShell studio (stable) and the C# port
+  (alpha). Tests: 55 passing.
+
 ## C# port 0.6.0 - 2026-11-14
 
 - Live decks now have independent **Speed** (tempo) and **Pitch** faders, a **Key lock** switch (two-grain granular time-stretch) and a reset. With key lock off the deck is vinyl-style varispeed; Sync still matches tempo by speed.

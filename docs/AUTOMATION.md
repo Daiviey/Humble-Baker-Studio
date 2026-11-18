@@ -5,6 +5,37 @@ one or more automation lanes, and keep the painting itself as an exact visual re
 
 Open **Tools -> Automation paint**.
 
+## Compose tab (lane editor)
+
+The **Compose** tab is a traditional, Reaper-style track-composition and automation-lane view.
+
+- Every track is a header row; its automation lanes are stacked directly beneath it.
+- **Click** in a lane to add a point, **drag** a point to move it, **right-click** a point to
+  remove it, and **Ctrl+wheel** to zoom the time axis.
+- **Add lane** writes a new flat lane for the chosen parameter onto the selected track;
+  **Remove last** deletes the most recent lane.
+- Points are snapped to a 1/16 grid, and values map to the same parameter ranges the painter
+  uses (`AutoRange`), so a lane drawn here lines up exactly with one painted in the painter.
+
+The lane editor reads and writes the same `AutoLane` list the renderer and the Automation paint
+tab use, so the piano roll, the painter and the lane editor always agree.
+
+## Spectral automation painter
+
+On the **Spectral** tab, the painted spectrogram (or an imported image) can be turned directly
+into automation instead of audio.
+
+1. Paint or load an image on the spectral canvas.
+2. Choose a **target effect** (filter cutoff, drive, volume, morph, …) and a **lane count**
+   (1 to 50).
+3. Press **Map image to lanes**.
+
+The image's frequency axis is split into that many contiguous bands. Each band's energy-weighted
+centroid over time becomes one lane — time maps to beats, frequency maps to the effect's value
+range. The lanes **layer additively around neutral**, so the combined envelope reconstructs the
+image's spectral shape. The lanes appear in the **Compose** tab, where each band can be edited or
+removed independently.
+
 ## Quick start
 
 1. Choose a **Target**: the selected track, a patch-graph FX/group/bus node, or a shared bus.
