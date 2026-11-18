@@ -1,4 +1,5 @@
 using System.Drawing.Drawing2D;
+using System.Globalization;
 using HumbleBakerStudio.Audio;
 using HumbleBakerStudio.Services;
 
@@ -52,6 +53,9 @@ internal sealed class SpectralTab : UserControl
     };
     private readonly Button _specAiButton;
     private readonly AudioPlayer _specPlayer = new();
+    private readonly ComboBox _autoParam = new() { Width = 300, DropDownStyle = ComboBoxStyle.DropDownList };
+    private readonly NumericUpDown _autoLanes = new() { Minimum = 1, Maximum = 50, Value = 12, Width = 64 };
+    private readonly Label _autoState = new() { AutoSize = false, Width = 330, Height = 40, ForeColor = Theme.Muted, Font = Theme.Small };
     private SpectralGrid? _backup;
     private CancellationTokenSource? _cts;
 
@@ -204,6 +208,16 @@ internal sealed class SpectralTab : UserControl
             Theme.Button("Render to new sample track", (_, _) => RenderSpectralToTrack()),
             Theme.Button("Save WAV...", (_, _) => SaveSpectralWav())));
         _spectralTools.Controls.Add(Theme.Button("Save as instrument", (_, _) => SaveSpectralInstrument()));
+
+        _spectralTools.Controls.Add(Theme.SectionLabel("Spectral automation"));
+        _spectralTools.Controls.Add(Theme.Label("Map the image into frequency-band automation lanes on the selected track.", Theme.Muted, Theme.Small));
+        foreach (var d in AutoCatalog.All) _autoParam.Items.Add($"{d.Module} - {d.Name}");
+        _autoParam.SelectedIndex = 0;
+        _spectralTools.Controls.Add(_autoParam);
+        _spectralTools.Controls.Add(Row(
+            Theme.Label("Lanes", Theme.Muted), _autoLanes,
+            Theme.Button("Map image to lanes", (_, _) => MapSpectralToLanes(), true)));
+        _spectralTools.Controls.Add(_autoState);
 
 #if !HBS_NO_AI
         _spectralTools.Controls.Add(Theme.SectionLabel("AI painting"));
@@ -686,6 +700,71 @@ internal sealed class SpectralTab : UserControl
             pcm[2 * i + 1] = (short)v;
         }
         player.Play(pcm, Dsp.SR);
+    }
+
+    // Spectral automation painter: decompose the painted image into N frequency bands and write each
+    // band's energy-weighted centroid as an automation lane on the selected track. The renderer layers
+    // the lanes additively (AutoFx.Merge / PatchAuto.Resolve) to reconstruct the image's spectrum shape.
+    private void MapSpectralToLanes()
+    {
+        var t = _host.SelectedTrack;
+        if (t == null) { _autoState.Text = "Select a target track on the left first."; return; }
+        if (_grid.Peak() < 0.01f) { _autoState.Text = "The spectral canvas is empty. Paint or load an image first."; return; }
+        int ci = _autoParam.SelectedIndex;
+        if (ci < 0 || ci >= AutoCatalog.All.Count) { _autoState.Text = "Choose a target effect."; return; }
+        string param = AutoCatalog.All[ci].Param;
+        int n = Math.Max(1, Math.Min(50, (int)_autoLanes.Value));
+        int ti = _host.Project.Tracks.IndexOf(t);
+        if (param.StartsWith("p:") && t.Patch == null) { _autoState.Text = "Synth patch parameters need a patch-synth track (set the track engine to a patch synth)."; return; }
+
+        for (int k = t.Auto.Count - 1; k >= 0; k--) if (t.Auto[k].Param == param) t.Auto.RemoveAt(k);
+
+        int rows = _grid.Rows, cols = _grid.Cols;
+        double trackBeats = _host.Project.Song.Count > 0 ? Arranger.SongBeats(_host.Project) : _host.Project.LoopBeats;
+        if (trackBeats <= 0) trackBeats = _host.Project.LoopBeats;
+
+        // Neutral matches the renderer: patch params use the patch's current value, others use AutoRange.
+        double neut;
+        if (param.StartsWith("p:") && t.Patch != null)
+        {
+            var pi = PropIO.Find(t.Patch, param.Substring(2));
+            neut = pi != null && pi.PropertyType == typeof(double) ? Convert.ToDouble(pi.GetValue(t.Patch), CultureInfo.InvariantCulture) : double.NaN;
+        }
+        else neut = AutoRange.Neutral(param);
+        if (double.IsNaN(neut)) neut = AutoRange.MinOf(param);
+
+        double[] colTotal = new double[cols];
+        for (int c = 0; c < cols; c++) { double s = 0; for (int r = 0; r < rows; r++) s += _grid.Get(c, r); colTotal[c] = s; }
+
+        int made = 0;
+        for (int b = 0; b < n; b++)
+        {
+            int r0 = (int)Math.Floor(b * rows / (double)n);
+            int r1 = Math.Max(r0 + 1, (int)Math.Floor((b + 1) * rows / (double)n));
+            var lane = new AutoLane(ti, param);
+            for (int c = 0; c < cols; c++)
+            {
+                double sum = 0, wsum = 0;
+                for (int r = r0; r < r1; r++) { double v = _grid.Get(c, r); sum += v; wsum += v * (r / (double)(rows - 1)); }
+                if (sum < 0.02) continue;
+                double frac = wsum / sum;
+                double centroid = AutoRange.Map(param, frac);
+                double weight = colTotal[c] > 0 ? sum / colTotal[c] : 0;
+                double val = AutoRange.Clamp(param, neut + (centroid - neut) * weight);
+                double beat = (c + 0.5) / (double)cols * trackBeats;
+                lane.Points.Add(new double[] { beat, val });
+            }
+            if (lane.Points.Count > 0) { t.Auto.Add(lane); made++; }
+        }
+
+        _host.BeginEdit("spectral automation");
+        _host.MarkDirty();
+        if (made > 0)
+        {
+            _autoState.Text = $"Mapped the spectrum into {made} {param} lane(s) on \"{t.Name}\". See the Compose tab.";
+            _host.SelectTabByContent("Compose");
+        }
+        else _autoState.Text = "The canvas produced no automation (too faint).";
     }
 
     private static SpectralGrid CloneGrid(SpectralGrid g)

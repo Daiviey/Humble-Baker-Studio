@@ -15,7 +15,9 @@ Status values: **Done**, **Partial**, **Planned**, **Windows-only**.
 | Spectral painting | Done | Done | Done (incl. FLUX) | Done (engine) | Planned |
 | Meta synth | Done | Done | Done | Done (engine) | Planned |
 | Automation painting (basic curves) | Done | Done | Done | Done (engine) | Planned |
-| Automation layers, intersections, high-res, snapshots | Done | Done | **Partial** (high-res + fast lookup done; layers/intersections/snapshots missing) | Done (engine) | Planned |
+| Compose tab (track + automation-lane editor) | Done | Done | **Done** (1.0.25) | Done (engine) | Planned |
+| Spectral automation painter (image -> 1-50 band lanes) | Done | Done | **Done** (1.0.25) | Done (engine) | Planned |
+| Automation layers, intersections, high-res, snapshots | Done | Done | **Partial** (additive same-parameter layering + high-res + fast lookup done; intersections/snapshots missing) | Done (engine) | Planned |
 | Instrument library save/load (spectral/morph) | Done | Done | Done | Done (engine) | Planned |
 | Deterministic pattern library / No-AI edition | Done | Done | **Missing** | Done (engine) | Planned |
 | VST3 instruments and effects | Done | Done | **Done** (optional `hbs-vst-bridge`; no editor window) | Planned | Planned |

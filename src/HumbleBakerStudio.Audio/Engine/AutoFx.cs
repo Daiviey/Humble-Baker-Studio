@@ -13,10 +13,46 @@ public static class AutoFx {
         }
     }
     public static void Apply(Track t, float[] L, float[] R, double spb) { ApplyLanes(t.Auto, t.Fx, L, R, spb); }
+
+    // Combines lanes that share the same parameter into one effective lane so the spectral automation
+    // painter can stack many bands ("layers") onto a single effect and have them add up correctly.
+    // Frequency parameters combine multiplicatively around neutral; everything else adds its offset
+    // from neutral. Single lanes pass through untouched.
+    public static List<AutoLane> Merge(List<AutoLane> lanes, double lengthBeats) {
+        Dictionary<string, List<AutoLane>> groups = new Dictionary<string, List<AutoLane>>();
+        foreach (AutoLane l in lanes) { if (l == null || l.Points.Count == 0) continue; if (!groups.ContainsKey(l.Param)) groups[l.Param] = new List<AutoLane>(); groups[l.Param].Add(l); }
+        List<AutoLane> result = new List<AutoLane>();
+        foreach (KeyValuePair<string, List<AutoLane>> kv in groups) {
+            string param = kv.Key; List<AutoLane> list = kv.Value;
+            if (list.Count == 1) { result.Add(list[0]); continue; }
+            double mn, mx; bool lg; AutoRange.Info(param, out mn, out mx, out lg);
+            double neut = AutoRange.Neutral(param);
+            if (double.IsNaN(neut)) neut = list[0].Points[list[0].Points.Count - 1][1];
+            AutoLane m = new AutoLane(list[0].Track, param);
+            double step = 0.25; int steps = Math.Max(1, (int)Math.Ceiling(Math.Max(1, lengthBeats) / step)) + 1;
+            for (int s = 0; s < steps; s++) {
+                double beat = s * step, merged;
+                if (lg) {
+                    double ls = 0; foreach (AutoLane l in list) { double v = l.At(beat); if (v > 0) ls += Math.Log(v); }
+                    merged = Math.Exp(ls - (list.Count - 1) * Math.Log(Math.Max(mn, neut)));
+                } else {
+                    double sum = 0; foreach (AutoLane l in list) { double v = l.At(beat); if (double.IsNaN(v)) continue; sum += v - neut; }
+                    merged = neut + sum;
+                }
+                merged = Math.Max(mn, Math.Min(mx, merged));
+                m.Points.Add(new double[] { beat, merged });
+            }
+            result.Add(m);
+        }
+        return result;
+    }
+
     public static void ApplyLanes(List<AutoLane> lanes, Fx fx, float[] L, float[] R, double spb) {
         if (lanes == null) return;
         int n = L.Length; double sampPerBeat = spb * SR;
-        foreach (AutoLane lane in lanes) {
+        double lengthBeats = n / sampPerBeat;
+        List<AutoLane> merged = Merge(lanes, lengthBeats);
+        foreach (AutoLane lane in merged) {
             if (lane.Points.Count == 0) continue;
             string p = lane.Param;
             if (p == "lp" || p == "hp") {
@@ -44,7 +80,7 @@ public static class AutoFx {
                 if (fpn == "Cutoff") {
                     Svf[] slf = { new Svf(), new Svf() }, srf = { new Svf(), new Svf() };
                     AutoLane resLane = null;
-                    foreach (AutoLane ra in lanes) if (ra.Param == "f:Resonance") { resLane = ra; break; }
+                    foreach (AutoLane ra in merged) if (ra.Param == "f:Resonance") { resLane = ra; break; }
                     for (int i0 = 0; i0 < n; i0 += 32) {
                         double fc = lane.At(i0 / sampPerBeat); int end = Math.Min(n, i0 + 32);
                         if (fc >= 19000) continue;
@@ -59,7 +95,7 @@ public static class AutoFx {
                     }
                 } else if (fpn == "Resonance") {
                     // Standalone resonance: only when no Cutoff lane exists (Cutoff already applies resonance as a modifier).
-                    if (!lanes.Exists(delegate (AutoLane x) { return x.Param == "f:Cutoff"; })) {
+                    if (!merged.Exists(delegate (AutoLane x) { return x.Param == "f:Cutoff"; })) {
                         Svf[] slf = { new Svf(), new Svf() }, srf = { new Svf(), new Svf() };
                         double fc0 = fx != null ? Math.Max(20, Math.Min(0.45 * SR, fx.Cutoff)) : 12000;
                         for (int i0 = 0; i0 < n; i0 += 32) {

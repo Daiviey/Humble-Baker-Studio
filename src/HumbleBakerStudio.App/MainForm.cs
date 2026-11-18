@@ -41,6 +41,7 @@ internal sealed class MainForm : Form
     private readonly PatternsTab _patternsTab;
     private readonly SettingsTab _settingsTab;
     private readonly PluginTab _pluginTab;
+    private readonly ComposeTab _composeTab;
     private readonly Vst3Host _vst;
     private Task? _vstScanTask;
     private readonly bool _deckEditor;
@@ -122,6 +123,7 @@ internal sealed class MainForm : Form
         _aiTab = new AiTab(this);
         _patternsTab = new PatternsTab(this);
         _settingsTab = new SettingsTab(this);
+        _composeTab = new ComposeTab(this);
 
         BuildLayout();
 
@@ -327,6 +329,7 @@ internal sealed class MainForm : Form
 
         _tabs.Dock = DockStyle.Fill;
         _tabs.TabPages.Add(Page("Sequencer", _sequencer));
+        _tabs.TabPages.Add(Page("Compose", _composeTab));
         _tabs.TabPages.Add(Page("Tools", _toolsTab));
         _tabs.TabPages.Add(Page("Arrangement", _arrangementTab));
         _tabs.TabPages.Add(Page("Tracks", _tracksTab));
@@ -378,6 +381,7 @@ internal sealed class MainForm : Form
 
         var view = new ToolStripMenuItem("View");
         AddMenuItem(view, "Sequencer", () => SelectTab(_sequencer));
+        AddMenuItem(view, "Compose (automation lanes)", () => SelectTab(_composeTab));
         AddMenuItem(view, "Tools (sample, MIDI, spectral)", () => SelectTab(_toolsTab));
         AddMenuItem(view, "Arrangement", () => SelectTab(_arrangementTab));
         AddMenuItem(view, "Tracks", () => SelectTab(_tracksTab));
@@ -528,6 +532,7 @@ internal sealed class MainForm : Form
 
             _trackList.Rebuild();
             _sequencer.SetProject(_project, _selected);
+            _composeTab.RefreshView();
             _toolsTab.RefreshView();
             _arrangementTab.RefreshView();
             _tracksTab.RefreshView();

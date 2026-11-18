@@ -1089,4 +1089,35 @@ public class ArrangementTests
             File.Delete(path);
         }
     }
+
+    [Fact]
+    public void AutoRange_MapsLogAndLinearParams()
+    {
+        Assert.Equal(1.0, AutoRange.Map("vol", 0.5), 6);
+        Assert.Equal(20.0, AutoRange.Map("lp", 0.0), 6);
+        Assert.Equal(20000.0, AutoRange.Map("lp", 1.0), 6);
+        Assert.Equal(800.0, AutoRange.Neutral("f:Cutoff"), 6);
+        Assert.Equal(1.0, AutoRange.Neutral("vol"), 6);
+    }
+
+    [Fact]
+    public void AutoFxMerge_LayersDuplicateVolLanesAdditively()
+    {
+        var l1 = new AutoLane(0, "vol"); l1.Points.Add(new[] { 0.0, 1.2 }); l1.Points.Add(new[] { 16.0, 1.2 });
+        var l2 = new AutoLane(0, "vol"); l2.Points.Add(new[] { 0.0, 1.0 }); l2.Points.Add(new[] { 16.0, 1.0 });
+        var merged = AutoFx.Merge(new List<AutoLane> { l1, l2 }, 16);
+        Assert.Single(merged);
+        Assert.Equal(1.2, merged[0].At(0.0), 6);
+    }
+
+    [Fact]
+    public void PatchAutoResolve_LayersDuplicatePatchLanes()
+    {
+        var patch = new Patch { Drive = 0.2 };
+        var l1 = new AutoLane(0, "p:Drive"); l1.Points.Add(new[] { 0.0, 0.5 }); l1.Points.Add(new[] { 16.0, 0.5 });
+        var l2 = new AutoLane(0, "p:Drive"); l2.Points.Add(new[] { 0.0, 0.3 }); l2.Points.Add(new[] { 16.0, 0.3 });
+        var resolved = PatchAuto.Resolve(patch, new List<AutoLane> { l1, l2 }, 8.0, out _);
+        // base 0.2 + (0.3 + 0.1) offsets, snapped to the 32-step grid.
+        Assert.InRange(resolved!.Drive, 0.58, 0.62);
+    }
 }

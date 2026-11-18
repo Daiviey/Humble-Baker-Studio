@@ -1104,6 +1104,225 @@ public class GradientPanel : Panel {
     }
 }
 
+// Value range + scaling for one automatable parameter. Shared by the lane editor and the spectral
+// automation painter so every lane draws and maps the same way. Params use the same keys as AutoLane:
+// vol / pan / lp / hp, "p:Name" (synth patch) and "f:Name" (track FX). log=true means the value maps
+// logarithmically across the lane height (frequencies).
+public static class AutoRange {
+    public static void Info(string param, out double min, out double max, out bool log) {
+        log = false; min = 0; max = 1;
+        switch (param) {
+            case "vol": min = 0; max = 2; return;
+            case "pan": min = -1; max = 1; return;
+            case "lp": case "hp": min = 20; max = 20000; log = true; return;
+            case "p:Cutoff": case "f:Cutoff": min = 30; max = 12000; log = true; return;
+            case "p:Resonance": min = 0; max = 1; return;
+            case "p:FilterEnv": min = -1; max = 1; return;
+            case "p:Bits": case "f:Bits": min = 2; max = 16; return;
+            case "p:FmAmount": min = 0; max = 10; return;
+            case "p:Unison": min = 1; max = 7; return;
+            case "p:LfoRate": min = 0; max = 40; return;
+            case "p:LfoPitch": min = 0; max = 1200; return;
+            case "f:Resonance": min = 0; max = 0.95; return;
+            case "f:ChorusRate": min = 0.05; max = 10; return;
+            case "f:RingFreq": min = 20; max = 5000; log = true; return;
+            case "f:DelayBeats": min = 0.0625; max = 8; return;
+            case "f:DelayFeedback": case "f:FlangerFb": case "f:TapeDelayFb": min = 0; max = 0.95; return;
+            case "f:PhaserRate": min = 0.01; max = 8; return;
+            case "f:FlangerRate": min = 0.02; max = 10; return;
+            case "f:TapeStopRate": min = 0.05; max = 3; return;
+            case "f:TapeDelayTime": min = 10; max = 2000; log = true; return;
+            case "f:CompThresh": min = -40; max = 0; return;
+            case "f:CompRatio": min = 1; max = 12; return;
+            case "f:CompAttack": min = 0.1; max = 100; log = true; return;
+            case "f:CompRelease": case "f:SidechainRelease": min = 10; max = 1000; log = true; return;
+            case "f:CompMakeup": min = -12; max = 24; return;
+            case "f:SidechainAttack": min = 0.5; max = 100; return;
+            case "f:LowShelf": case "f:HighShelf": case "f:MidPeak": case "f:PitchShift": min = -12; max = 12; return;
+            case "f:Width": min = 0; max = 1.6; return;
+        }
+        // Unknown p:/f: fall back to a safe 0..1 range.
+        if (param.StartsWith("p:") || param.StartsWith("f:")) { min = 0; max = 1; return; }
+    }
+
+    public static double Neutral(string param) {
+        switch (param) {
+            case "vol": return 1.0; case "pan": return 0.0; case "lp": return 20000; case "hp": return 20;
+            case "p:Cutoff": case "f:Cutoff": return 800;
+            case "f:CompThresh": return -18; case "f:CompRatio": return 1; case "f:CompMakeup": return 0;
+            case "p:Unison": return 1; case "p:Bits": case "f:Bits": return 16;
+        }
+        if (param.StartsWith("p:")) return double.NaN;
+        double mn, mx; bool lg; Info(param, out mn, out mx, out lg);
+        if (lg) return Math.Exp((Math.Log(Math.Max(mn, 1.0)) + Math.Log(Math.Max(mx, 1.0))) / 2.0);
+        return (mn + mx) / 2.0;
+    }
+
+    public static string Label(string param) {
+        if (param.StartsWith("p:")) return param.Substring(2);
+        if (param.StartsWith("f:")) return param.Substring(2);
+        switch (param) { case "vol": return "Volume"; case "pan": return "Pan"; case "lp": return "Low-pass"; case "hp": return "High-pass"; }
+        return param;
+    }
+
+    // PowerShell-friendly helpers (no out/ref parameters).
+    public static double Map(string param, double frac) { double mn, mx; bool lg; Info(param, out mn, out mx, out lg); frac = Math.Max(0, Math.Min(1, frac)); return lg ? mn * Math.Pow(mx / mn, frac) : mn + frac * (mx - mn); }
+    public static double Clamp(string param, double v) { double mn, mx; bool lg; Info(param, out mn, out mx, out lg); return Math.Max(mn, Math.Min(mx, v)); }
+    public static double MinOf(string param) { double mn, mx; bool lg; Info(param, out mn, out mx, out lg); return mn; }
+    public static double MaxOf(string param) { double mn, mx; bool lg; Info(param, out mn, out mx, out lg); return mx; }
+}
+
+// Reaper-style automation lane editor: every track is a header row with its automation lanes stacked
+// beneath it. Left-click in a lane adds a point, drag a point to move it, right-click a point to remove
+// it. Editing writes directly into the track's AutoLane list, so it stays in sync with the Automation
+// Painting tab and the renderer.
+public class ComposeLanes : Control {
+    public Project Proj;
+    public event EventHandler Changed;
+    const int RulerH = 20, HeaderH = 22, LaneH = 58, LabelW = 168;
+    public double Zoom = 44;
+    HScrollBar hs = new HScrollBar(); VScrollBar vs = new VScrollBar();
+    class Row { public int Track; public string Param; public AutoLane Lane; public bool Header; public int Y; public int H; }
+    List<Row> rows = new List<Row>();
+    int dragRow = -1, dragPt = -1; bool moved;
+    int docH = 40;
+
+    public ComposeLanes() {
+        SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.Selectable | ControlStyles.ResizeRedraw, true);
+        DoubleBuffered = true; BackColor = Color.FromArgb(24, 26, 32); TabStop = true;
+        hs.Scroll += delegate { Invalidate(); }; vs.Scroll += delegate { Invalidate(); };
+        Controls.Add(hs); Controls.Add(vs);
+    }
+
+    double CanvasBeats { get { double c = Proj != null ? Proj.LoopBeats : 16; if (Proj != null && Proj.Song != null && Proj.Song.Count > 0) c = Math.Max(c, Arranger.SongBeats(Proj)); return c + 16; } }
+    int ViewW { get { return Math.Max(10, Width - vs.Width); } }
+
+    void BuildRows() {
+        rows.Clear();
+        int y = RulerH;
+        if (Proj != null) for (int ti = 0; ti < Proj.Tracks.Count; ti++) {
+            Track t = Proj.Tracks[ti];
+            rows.Add(new Row { Track = ti, Header = true, Y = y, H = HeaderH }); y += HeaderH;
+            if (t.Auto != null) foreach (AutoLane al in t.Auto) { rows.Add(new Row { Track = ti, Param = al.Param, Lane = al, Y = y, H = LaneH }); y += LaneH; }
+        }
+        docH = y + 24;
+    }
+
+    void UpdateScroll() {
+        if (Proj == null || Width < 80 || Height < 80) return;
+        hs.SetBounds(0, Height - hs.Height, Width - vs.Width, hs.Height);
+        vs.SetBounds(Width - vs.Width, 0, vs.Width, Height - hs.Height);
+        int cw = (int)(CanvasBeats * Zoom);
+        hs.LargeChange = Math.Max(1, ViewW); hs.SmallChange = 20; hs.Maximum = Math.Max(0, cw - ViewW) + hs.LargeChange - 1;
+        vs.LargeChange = Math.Max(1, Height - hs.Height); vs.SmallChange = LaneH; vs.Maximum = Math.Max(0, docH - (Height - hs.Height)) + vs.LargeChange - 1;
+        if (hs.Value > hs.Maximum - hs.LargeChange + 1) hs.Value = Math.Max(0, hs.Maximum - hs.LargeChange + 1);
+        if (vs.Value > vs.Maximum - vs.LargeChange + 1) vs.Value = Math.Max(0, vs.Maximum - vs.LargeChange + 1);
+    }
+
+    protected override void OnResize(EventArgs e) { base.OnResize(e); UpdateScroll(); }
+
+    public void Fit() { if (Proj == null) return; double beats = CanvasBeats; if (beats > 0 && ViewW > LabelW + 10) Zoom = Math.Max(2, (ViewW - LabelW - 10) / beats); UpdateScroll(); Invalidate(); }
+
+    protected override void OnMouseWheel(MouseEventArgs e) {
+        Keys m = Control.ModifierKeys;
+        if ((m & Keys.Control) == Keys.Control) { double beat = XToBeat(e.X); Zoom = Math.Max(2, Math.Min(400, Zoom * (e.Delta > 0 ? 1.15 : 1 / 1.15))); UpdateScroll(); }
+        else SetScrollV(vs.Value - e.Delta / 3);
+    }
+    void SetScrollV(int v) { v = Math.Max(vs.Minimum, Math.Min(v, Math.Max(vs.Minimum, vs.Maximum - vs.LargeChange + 1))); vs.Value = v; Invalidate(); }
+
+    double XToBeat(int x) { return (x - LabelW + hs.Value) / Zoom; }
+    int BeatToX(double b) { return (int)(LabelW + b * Zoom - hs.Value); }
+    Row RowAt(int y) { for (int i = 0; i < rows.Count; i++) { Row r = rows[i]; int top = r.Y - vs.Value; if (y >= top && y < top + r.H) return r; } return null; }
+    double FracFromY(Row r, int y) { double top = r.Y - vs.Value, bot = top + r.H; return Math.Max(0, Math.Min(1, (bot - y) / (double)r.H)); }
+    int YFromFrac(Row r, double f) { return (int)(r.Y - vs.Value + (1 - f) * r.H); }
+    double FracToVal(string param, double f) { double mn, mx; bool lg; AutoRange.Info(param, out mn, out mx, out lg); if (lg) return mn * Math.Pow(mx / mn, f); return mn + f * (mx - mn); }
+    double ValToFrac(string param, double v) { double mn, mx; bool lg; AutoRange.Info(param, out mn, out mx, out lg); if (lg) return Math.Log(v / mn) / Math.Log(mx / mn); return (v - mn) / (mx - mn); }
+    double SnapBeat(double b) { return Math.Round(b / 0.25) * 0.25; }
+    int PtAt(int x, int y, out Row row) {
+        row = RowAt(y);
+        if (row == null || row.Header) return -1;
+        double beat = XToBeat(x); int best = -1; double bd = 16;
+        for (int i = 0; i < row.Lane.Points.Count; i++) {
+            double px = BeatToX(row.Lane.Points[i][0]), py = YFromFrac(row, ValToFrac(row.Param, row.Lane.Points[i][1]));
+            double d = Math.Abs(px - x) + Math.Abs(py - y);
+            if (d < bd) { bd = d; best = i; }
+        }
+        return best;
+    }
+
+    protected override void OnPaint(PaintEventArgs pe) {
+        BuildRows(); UpdateScroll();
+        Graphics g = pe.Graphics; g.Clear(BackColor);
+        if (Proj == null) return;
+        int vw = ViewW, gb = Height - hs.Height;
+        double barB = Proj.BarBeats > 0 ? Proj.BarBeats : 4;
+        using (SolidBrush rb = new SolidBrush(Color.FromArgb(30, 33, 42))) g.FillRectangle(rb, 0, 0, vw, RulerH);
+        using (Pen beat = new Pen(Color.FromArgb(58, 64, 82)), bar = new Pen(Color.FromArgb(120, 130, 150))) {
+            for (long i = 0; i * 4.0 <= CanvasBeats; i++) { int x = BeatToX(i * 4.0); if (x >= LabelW && x < vw) g.DrawLine(beat, x, 0, x, RulerH); }
+            for (long i = 0; i * barB <= CanvasBeats; i++) { int x = BeatToX(i * barB); if (x >= LabelW && x < vw) g.DrawLine(bar, x, 0, x, RulerH); }
+        }
+        using (SolidBrush txt = new SolidBrush(Color.FromArgb(150, 158, 175))) g.DrawString("beats", Font, txt, LabelW + 3, 2);
+        g.SetClip(new Rectangle(0, RulerH, vw, gb - RulerH));
+        foreach (Row r in rows) {
+            int top = r.Y - vs.Value;
+            if (top + r.H < RulerH || top > gb) continue;
+            if (r.Header) {
+                using (SolidBrush hb = new SolidBrush(Color.FromArgb(36, 39, 51))) g.FillRectangle(hb, 0, top, vw, r.H);
+                Track t = Proj.Tracks[r.Track];
+                using (SolidBrush tb = new SolidBrush(t.Mute ? Color.FromArgb(120, 126, 140) : Color.FromArgb(224, 228, 236)))
+                    g.DrawString((t.Mute ? "(" : "") + t.Name + (t.Mute ? ")" : "") + "   [" + t.Synth + "]", Font, tb, 4, top + 3);
+            } else {
+                using (SolidBrush lb = new SolidBrush(Color.FromArgb(29, 32, 41))) g.FillRectangle(lb, 0, top, vw, r.H);
+                using (SolidBrush lb2 = new SolidBrush(Color.FromArgb(36, 39, 51))) g.FillRectangle(lb2, 0, top, LabelW, r.H);
+                using (SolidBrush tb = new SolidBrush(Color.FromArgb(150, 208, 196))) g.DrawString(AutoRange.Label(r.Param), Font, tb, 4, top + 3);
+                using (Pen gd = new Pen(Color.FromArgb(46, 50, 62))) g.DrawLine(gd, LabelW, top + r.H / 2, vw, top + r.H / 2);
+                double neut = AutoRange.Neutral(r.Param);
+                if (!double.IsNaN(neut)) { double nf = ValToFrac(r.Param, neut); if (nf >= 0 && nf <= 1) { int ny = YFromFrac(r, nf); using (Pen np = new Pen(Color.FromArgb(92, 120, 132)) { DashStyle = System.Drawing.Drawing2D.DashStyle.Dash }) g.DrawLine(np, LabelW, ny, vw, ny); } }
+                List<double[]> pts = new List<double[]>(r.Lane.Points); pts.Sort(delegate (double[] a, double[] b) { return a[0].CompareTo(b[0]); });
+                using (Pen env = new Pen(Color.FromArgb(40, 200, 170), 2))
+                    for (int i = 0; i < pts.Count - 1; i++)
+                        g.DrawLine(env, BeatToX(pts[i][0]), YFromFrac(r, ValToFrac(r.Param, pts[i][1])), BeatToX(pts[i + 1][0]), YFromFrac(r, ValToFrac(r.Param, pts[i + 1][1])));
+                using (SolidBrush pbr = new SolidBrush(Color.FromArgb(255, 200, 120)), pbc = new SolidBrush(Color.FromArgb(40, 200, 170)))
+                    foreach (double[] p in pts) { int px = BeatToX(p[0]), py = YFromFrac(r, ValToFrac(r.Param, p[1])); g.FillEllipse(pbr, px - 4, py - 4, 8, 8); g.DrawEllipse(Pens.Black, px - 4, py - 4, 8, 8); }
+            }
+        }
+    }
+
+    protected override void OnMouseDown(MouseEventArgs e) {
+        base.OnMouseDown(e); Focus();
+        if (e.Button == MouseButtons.Right) {
+            Row row; int i = PtAt(e.X, e.Y, out row);
+            if (i >= 0) { row.Lane.Points.RemoveAt(i); if (Changed != null) Changed(this, EventArgs.Empty); Invalidate(); }
+            return;
+        }
+        Row r2; int pi = PtAt(e.X, e.Y, out r2);
+        if (pi >= 0) { dragRow = rows.IndexOf(r2); dragPt = pi; moved = false; Capture = true; return; }
+        Row r3 = RowAt(e.Y);
+        if (r3 != null && !r3.Header && e.X >= LabelW) {
+            double beat = SnapBeat(Math.Max(0, XToBeat(e.X)));
+            double v = FracToVal(r3.Param, FracFromY(r3, e.Y));
+            r3.Lane.Points.Add(new double[] { beat, v });
+            if (Changed != null) Changed(this, EventArgs.Empty); Invalidate();
+        }
+    }
+
+    protected override void OnMouseMove(MouseEventArgs e) {
+        base.OnMouseMove(e);
+        if (dragRow >= 0 && dragRow < rows.Count) {
+            Row r = rows[dragRow];
+            double beat = SnapBeat(Math.Max(0, XToBeat(e.X)));
+            double v = FracToVal(r.Param, FracFromY(r, e.Y));
+            r.Lane.Points[dragPt][0] = beat; r.Lane.Points[dragPt][1] = v; moved = true; Invalidate();
+        }
+    }
+
+    protected override void OnMouseUp(MouseEventArgs e) {
+        base.OnMouseUp(e);
+        if (dragRow >= 0 && moved && Changed != null) Changed(this, EventArgs.Empty);
+        dragRow = -1; dragPt = -1; Capture = false;
+    }
+}
+
 // Automation of one track parameter over time (beats). Params: vol (gain 0-2), pan (-1..1), lp (low-pass Hz), hp (high-pass Hz),
 // and "p:Name" for any numeric synth-patch parameter (for example p:FmAmount or p:Morph) so a sound can develop through the song.
 // Before the first point the parameter is neutral (patch lanes: unchanged); after the last point the last value is held.
@@ -1211,14 +1430,32 @@ public static class PropIO {
 }
 
 // A synth patch with the track's patch-parameter automation lanes applied at one moment in the song (values snap to 32 steps so notes can share renders).
+// Multiple lanes that share the same patch parameter are layered: their offsets from the patch's current
+// value are summed, so the spectral automation painter can stack many bands onto one parameter.
 public static class PatchAuto {
     public static Patch Resolve(Patch basePatch, List<AutoLane> lanes, double beat, out string sig) {
         Patch pv = null; System.Text.StringBuilder sb = new System.Text.StringBuilder();
+        Dictionary<string, List<AutoLane>> groups = new Dictionary<string, List<AutoLane>>();
         foreach (AutoLane al in lanes) {
-            double v = al.At(beat); if (double.IsNaN(v)) continue;
+            if (al == null || !al.Param.StartsWith("p:")) continue;
             string name = al.Param.Substring(2);
+            if (!groups.ContainsKey(name)) groups[name] = new List<AutoLane>();
+            groups[name].Add(al);
+        }
+        foreach (KeyValuePair<string, List<AutoLane>> kv in groups) {
+            string name = kv.Key; List<AutoLane> list = kv.Value;
             System.Reflection.PropertyInfo pi = PropIO.Find(basePatch, name); if (pi == null || pi.PropertyType != typeof(double)) continue;
             RngAttribute r = PropIO.RangeOf(pi);
+            double v;
+            if (list.Count == 1) {
+                v = list[0].At(beat); if (double.IsNaN(v)) continue;
+            } else {
+                double base0 = Convert.ToDouble(pi.GetValue(basePatch, null), CultureInfo.InvariantCulture);
+                double sum = 0; bool any = false;
+                foreach (AutoLane al in list) { double x = al.At(beat); if (double.IsNaN(x)) continue; sum += x - base0; any = true; }
+                if (!any) continue;
+                v = base0 + sum;
+            }
             if (r != null) { double step = (r.Max - r.Min) / 32.0; v = Math.Max(r.Min, Math.Min(r.Max, r.Min + Math.Round((v - r.Min) / step) * step)); }
             if (pv == null) pv = basePatch.Clone();
             pi.SetValue(pv, v, null); sb.Append(name).Append('=').Append(v.ToString("0.###", CultureInfo.InvariantCulture)).Append(';');
@@ -6265,10 +6502,46 @@ public static class AutoFx {
         }
     }
     public static void Apply(Track t, float[] L, float[] R, double spb) { ApplyLanes(t.Auto, t.Fx, L, R, spb); }
+
+    // Combines lanes that share the same parameter into one effective lane so the spectral automation
+    // painter can stack many bands ("layers") onto a single effect and have them add up correctly.
+    // Frequency parameters combine multiplicatively around neutral; everything else adds its offset
+    // from neutral. Single lanes pass through untouched.
+    public static List<AutoLane> Merge(List<AutoLane> lanes, double lengthBeats) {
+        Dictionary<string, List<AutoLane>> groups = new Dictionary<string, List<AutoLane>>();
+        foreach (AutoLane l in lanes) { if (l == null || l.Points.Count == 0) continue; if (!groups.ContainsKey(l.Param)) groups[l.Param] = new List<AutoLane>(); groups[l.Param].Add(l); }
+        List<AutoLane> result = new List<AutoLane>();
+        foreach (KeyValuePair<string, List<AutoLane>> kv in groups) {
+            string param = kv.Key; List<AutoLane> list = kv.Value;
+            if (list.Count == 1) { result.Add(list[0]); continue; }
+            double mn, mx; bool lg; AutoRange.Info(param, out mn, out mx, out lg);
+            double neut = AutoRange.Neutral(param);
+            if (double.IsNaN(neut)) neut = list[0].Points[list[0].Points.Count - 1][1];
+            AutoLane m = new AutoLane(list[0].Track, param);
+            double step = 0.25; int steps = Math.Max(1, (int)Math.Ceiling(Math.Max(1, lengthBeats) / step)) + 1;
+            for (int s = 0; s < steps; s++) {
+                double beat = s * step, merged;
+                if (lg) {
+                    double ls = 0; foreach (AutoLane l in list) { double v = l.At(beat); if (v > 0) ls += Math.Log(v); }
+                    merged = Math.Exp(ls - (list.Count - 1) * Math.Log(Math.Max(mn, neut)));
+                } else {
+                    double sum = 0; foreach (AutoLane l in list) { double v = l.At(beat); if (double.IsNaN(v)) continue; sum += v - neut; }
+                    merged = neut + sum;
+                }
+                merged = Math.Max(mn, Math.Min(mx, merged));
+                m.Points.Add(new double[] { beat, merged });
+            }
+            result.Add(m);
+        }
+        return result;
+    }
+
     public static void ApplyLanes(List<AutoLane> lanes, Fx fx, float[] L, float[] R, double spb) {
         if (lanes == null) return;
         int n = L.Length; double sampPerBeat = spb * SR;
-        foreach (AutoLane lane in lanes) {
+        double lengthBeats = n / sampPerBeat;
+        List<AutoLane> merged = Merge(lanes, lengthBeats);
+        foreach (AutoLane lane in merged) {
             if (lane.Points.Count == 0) continue;
             string p = lane.Param;
             if (p == "lp" || p == "hp") {
@@ -6296,7 +6569,7 @@ public static class AutoFx {
                 if (fpn == "Cutoff") {
                     Svf[] slf = { new Svf(), new Svf() }, srf = { new Svf(), new Svf() };
                     AutoLane resLane = null;
-                    foreach (AutoLane ra in lanes) if (ra.Param == "f:Resonance") { resLane = ra; break; }
+                    foreach (AutoLane ra in merged) if (ra.Param == "f:Resonance") { resLane = ra; break; }
                     for (int i0 = 0; i0 < n; i0 += 32) {
                         double fc = lane.At(i0 / sampPerBeat); int end = Math.Min(n, i0 + 32);
                         if (fc >= 19000) continue;
@@ -6311,7 +6584,7 @@ public static class AutoFx {
                     }
                 } else if (fpn == "Resonance") {
                     // Standalone resonance: only when no Cutoff lane exists (Cutoff already applies resonance as a modifier).
-                    if (!lanes.Exists(delegate (AutoLane x) { return x.Param == "f:Cutoff"; })) {
+                    if (!merged.Exists(delegate (AutoLane x) { return x.Param == "f:Cutoff"; })) {
                         Svf[] slf = { new Svf(), new Svf() }, srf = { new Svf(), new Svf() };
                         double fc0 = fx != null ? Math.Max(20, Math.Min(0.45 * SR, fx.Cutoff)) : 12000;
                         for (int i0 = 0; i0 < n; i0 += 32) {
@@ -11029,6 +11302,18 @@ function Show-AudioStudio {
     $S.SpecStatus.Height = 22
     $tSpec.Controls.AddRange(@($S.SpecPic, $S.GridSpec, $S.SpecBrush, $S.SpecBrushType, $S.SpecAmt, $S.SpecErase, $S.SpecLine, $S.SpecClear, $S.SpecBlur, $S.SpecSmear, $S.SpecInvert, $S.SpecFlipT, $S.SpecFlipF, $S.SpecGrain, $S.SpecThresh, $S.SpecUp, $S.SpecDown, $S.SpecHz, $S.SpecParts, $S.SpecAddStack, $S.SpecLoad, $S.SpecFromSmp, $S.SpecInst, $S.SpecAud, $S.SpecStopB, $S.SpecTrack, $S.SpecPrompt, $S.SpecAi, $S.SpecStatus))
 
+    # ---- Spectral automation painter: turn the painted image/spectrum into N layered automation lanes ----------
+    $tSpec.Controls.Add((Lbl 'Spectral automation: decompose the image into frequency bands and write each band as an automation lane on the selected track.' 4 288 640))
+    $S.SpecAutoParam = Combo @('(choose a target effect)') 4 306 300 $false; $S.SpecAutoParam.DropDownStyle = 'DropDownList'
+    foreach ($c in $script:AutoCatalog) { [void]$S.SpecAutoParam.Items.Add(('{0} - {1}' -f $c.Module, $c.Name)) }
+    $S.SpecAutoParam.SelectedIndex = 0
+    $tSpec.Controls.Add($S.SpecAutoParam)
+    $tSpec.Controls.Add((Lbl 'Lanes' 314 310 40)); $S.SpecAutoLanes = Num 12 1 50 1 0 356 306 52
+    $tSpec.Controls.Add($S.SpecAutoLanes)
+    $S.SpecAutoMap = Btn 'Map image to lanes' 416 304 150 28 $true
+    $tSpec.Controls.Add($S.SpecAutoMap)
+    $S.SpecAutoStatus = Lbl '' 574 310 380; $tSpec.Controls.Add($S.SpecAutoStatus)
+
     # Meta synth tab: four patches on the corners of a square, morph between them
     $S.MetaSlots = [HbStudio.Patch[]]@(1..4 | ForEach-Object { $p = New-Object HbStudio.Patch; [HbStudio.PropIO]::Randomize($p, 1.0, $_ * 17); $p })
     $S.MetaSet = New-Object HbStudio.MetaSettings; $S.MetaSel = 0
@@ -11179,6 +11464,68 @@ function Show-AudioStudio {
     
     # Add automation tab to the main tabs
     $tabs.TabPages.Add($tAuto)
+
+    # ---- Compose: Reaper-style track lanes + automation lanes -------------------------------------------------
+    function Get-StudioAutoCatalog {
+        $rows = @(
+            @('Track Mixer','Volume','vol'), @('Track Mixer','Pan','pan'), @('Track Mixer','Low-pass','lp'), @('Track Mixer','High-pass','hp'),
+            @('Synth Filter','Cutoff','p:Cutoff'), @('Synth Filter','Resonance','p:Resonance'), @('Synth Filter','Filter Env','p:FilterEnv'),
+            @('Synth Drive','Drive','p:Drive'), @('Synth Drive','Bits','p:Bits'), @('Synth Drive','Fold','p:Fold'),
+            @('Synth FM','FM Amount','p:FmAmount'), @('Synth FM','Unison','p:Unison'), @('Synth FM','Noise Level','p:NoiseLevel'),
+            @('Synth LFO','LFO Rate','p:LfoRate'), @('Synth LFO','LFO Filter','p:LfoFilter'), @('Synth LFO','LFO Pitch','p:LfoPitch'),
+            @('Synth Wavetable','Morph','p:Morph'), @('Synth Wavetable','Sync Ratio','p:SyncRatio'), @('Synth Wavetable','Pulse Width','p:PulseWidth'),
+            @('Track FX Filter','Cutoff','f:Cutoff'), @('Track FX Filter','Resonance','f:Resonance'), @('Track FX Filter','Filter LFO Depth','f:FilterLfoDepth'),
+            @('Track FX Drive','Drive','f:Drive'), @('Track FX Drive','Bits','f:Bits'), @('Track FX Drive','Fold','f:Fold'),
+            @('Track FX Ring','Ring Mix','f:RingMix'), @('Track FX Ring','Ring Freq','f:RingFreq'),
+            @('Track FX Chorus','Chorus','f:Chorus'), @('Track FX Chorus','Chorus Rate','f:ChorusRate'), @('Track FX Chorus','Chorus Depth','f:ChorusDepth'),
+            @('Track FX Delay','Delay Mix','f:DelayMix'), @('Track FX Delay','Delay Beats','f:DelayBeats'), @('Track FX Delay','Delay Feedback','f:DelayFeedback'),
+            @('Track FX Reverb','Reverb Mix','f:ReverbMix'), @('Track FX Reverb','Reverb Size','f:ReverbSize'),
+            @('Track FX Phaser','Phaser Mix','f:PhaserMix'), @('Track FX Phaser','Phaser Rate','f:PhaserRate'), @('Track FX Phaser','Phaser Depth','f:PhaserDepth'),
+            @('Track FX Flanger','Flanger Mix','f:FlangerMix'), @('Track FX Flanger','Flanger Rate','f:FlangerRate'), @('Track FX Flanger','Flanger Depth','f:FlangerDepth'), @('Track FX Flanger','Flanger Feedback','f:FlangerFb'),
+            @('Track FX Tape','Tape Stop','f:TapeStop'), @('Track FX Tape','Tape Stop Time','f:TapeStopRate'), @('Track FX Tape','Tape Delay Mix','f:TapeDelayMix'), @('Track FX Tape','Tape Delay Ms','f:TapeDelayTime'), @('Track FX Tape','Tape Delay Feedback','f:TapeDelayFb'), @('Track FX Tape','Tape Delay Wow','f:TapeDelayWow'),
+            @('Track FX Plate/Vinyl','Plate Mix','f:PlateMix'), @('Track FX Plate/Vinyl','Plate Size','f:PlateSize'), @('Track FX Plate/Vinyl','Vinyl Crackle','f:VinylCrackle'), @('Track FX Plate/Vinyl','Tape Hiss','f:TapeHiss'), @('Track FX Plate/Vinyl','Tape Wow','f:TapeWow'),
+            @('Track FX Compressor','Threshold','f:CompThresh'), @('Track FX Compressor','Ratio','f:CompRatio'), @('Track FX Compressor','Attack','f:CompAttack'), @('Track FX Compressor','Release','f:CompRelease'), @('Track FX Compressor','Makeup Gain','f:CompMakeup'), @('Track FX Compressor','Sidechain Mix','f:SidechainMix'), @('Track FX Compressor','Sidechain Attack','f:SidechainAttack'), @('Track FX Compressor','Sidechain Release','f:SidechainRelease'),
+            @('Track FX EQ/Width','Low Shelf','f:LowShelf'), @('Track FX EQ/Width','High Shelf','f:HighShelf'), @('Track FX EQ/Width','Mid Peak','f:MidPeak'), @('Track FX EQ/Width','Width','f:Width'), @('Track FX EQ/Width','Pitch Shift','f:PitchShift')
+        )
+        return ,@($rows | ForEach-Object { [pscustomobject]@{ Module = $_[0]; Name = $_[1]; Param = $_[2] } })
+    }
+    $script:AutoCatalog = Get-StudioAutoCatalog
+
+    $tCompose = New-Object Windows.Forms.TabPage; $tCompose.Text = 'Compose'; $tCompose.BackColor = $dk.Bg; $tCompose.ForeColor = $dk.Text; $tCompose.AutoScroll = $false
+    $S.Compose = New-Object HbStudio.ComposeLanes; $S.Compose.Dock = 'Fill'; $S.Compose.Proj = $S.Proj
+    $tCompose.Controls.Add($S.Compose)
+    $S.Compose.Add_Changed({ $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; try { if (Get-Command Sync-AutoCanvasFromLane -ErrorAction SilentlyContinue) { Sync-AutoCanvasFromLane } } catch { } })
+    $composeBar = New-Object Windows.Forms.Panel; $composeBar.Dock = 'Top'; $composeBar.Height = 34; $composeBar.BackColor = $dk.Panel
+    $S.ComposeParam = Combo @('(choose a parameter)') 8 5 300
+    foreach ($c in $script:AutoCatalog) { [void]$S.ComposeParam.Items.Add(('{0} - {1}' -f $c.Module, $c.Name)) }
+    $S.ComposeParam.SelectedIndex = 0
+    $S.ComposeAdd = Btn 'Add lane' 316 4 86 26; $S.ComposeRemove = Btn 'Remove last' 406 4 100 26; $S.ComposeFit = Btn 'Fit' 510 4 52 26
+    $composeHint = Lbl 'Select a track on the left. Click a lane to add a point, drag to move, right-click a point to delete. Ctrl+wheel zooms.' 574 9 720
+    $composeBar.Controls.AddRange(@($S.ComposeParam, $S.ComposeAdd, $S.ComposeRemove, $S.ComposeFit, $composeHint))
+    $tCompose.Controls.Add($composeBar)
+    $tabs.TabPages.Add($tCompose)
+
+    $S.ComposeAdd.Add_Click({
+        $t = Get-CurTrack; if (-not $t) { Status 'Select a track on the left first.'; return }
+        $ci = [int]$S.ComposeParam.SelectedIndex - 1
+        if ($ci -lt 0 -or $ci -ge $script:AutoCatalog.Count) { Status 'Choose a parameter to automate.'; return }
+        $param = [string]$script:AutoCatalog[$ci].Param
+        $trackBeats = 0.0; try { $trackBeats = [double][HbStudio.Arranger]::SongBeats($S.Proj) } catch { }; if ($trackBeats -le 0) { $trackBeats = [double]$S.Proj.LoopBeats }
+        $lane = New-Object HbStudio.AutoLane ([int]$S.Proj.Tracks.IndexOf($t)), $param
+        $neut = [HbStudio.AutoRange]::Neutral($param); if ([double]::IsNaN($neut)) { $neut = [HbStudio.AutoRange]::MinOf($param) }
+        $lane.Points.Add([double[]]@(0.0, [double]$neut)); $lane.Points.Add([double[]]@([double]$trackBeats, [double]$neut))
+        $t.Auto.Add($lane); $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; $S.Compose.Invalidate()
+        Status ("Added a {0} lane to '{1}'. Paint points on it in the Compose tab." -f $param, $t.Name)
+    })
+    $S.ComposeRemove.Add_Click({
+        $t = Get-CurTrack; if (-not $t) { Status 'Select a track on the left first.'; return }
+        if ($t.Auto.Count -eq 0) { Status ("'{0}' has no automation lanes." -f $t.Name); return }
+        $lane = $t.Auto[$t.Auto.Count - 1]; $t.Auto.RemoveAt($t.Auto.Count - 1)
+        $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit; $S.Compose.Invalidate()
+        try { if (Get-Command Sync-AutoCanvasFromLane -ErrorAction SilentlyContinue) { Sync-AutoCanvasFromLane } } catch { }
+        Status ("Removed the last {0} lane from '{1}'." -f $lane.Param, $t.Name)
+    })
+    $S.ComposeFit.Add_Click({ try { $S.Compose.Fit() } catch { } })
 
     # ---- MIDI input tab ---------------------------------------------------------------------------------------
     $tMidi = New-Object Windows.Forms.TabPage; $tMidi.Text = 'MIDI In'; $tMidi.BackColor = $dk.Panel; $tMidi.ForeColor = $dk.Text; $tMidi.AutoScroll = $false
@@ -11624,6 +11971,7 @@ function Show-AudioStudio {
         $S.TrackList.SelectedIndex = $idx
         $S.Loading = $false
         Load-TrackProps
+        try { if ($S.Compose) { $S.Compose.Invalidate() } } catch { }
         # Keep an initialized patch graph in sync: any track that has no node yet gets one
         # (this covers Sound Lab / AI / any other code path that appends to $S.Proj.Tracks).
         try {
@@ -12749,6 +13097,61 @@ $sdoc
     $S.SpecStopB.Add_Click({ if ($S.Aud) { try { $S.Aud.Stop() } catch { } } })
     $S.SpecTrack.Add_Click({ try { if ($S.SpecGrid.Peak() -lt 0.01) { Set-SpecStatus 'The canvas is empty. Paint something first.'; return }; $o = Invoke-SpecRender; $nt = Add-StudioSampleTrack 'Spectral' $o 60; Set-SpecStatus "New sampler track '$($nt.Name)' ($([math]::Round($o.Length / 44100.0, 1)) s)." } catch { Set-SpecStatus ('Render failed: ' + $_.Exception.Message) } })
     $S.SpecAi.Add_Click({ Invoke-SpecAi })
+    function Invoke-SpectralAutomation {
+        $t = Get-CurTrack; if (-not $t) { $S.SpecAutoStatus.Text = 'Select a target track on the left first.'; return }
+        if ($S.SpecGrid.Peak() -lt 0.01) { $S.SpecAutoStatus.Text = 'The spectral canvas is empty. Paint or load an image first.'; return }
+        $ci = [int]$S.SpecAutoParam.SelectedIndex - 1
+        if ($ci -lt 0 -or $ci -ge $script:AutoCatalog.Count) { $S.SpecAutoStatus.Text = 'Choose a target effect.'; return }
+        $param = [string]$script:AutoCatalog[$ci].Param
+        $n = [int][math]::Max(1, [math]::Min(50, [int]$S.SpecAutoLanes.Value))
+        $ti = [int]$S.Proj.Tracks.IndexOf($t)
+        if ($param.StartsWith('p:') -and -not $t.Patch) { $S.SpecAutoStatus.Text = 'Synth patch parameters need a patch-synth track (set the track synth to "patch").'; return }
+        # Replace any existing lanes of this parameter on the track so a re-map stacks cleanly from scratch.
+        for ($k = $t.Auto.Count - 1; $k -ge 0; $k--) { if ($t.Auto[$k].Param -eq $param) { $t.Auto.RemoveAt($k) } }
+        # Make sure an FX parameter has its module enabled so the layered lanes have something to modulate.
+        if ($param.StartsWith('f:') -and $t.Fx) {
+            $en = switch -Regex ($param) { '^f:(Cutoff|Resonance|FilterLfoDepth)$' { 'Filter' } '^f:(Drive|Fold|Bits)$' { if ($param -eq 'f:Bits') { 'Crush' } else { 'Drive' } } '^f:(RingMix|RingFreq)$' { 'Ring' } '^f:(Chorus|ChorusRate|ChorusDepth)$' { 'Chorus' } '^f:(DelayMix|DelayBeats|DelayFeedback)$' { 'Delay' } '^f:(ReverbMix|ReverbSize)$' { 'Reverb' } '^f:(PhaserMix|PhaserRate|PhaserDepth)$' { 'Phaser' } '^f:(FlangerMix|FlangerRate|FlangerDepth|FlangerFb)$' { 'Flanger' } '^f:(TapeStop|TapeStopRate|TapeDelayMix|TapeDelayTime|TapeDelayFb|TapeDelayWow)$' { 'TapeDelay' } '^f:(PlateMix|PlateSize)$' { 'Plate' } '^f:(VinylCrackle|TapeHiss|TapeWow)$' { 'Vinyl' } '^f:(CompThresh|CompRatio|CompAttack|CompRelease|CompMakeup|SidechainMix|SidechainAttack|SidechainRelease)$' { 'Comp' } '^f:(LowShelf|HighShelf|MidPeak|Width|PitchShift)$' { 'EQ' } default { '' } }
+            if ($en) { try { Set-FxModule $t.Fx $en $true } catch { }; try { $S.GridFx.SelectedObject = $t.Fx } catch { } }
+        }
+        $g = $S.SpecGrid; $rows = $g.Rows; $cols = $g.Cols
+        $trackBeats = 0.0; try { $trackBeats = [double][HbStudio.Arranger]::SongBeats($S.Proj) } catch { }; if ($trackBeats -le 0) { $trackBeats = [double]$S.Proj.LoopBeats }
+        # Neutral is the value the renderer treats as "no change": patch params use the patch's current value
+        # (matching PatchAuto.Resolve), everything else uses AutoRange.Neutral (matching AutoFx.Merge).
+        $neut = $null
+        if ($param.StartsWith('p:') -and $t.Patch) { try { $neut = [double]$t.Patch.($param.Substring(2)) } catch { } }
+        if ($null -eq $neut) { $neut = [HbStudio.AutoRange]::Neutral($param) }
+        if ($null -eq $neut -or [double]::IsNaN([double]$neut)) { $neut = [HbStudio.AutoRange]::MinOf($param) }
+        $neut = [double]$neut
+        # Pre-compute each column's total energy so each band lane holds an energy-weighted offset: the additive
+        # layering in the renderer then reconstructs the overall spectral centroid of the image.
+        $colTotal = New-Object double[] $cols
+        for ($c = 0; $c -lt $cols; $c++) { $s = 0.0; for ($r = 0; $r -lt $rows; $r++) { $s += [double]$g.Get($c, $r) }; $colTotal[$c] = $s }
+        $made = 0
+        for ($b = 0; $b -lt $n; $b++) {
+            $r0 = [int][math]::Floor($b * $rows / $n); $r1 = [int][math]::Max($r0 + 1, [int][math]::Floor(($b + 1) * $rows / $n))
+            $lane = New-Object HbStudio.AutoLane $ti, $param
+            for ($c = 0; $c -lt $cols; $c++) {
+                $sum = 0.0; $wsum = 0.0
+                for ($r = $r0; $r -lt $r1; $r++) { $v = [double]$g.Get($c, $r); $sum += $v; $wsum += $v * ($r / [double]($rows - 1)) }
+                if ($sum -lt 0.02) { continue }
+                $frac = $wsum / $sum
+                $centroid = [HbStudio.AutoRange]::Map($param, $frac)
+                $weight = if ($colTotal[$c] -gt 0) { $sum / $colTotal[$c] } else { 0.0 }
+                $val = $neut + ($centroid - $neut) * $weight
+                $val = [HbStudio.AutoRange]::Clamp($param, $val)
+                $beat = ($c + 0.5) / [double]$cols * $trackBeats
+                $lane.Points.Add([double[]]@([double]$beat, [double]$val))
+            }
+            if ($lane.Points.Count -gt 0) { $t.Auto.Add($lane); $made++ }
+        }
+        $S.Dirty = $true; $S.AudioRev++; Suspend-AudioForEdit
+        try { if ($S.Compose) { $S.Compose.Invalidate() } } catch { }
+        if ($made -gt 0) {
+            $S.SpecAutoStatus.Text = ("Mapped the spectrum into {0} {1} lane(s) on '{2}'. See the Compose tab." -f $made, $param, $t.Name)
+            try { $tabs.SelectedTab = $tCompose } catch { }
+        } else { $S.SpecAutoStatus.Text = 'The canvas produced no automation (too faint).' }
+    }
+    $S.SpecAutoMap.Add_Click({ try { Invoke-SpectralAutomation } catch { $S.SpecAutoStatus.Text = ('Failed: ' + $_.Exception.Message) } })
     Update-SpecView
 
     # ---- Automation painting: spectral canvas -> AutoLane points on the selected track -------------------------
